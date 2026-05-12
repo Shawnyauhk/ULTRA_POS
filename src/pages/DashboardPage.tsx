@@ -7,32 +7,95 @@ import {
   ArrowUpRight,
   Sparkles,
   BarChart4,
-  AlertCircle
+  AlertCircle,
+  Loader2,
+  RefreshCw
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { useOrders, useExpenses } from '@/hooks/useSupabaseData'
+import { useRealtime } from '@/hooks/useRealtime'
+import type { Order } from '@/types'
 
 export function DashboardPage() {
   const { user } = useAuthStore()
+  const { orders, loading: ordersLoading, refetch: refetchOrders } = useOrders();
+  const { expenses, loading: expensesLoading, refetch: refetchExpenses } = useExpenses();
+
+  // 即時同步：當訂單或開支變更時自動刷新儀表板
+  useRealtime({ table: 'orders', onAll: () => refetchOrders() });
+  useRealtime({ table: 'expenses', onAll: () => refetchExpenses() });
+  
   const [stats, setStats] = useState({
-    netProfit: 45000,
-    cashIn: 120000,
-    cashOut: 75000,
+    netProfit: 0,
+    cashIn: 0,
+    cashOut: 0,
   })
 
-  const [chartData, setChartData] = useState([
-    { name: '1號', income: 4000, expense: 2400 },
-    { name: '5號', income: 3000, expense: 1398 },
-    { name: '10號', income: 2000, expense: 9800 },
-    { name: '15號', income: 2780, expense: 3908 },
-    { name: '20號', income: 1890, expense: 4800 },
-    { name: '25號', income: 2390, expense: 3800 },
-    { name: '30號', income: 3490, expense: 4300 },
-  ]);
+  const [chartData, setChartData] = useState<{name: string; income: number; expense: number}[]>([]);
 
   const [generatingReport, setGeneratingReport] = useState(false);
   const [aiReport, setAiReport] = useState<any>(null);
+
+  // Calculate stats from Supabase data
+  useEffect(() => {
+    if (!ordersLoading && !expensesLoading) {
+      const totalCashIn = orders
+        .filter(o => o.status === 'completed')
+        .reduce((sum, o) => sum + o.final_amount, 0);
+      
+      const totalCashOut = expenses.reduce((sum, e) => sum + e.amount, 0);
+      
+      setStats({
+        netProfit: totalCashIn - totalCashOut,
+        cashIn: totalCashIn,
+        cashOut: totalCashOut,
+      });
+
+      // Generate chart data by day
+      const dailyData: Record<string, { income: number; expense: number }> = {};
+      
+      orders
+        .filter(o => o.status === 'completed')
+        .forEach(order => {
+          const day = new Date(order.created_at).getDate();
+          const key = `${day}號`;
+          if (!dailyData[key]) {
+            dailyData[key] = { income: 0, expense: 0 };
+          }
+          dailyData[key].income += order.final_amount;
+        });
+      
+      expenses.forEach(expense => {
+        const day = new Date(expense.expense_date).getDate();
+        const key = `${day}號`;
+        if (!dailyData[key]) {
+          dailyData[key] = { income: 0, expense: 0 };
+        }
+        dailyData[key].expense += expense.amount;
+      });
+
+      const sortedData = Object.entries(dailyData)
+        .sort(([a], [b]) => {
+          const numA = parseInt(a.replace('號', ''));
+          const numB = parseInt(b.replace('號', ''));
+          return numA - numB;
+        })
+        .slice(0, 7)
+        .map(([name, data]) => ({ name, ...data }));
+
+      setChartData(sortedData.length > 0 ? sortedData : [
+        { name: '1號', income: 0, expense: 0 },
+        { name: '5號', income: 0, expense: 0 },
+        { name: '10號', income: 0, expense: 0 },
+        { name: '15號', income: 0, expense: 0 },
+        { name: '20號', income: 0, expense: 0 },
+        { name: '25號', income: 0, expense: 0 },
+        { name: '30號', income: 0, expense: 0 },
+      ]);
+    }
+  }, [orders, expenses, ordersLoading, expensesLoading]);
 
   const handleGenerateReport = () => {
     setGeneratingReport(true);
@@ -46,10 +109,6 @@ export function DashboardPage() {
       setGeneratingReport(false);
     }, 2000);
   };
-
-  useEffect(() => {
-    // 預留加載數據的邏輯
-  }, [])
 
   return (
     <div className="space-y-6">
@@ -74,7 +133,11 @@ export function DashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-500">今日淨利潤 (Net Profit)</p>
-                <p className="text-3xl font-bold text-green-600">${stats.netProfit.toLocaleString()}</p>
+                {ordersLoading || expensesLoading ? (
+                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mt-2" />
+                ) : (
+                  <p className="text-3xl font-bold text-green-600">${stats.netProfit.toLocaleString()}</p>
+                )}
               </div>
               <div className="p-3 bg-green-100 rounded-full">
                 <TrendingUp className="h-6 w-6 text-green-600" />
@@ -88,7 +151,11 @@ export function DashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-500">本月現金收入 (Cash In)</p>
-                <p className="text-3xl font-bold text-blue-600">${stats.cashIn.toLocaleString()}</p>
+                {ordersLoading || expensesLoading ? (
+                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mt-2" />
+                ) : (
+                  <p className="text-3xl font-bold text-blue-600">${stats.cashIn.toLocaleString()}</p>
+                )}
               </div>
               <div className="p-3 bg-blue-100 rounded-full">
                 <ArrowUpRight className="h-6 w-6 text-blue-600" />
@@ -102,7 +169,11 @@ export function DashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-500">本月總支出 (Cash Out)</p>
-                <p className="text-3xl font-bold text-red-600">${stats.cashOut.toLocaleString()}</p>
+                {ordersLoading || expensesLoading ? (
+                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mt-2" />
+                ) : (
+                  <p className="text-3xl font-bold text-red-600">${stats.cashOut.toLocaleString()}</p>
+                )}
               </div>
               <div className="p-3 bg-red-100 rounded-full">
                 <ArrowDownRight className="h-6 w-6 text-red-600" />

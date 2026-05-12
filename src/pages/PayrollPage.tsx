@@ -2,23 +2,15 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Upload, Users, FileText, CheckCircle, Trash2, Edit } from 'lucide-react';
-
-interface Employee {
-  id: string;
-  name: string;
-  hourly_rate: number;
-}
-
-const DEMO_EMPLOYEES: Employee[] = [
-  { id: '1', name: 'John Doe', hourly_rate: 60 },
-  { id: '2', name: 'Jane Smith', hourly_rate: 65 },
-];
+import { Upload, Users, FileText, CheckCircle, Trash2, Edit, Loader2 } from 'lucide-react';
+import { useEmployees } from '@/hooks/useSupabaseData';
+import type { Employee } from '@/types';
 
 export default function PayrollPage() {
-  const [employees, setEmployees] = useState<Employee[]>(DEMO_EMPLOYEES);
+  const { employees, loading, refetch, updateEmployee } = useEmployees();
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   return (
     <div className="p-6 space-y-6">
@@ -100,21 +92,31 @@ export default function PayrollPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">員工時薪設定</h2>
-            <div className="space-y-4 mb-6">
-              {employees.map(emp => (
-                <div key={emp.id} className="flex items-center gap-3">
-                  <Input value={emp.name} readOnly className="bg-gray-50" />
-                  <Input type="number" value={emp.hourly_rate} onChange={(e) => setEmployees(employees.map(x => x.id === emp.id ? {...x, hourly_rate: parseFloat(e.target.value)} : x))} />
-                  <span className="text-sm text-gray-500">/hr</span>
-                </div>
-              ))}
-              <Button variant="outline" className="w-full" onClick={() => setEmployees([...employees, { id: Date.now().toString(), name: '新員工', hourly_rate: 60 }])}>
-                + 新增員工
-              </Button>
-            </div>
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <div className="space-y-4 mb-6">
+                {employees.map(emp => (
+                  <EmployeeRateEditor 
+                    key={emp.id} 
+                    employee={emp} 
+                    onUpdate={async (hourly_rate) => {
+                      setSaving(true);
+                      await updateEmployee(emp.id, { hourly_rate });
+                      setSaving(false);
+                    }} 
+                  />
+                ))}
+              </div>
+            )}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setShowSettingsModal(false)}>關閉</Button>
-              <Button onClick={() => { alert('時薪已同步至 Supabase'); setShowSettingsModal(false); }}>儲存變更</Button>
+              <Button onClick={() => { setShowSettingsModal(false); }} disabled={saving}>
+                {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                完成
+              </Button>
             </div>
           </div>
         </div>
@@ -136,12 +138,14 @@ export default function PayrollPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="border-b">
-                    <td className="px-4 py-2">John Doe</td>
-                    <td className="px-4 py-2"><Input type="number" defaultValue={60} className="w-20" /></td>
-                    <td className="px-4 py-2"><Input type="number" defaultValue={120} className="w-20" /></td>
-                    <td className="px-4 py-2 font-medium">$7,200</td>
-                  </tr>
+                  {employees.map(emp => (
+                    <tr key={emp.id} className="border-b">
+                      <td className="px-4 py-2">{emp.name}</td>
+                      <td className="px-4 py-2"><Input type="number" defaultValue={emp.hourly_rate || 0} className="w-20" /></td>
+                      <td className="px-4 py-2"><Input type="number" defaultValue={160} className="w-20" /></td>
+                      <td className="px-4 py-2 font-medium">${((emp.hourly_rate || 0) * 160).toLocaleString()}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -152,6 +156,45 @@ export default function PayrollPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Employee Rate Editor Component
+function EmployeeRateEditor({ 
+  employee, 
+  onUpdate 
+}: { 
+  employee: Employee; 
+  onUpdate: (hourly_rate: number) => void;
+}) {
+  const [rate, setRate] = React.useState(employee.hourly_rate || 0);
+  const [saving, setSaving] = React.useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onUpdate(rate);
+    setSaving(false);
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <Input value={employee.name} readOnly className="bg-gray-50 flex-1" />
+      <Input 
+        type="number" 
+        value={rate} 
+        onChange={(e) => setRate(parseFloat(e.target.value) || 0)} 
+        className="w-24"
+      />
+      <span className="text-sm text-gray-500">/hr</span>
+      <Button 
+        size="sm" 
+        variant="outline"
+        onClick={handleSave}
+        disabled={saving}
+      >
+        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : '儲存'}
+      </Button>
     </div>
   );
 }

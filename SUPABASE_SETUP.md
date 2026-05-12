@@ -4,13 +4,21 @@
 
 ## 前置条件
 
-- 已有的 Supabase 项目：https://amiceplfaeofaofoveun.supabase.co
-- 已在本地配置 `.env` 文件（已在项目中配置）
+- 新的 Supabase 项目：https://mTjJdfGLnbaeQBqWrSqJkg.supabase.co
+- 已在本地配置 `.env` 文件（已更新）
+
+## 项目凭据
+
+```
+VITE_SUPABASE_URL=https://mTjJdfGLnbaeQBqWrSqJkg.supabase.co
+VITE_SUPABASE_ANON_KEY=sb_publishable_mTjJdfGLnbaeQBqWrSqJkg__MyKYlVS
+SUPABASE_SERVICE_ROLE_KEY=sb_secret_IdwuxwOAbbhaWhYSQR3IBw_9F7YhNCz
+```
 
 ## 步骤 1：访问 Supabase SQL Editor
 
 1. 登录 [Supabase Dashboard](https://supabase.com/dashboard)
-2. 选择您的项目 `amiceplfaeofaofoveun.supabase.co`
+2. 选择您的项目 `mTjJdfGLnbaeQBqWrSqJkg.supabase.co`
 3. 在左侧菜单点击 **SQL Editor**
 4. 点击 **New Query** 创建新查询
 
@@ -36,6 +44,18 @@
 - ✅ 11个产品分类
 - ✅ 94项完整产品列表（包含价格）
 - ✅ 详细的验证查询
+
+### 2.3 执行额外表结构迁移（可选）
+
+复制 `supabase/migrations/003_additional_tables.sql` 的全部内容，粘贴到 SQL Editor 并点击 **Run**。
+
+此脚本将创建：
+- ✅ orders 表（POS 订单）
+- ✅ order_items 表（订单明细）
+- ✅ settings 表（系统设置）
+- ✅ reviews 表（AI 好评记录）
+- ✅ reports 表（AI 报告）
+- ✅ 预设的默认设置数据
 
 ## 步骤 3：验证设置
 
@@ -191,4 +211,4 @@ npm run dev
 ---
 
 **创建时间**: 2026-05-10
-**最后更新**: 2026-05-10
+**最后更新**: 2026-05-12

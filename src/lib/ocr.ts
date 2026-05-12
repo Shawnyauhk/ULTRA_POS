@@ -3,7 +3,7 @@
  * 只需更改 OCR_PROVIDER 和相關配置即可切換不同的 AI 服務
  */
 
-export type OCRProvider = 'gemini' | 'qwen';
+export type OCRProvider = 'gemini' | 'qwen' | 'nvidia';
 
 export interface OCRConfig {
   provider: OCRProvider;
@@ -14,8 +14,17 @@ export interface OCRConfig {
 
 // ================ 配置區域（只需修改這裡） ================
 
-// 選擇 OCR 提供者: 'gemini' | 'qwen'
-const CURRENT_PROVIDER: OCRProvider = 'gemini';
+// 選擇 OCR 提供者: 'gemini' | 'qwen' | 'nvidia'
+const CURRENT_PROVIDER: OCRProvider = 'nvidia';
+
+// NVIDIA NIM 配置 (推薦 - 免費額度)
+// API Key: https://build.nvidia.com/nim
+const NVIDIA_CONFIG: OCRConfig = {
+  provider: 'nvidia',
+  apiKey: import.meta.env.VITE_NVIDIA_NIM_API_KEY || '',
+  model: import.meta.env.VITE_NVIDIA_NIM_MODEL || 'qwen/qwen3.5-122b-a10b',
+  apiUrl: '/api/nvidia/v1/chat/completions',  // 使用 Vite 代理繞過 CORS
+};
 
 // Google Gemini 配置
 const GEMINI_CONFIG: OCRConfig = {
@@ -128,6 +137,57 @@ async function qwenOCR(imageBase64: string): Promise<OCRResult> {
   return parseOCRResult(text, 'qwen');
 }
 
+// NVIDIA NIM OCR (使用 qwen/qwen3.5-122b-a10b 多模態模型)
+async function nvidiaOCR(imageBase64: string): Promise<OCRResult> {
+  const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+  
+  // NVIDIA NIM 使用 OpenAI 兼容 API 格式
+  const response = await fetch(NVIDIA_CONFIG.apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${NVIDIA_CONFIG.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: NVIDIA_CONFIG.model,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Data}`
+              }
+            },
+            {
+              type: 'text',
+              text: OCR_PROMPT
+            }
+          ]
+        }
+      ],
+      max_tokens: 1024,
+      temperature: 0.1
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`NVIDIA NIM API 錯誤: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  
+  // NVIDIA NIM Qwen 模型返回的內容在 reasoning_content 字段
+  const text = 
+    data.choices?.[0]?.message?.reasoning_content ||
+    data.choices?.[0]?.message?.content ||
+    '';
+  
+  return parseOCRResult(text, 'nvidia');
+}
+
 // 解析 OCR 結果
 function parseOCRResult(text: string, provider: OCRProvider): OCRResult {
   const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -166,6 +226,8 @@ function parseOCRResult(text: string, provider: OCRProvider): OCRResult {
  */
 export async function recognizeReceipt(imageBase64: string): Promise<OCRResult> {
   switch (CURRENT_PROVIDER) {
+    case 'nvidia':
+      return nvidiaOCR(imageBase64);
     case 'gemini':
       return geminiOCR(imageBase64);
     case 'qwen':
@@ -180,6 +242,8 @@ export async function recognizeReceipt(imageBase64: string): Promise<OCRResult> 
  */
 export function getOCRConfig() {
   switch (CURRENT_PROVIDER) {
+    case 'nvidia':
+      return NVIDIA_CONFIG;
     case 'gemini':
       return GEMINI_CONFIG;
     case 'qwen':
@@ -193,7 +257,9 @@ export function getOCRConfig() {
  * 切換 OCR 提供者（運行時切換）
  */
 export function setOCRProvider(provider: OCRProvider) {
-  if (provider === 'gemini') {
+  if (provider === 'nvidia') {
+    return NVIDIA_CONFIG;
+  } else if (provider === 'gemini') {
     return GEMINI_CONFIG;
   } else if (provider === 'qwen') {
     return QWEN_CONFIG;
@@ -206,6 +272,7 @@ export function setOCRProvider(provider: OCRProvider) {
  */
 export function getAvailableProviders(): { id: OCRProvider; name: string }[] {
   return [
+    { id: 'nvidia', name: 'NVIDIA NIM (qwen3.5-122b)' },
     { id: 'gemini', name: 'Google Gemini Vision' },
     { id: 'qwen', name: '阿里雲通義千問' },
   ];

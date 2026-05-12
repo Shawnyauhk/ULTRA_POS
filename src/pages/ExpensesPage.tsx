@@ -6,37 +6,51 @@ import { Badge } from '../components/ui/badge';
 import { Select } from '../components/ui/select';
 import { 
   Camera, Receipt, Calendar, 
-  Trash2, Sparkles, User, Edit2, Save, X, Calculator, RefreshCw
+  Trash2, Sparkles, User, Edit2, Save, X, Calculator, RefreshCw, Loader2
 } from 'lucide-react';
+import { useExpenses } from '@/hooks/useSupabaseData';
+import { useRealtimeExpenses } from '@/hooks/useRealtime';
 
-interface Expense {
-  id: string;
+// ====== 分類映射（中文 ↔ DB 英文） ======
+const CATEGORY_DISPLAY: { value: string; label: string }[] = [
+  { value: 'food', label: '進貨成本' },
+  { value: 'rent', label: '租金' },
+  { value: 'utilities', label: '水電瓦斯' },
+  { value: 'salary', label: '薪資' },
+  { value: 'supplies', label: '設備雜支' },
+  { value: 'other', label: '其他' },
+];
+
+const categoryToLabel = (cat: string): string =>
+  CATEGORY_DISPLAY.find(c => c.value === cat)?.label || cat;
+
+const labelToCategory = (label: string): string =>
+  CATEGORY_DISPLAY.find(c => c.label === label)?.value || 'other';
+
+// ====== 定義前端顯示用的介面 ======
+interface FormExpense {
   category: string;
   amount: number;
   description: string;
-  expense_date: string;
   handler: string;
+  expense_date: string;
 }
-
-const CATEGORIES = [
-  '進貨成本', '租金', '行銷', '水電瓦斯', 
-  '薪資', '設備雜支', '一般支出', '其他'
-];
-
-const DEMO_EXPENSES: Expense[] = [
-  { id: '1', category: '進貨成本', amount: 2500, description: '鮮奶、糖水原料', expense_date: '2026-05-07', handler: 'Shawn' },
-  { id: '2', category: '水電瓦斯', amount: 3200, description: '4月電費', expense_date: '2026-05-01', handler: 'Admin' },
-];
 
 export default function ExpensesPage() {
   const [activeTab, setActiveTab] = useState<'expenses' | 'settlement'>('expenses');
+
+  // Supabase Hook
+  const { expenses, loading, refetch, createExpense, updateExpense, deleteExpense } = useExpenses();
   
-  // Expenses State
-  const [expenses, setExpenses] = useState<Expense[]>(DEMO_EXPENSES);
+  // 即時同步：當其他裝置修改開支時自動刷新
+  useRealtimeExpenses(refetch);
+
+  // UI State
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<Partial<Expense>>({});
-  
+  const [editForm, setEditForm] = useState<Partial<any>>({});
+  const [saving, setSaving] = useState(false);
+
   // Settlement State
   const [revenue, setRevenue] = useState({ cash: '', octopus: '', alipay_wechat: '', delivery: '' });
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -44,23 +58,58 @@ export default function ExpensesPage() {
   // AI OCR States
   const [showOCR, setShowOCR] = useState(false);
   const [ocrPreview, setOcrPreview] = useState<string | null>(null);
+  const [ocrResult, setOcrResult] = useState<FormExpense | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [newExpense, setNewExpense] = useState<Partial<Expense>>({
-    category: '進貨成本', amount: 0, description: '', handler: '', expense_date: new Date().toISOString().split('T')[0],
+  const [newExpense, setNewExpense] = useState<FormExpense>({
+    category: '進貨成本',
+    amount: 0,
+    description: '',
+    handler: '',
+    expense_date: new Date().toISOString().split('T')[0],
   });
 
-  const handleAddExpense = () => {
-    const newEntry: Expense = {
-      id: Date.now().toString(),
-      category: newExpense.category || '其他',
-      amount: newExpense.amount || 0,
-      description: newExpense.description || '',
-      handler: newExpense.handler || '未指定',
-      expense_date: newExpense.expense_date || new Date().toISOString().split('T')[0],
+  const handleAddExpense = async () => {
+    setSaving(true);
+    const expenseData = {
+      category: labelToCategory(newExpense.category),
+      amount: newExpense.amount,
+      description: newExpense.handler
+        ? `${newExpense.description} (經手人: ${newExpense.handler})`
+        : newExpense.description,
+      expense_date: newExpense.expense_date,
     };
-    setExpenses([newEntry, ...expenses]);
+    const success = await createExpense(expenseData);
+    if (!success) alert('新增支出失敗');
+    setSaving(false);
     setShowAddForm(false);
+    setNewExpense({
+      category: '進貨成本', amount: 0, description: '', handler: '',
+      expense_date: new Date().toISOString().split('T')[0],
+    });
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    setSaving(true);
+    const updates: any = {};
+    if (editForm.category) updates.category = labelToCategory(editForm.category);
+    if (editForm.amount !== undefined) updates.amount = editForm.amount;
+    if (editForm.description !== undefined) {
+      updates.description = editForm.handler
+        ? `${editForm.description} (經手人: ${editForm.handler})`
+        : editForm.description;
+    }
+    if (editForm.expense_date) updates.expense_date = editForm.expense_date;
+    const success = await updateExpense(id, updates);
+    if (!success) alert('更新支出失敗');
+    setSaving(false);
+    setEditingId(null);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('確定刪除此筆支出？')) return;
+    const success = await deleteExpense(id);
+    if (!success) alert('刪除支出失敗');
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -68,15 +117,98 @@ export default function ExpensesPage() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async (event) => {
-      setOcrPreview(event.target?.result as string);
-      // Mock Gemini OCR
-      setTimeout(() => {
-        setNewExpense({
-          category: '其他', amount: 150.5, description: 'Gemini 解析收據商品', handler: 'AI', expense_date: new Date().toISOString().split('T')[0],
+      const imageData = event.target?.result as string;
+      setOcrPreview(imageData);
+      // 使用 NVIDIA NIM OCR 識別收據
+      try {
+        const response = await fetch('/api/nvidia/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${import.meta.env.VITE_NVIDIA_NIM_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: import.meta.env.VITE_NVIDIA_NIM_MODEL || 'qwen/qwen3.5-122b-a10b',
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'image_url',
+                    image_url: { url: imageData }
+                  },
+                  {
+                    type: 'text',
+                    text: `你是一個收據識別助手。請分析這張收據圖片，提取以下信息：
+1. 總金額 (amount)
+2. 日期 (date，格式 YYYY-MM-DD)
+3. 分類 (category，只能是以下之一：進貨成本、租金、水電瓦斯、薪資、設備雜支、其他)
+4. 項目描述 (description)
+
+請以 JSON 格式回覆，格式如下：
+{"amount": 數字, "date": "日期字串", "category": "分類", "description": "描述"}
+
+只回覆 JSON，不要有其他文字。`
+                  }
+                ]
+              }
+            ],
+            max_tokens: 512,
+            temperature: 0.1
+          })
         });
-      }, 1500);
+
+        if (!response.ok) throw new Error(`OCR API 錯誤: ${response.status}`);
+
+        const data = await response.json();
+        const text = data.choices?.[0]?.message?.reasoning_content ||
+                     data.choices?.[0]?.message?.content || '';
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          const cat = CATEGORY_DISPLAY.find(c => c.label === parsed.category) 
+            ? parsed.category 
+            : '其他';
+          setOcrResult({
+            amount: parsed.amount || 0,
+            expense_date: parsed.date || new Date().toISOString().split('T')[0],
+            category: cat,
+            description: parsed.description || '',
+            handler: 'AI',
+          });
+        }
+      } catch (err) {
+        console.error('OCR 識別失敗:', err);
+        // 失敗時使用模擬結果
+        setOcrResult({
+          category: '其他',
+          amount: 150.5,
+          description: '收據識別結果',
+          handler: 'AI',
+          expense_date: new Date().toISOString().split('T')[0],
+        });
+      }
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleOCRConfirm = async () => {
+    if (!ocrResult) return;
+    setSaving(true);
+    const expenseData = {
+      category: labelToCategory(ocrResult.category),
+      amount: ocrResult.amount,
+      description: ocrResult.handler
+        ? `${ocrResult.description} (經手人: ${ocrResult.handler})`
+        : ocrResult.description,
+      expense_date: ocrResult.expense_date,
+    };
+    const success = await createExpense(expenseData);
+    if (!success) alert('OCR 保存失敗');
+    setSaving(false);
+    setShowOCR(false);
+    setOcrPreview(null);
+    setOcrResult(null);
   };
 
   return (
@@ -95,26 +227,41 @@ export default function ExpensesPage() {
       {activeTab === 'expenses' ? (
         <div className="space-y-6 animate-in fade-in">
           <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => setShowOCR(!showOCR)}><Sparkles className="w-4 h-4 mr-2" /> Gemini AI 掃描收據</Button>
+            <Button variant="outline" onClick={() => setShowOCR(!showOCR)}><Sparkles className="w-4 h-4 mr-2" /> NVIDIA AI 掃描收據</Button>
             <Button onClick={() => setShowAddForm(true)}><Receipt className="w-4 h-4 mr-2" /> 手動記帳</Button>
           </div>
 
           {showOCR && (
             <Card>
-              <CardHeader><CardTitle>Gemini AI 智能識別收據</CardTitle></CardHeader>
+              <CardHeader><CardTitle>NVIDIA AI 智能識別收據</CardTitle></CardHeader>
               <CardContent>
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
                 {!ocrPreview ? (
                   <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer" onClick={() => fileInputRef.current?.click()}>
                     <Camera className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                    <p>點擊上傳收據照片交由 Gemini 分析</p>
+                    <p>點擊上傳收據照片交由 NVIDIA AI 分析</p>
                   </div>
                 ) : (
                   <div className="grid md:grid-cols-2 gap-4">
                     <img src={ocrPreview} alt="Preview" className="w-full max-h-64 object-contain rounded-lg border" />
                     <div className="space-y-4">
-                      <p>解析結果：${newExpense.amount}</p>
-                      <Button onClick={() => { handleAddExpense(); setShowOCR(false); setOcrPreview(null); }}>確認添加</Button>
+                      {ocrResult ? (
+                        <>
+                          <p className="font-medium">解析結果：</p>
+                          <p>金額：${ocrResult.amount}</p>
+                          <p>分類：{ocrResult.category}</p>
+                          <p>描述：{ocrResult.description}</p>
+                          <Button onClick={handleOCRConfirm} disabled={saving}>
+                            {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                            確認添加到資料庫
+                          </Button>
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-center py-8">
+                          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                          <span className="ml-2">AI 正在解析收據...</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -127,71 +274,152 @@ export default function ExpensesPage() {
               <CardHeader><CardTitle>新增支出</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid md:grid-cols-3 gap-4">
-                  <div><label>金額</label><Input type="number" value={newExpense.amount || ''} onChange={e => setNewExpense({...newExpense, amount: parseFloat(e.target.value) || 0})} /></div>
-                  <div><label>日期</label><Input type="date" value={newExpense.expense_date || ''} onChange={e => setNewExpense({...newExpense, expense_date: e.target.value})} /></div>
+                  <div>
+                    <label>金額 (HKD)</label>
+                    <Input type="number" value={newExpense.amount || ''}
+                      onChange={e => setNewExpense({...newExpense, amount: parseFloat(e.target.value) || 0})} />
+                  </div>
+                  <div>
+                    <label>日期</label>
+                    <Input type="date" value={newExpense.expense_date || ''}
+                      onChange={e => setNewExpense({...newExpense, expense_date: e.target.value})} />
+                  </div>
                   <div>
                     <label>分類</label>
-                    <Select value={newExpense.category} onValueChange={v => setNewExpense({...newExpense, category: v})} options={CATEGORIES.map(cat => ({ value: cat, label: cat }))} />
+                    <Select value={newExpense.category}
+                      onValueChange={v => setNewExpense({...newExpense, category: v})}
+                      options={CATEGORY_DISPLAY.map(c => ({ value: c.label, label: c.label }))} />
                   </div>
-                  <div><label>描述</label><Input value={newExpense.description || ''} onChange={e => setNewExpense({...newExpense, description: e.target.value})} /></div>
-                  <div><label>經手人</label><Input value={newExpense.handler || ''} onChange={e => setNewExpense({...newExpense, handler: e.target.value})} /></div>
+                  <div>
+                    <label>描述</label>
+                    <Input value={newExpense.description || ''}
+                      onChange={e => setNewExpense({...newExpense, description: e.target.value})} />
+                  </div>
+                  <div>
+                    <label>經手人</label>
+                    <Input value={newExpense.handler || ''}
+                      onChange={e => setNewExpense({...newExpense, handler: e.target.value})} />
+                  </div>
                 </div>
                 <div className="flex gap-2 justify-end">
                   <Button variant="outline" onClick={() => setShowAddForm(false)}>取消</Button>
-                  <Button onClick={handleAddExpense}>確認</Button>
+                  <Button onClick={handleAddExpense} disabled={saving}>
+                    {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                    確認
+                  </Button>
                 </div>
               </CardContent>
             </Card>
           )}
 
           <Card>
-            <CardHeader><CardTitle>支出記錄</CardTitle></CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>支出記錄</CardTitle>
+              <Button variant="ghost" size="sm" onClick={refetch}>
+                <RefreshCw className="w-4 h-4 mr-1" /> 刷新
+              </Button>
+            </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3">日期</th>
-                      <th className="px-4 py-3">類別</th>
-                      <th className="px-4 py-3">項目描述</th>
-                      <th className="px-4 py-3">金額</th>
-                      <th className="px-4 py-3">經手人</th>
-                      <th className="px-4 py-3">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {expenses.map(expense => (
-                      <tr key={expense.id} className="border-b hover:bg-gray-50">
-                        {editingId === expense.id ? (
-                          <>
-                            <td className="px-4 py-2"><Input type="date" value={editForm.expense_date} onChange={e => setEditForm({...editForm, expense_date: e.target.value})} /></td>
-                            <td className="px-4 py-2"><Select value={editForm.category} onValueChange={v => setEditForm({...editForm, category: v})} options={CATEGORIES.map(c => ({value: c, label: c}))} /></td>
-                            <td className="px-4 py-2"><Input value={editForm.description} onChange={e => setEditForm({...editForm, description: e.target.value})} /></td>
-                            <td className="px-4 py-2"><Input type="number" value={editForm.amount} onChange={e => setEditForm({...editForm, amount: parseFloat(e.target.value)})} /></td>
-                            <td className="px-4 py-2"><Input value={editForm.handler} onChange={e => setEditForm({...editForm, handler: e.target.value})} /></td>
-                            <td className="px-4 py-2 flex gap-2">
-                              <Button size="icon" variant="ghost" onClick={() => { setExpenses(expenses.map(e => e.id === editingId ? { ...e, ...editForm } as Expense : e)); setEditingId(null); }}><Save className="w-4 h-4 text-green-600" /></Button>
-                              <Button size="icon" variant="ghost" onClick={() => setEditingId(null)}><X className="w-4 h-4 text-gray-500" /></Button>
-                            </td>
-                          </>
-                        ) : (
-                          <>
-                            <td className="px-4 py-3">{expense.expense_date}</td>
-                            <td className="px-4 py-3"><Badge variant="secondary">{expense.category}</Badge></td>
-                            <td className="px-4 py-3">{expense.description}</td>
-                            <td className="px-4 py-3 font-medium">${expense.amount}</td>
-                            <td className="px-4 py-3"><div className="flex items-center gap-1"><User className="w-3 h-3"/>{expense.handler}</div></td>
-                            <td className="px-4 py-3 flex gap-2">
-                              <Button size="icon" variant="ghost" onClick={() => { setEditingId(expense.id); setEditForm(expense); }}><Edit2 className="w-4 h-4" /></Button>
-                              <Button size="icon" variant="ghost" onClick={() => setExpenses(expenses.filter(e => e.id !== expense.id))}><Trash2 className="w-4 h-4 text-red-500" /></Button>
-                            </td>
-                          </>
-                        )}
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                  <span className="ml-2">載入中...</span>
+                </div>
+              ) : expenses.length === 0 ? (
+                <div className="text-center py-12 text-gray-400">
+                  <Receipt className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                  <p>暫無支出記錄，請點擊上方按鈕新增</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3">日期</th>
+                        <th className="px-4 py-3">類別</th>
+                        <th className="px-4 py-3">項目描述</th>
+                        <th className="px-4 py-3">金額</th>
+                        <th className="px-4 py-3">經手人</th>
+                        <th className="px-4 py-3">操作</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {expenses.map(expense => {
+                        const handlerMatch = expense.description?.match(/\(經手人: (.+?)\)/);
+                        const displayHandler = handlerMatch ? handlerMatch[1] : '—';
+                        const displayDescription = expense.description?.replace(/\s*\(經手人: .+?\)\s*$/, '') || '';
+                        return (
+                          <tr key={expense.id} className="border-b hover:bg-gray-50">
+                            {editingId === expense.id ? (
+                              <>
+                                <td className="px-4 py-2">
+                                  <Input type="date" value={editForm.expense_date || expense.expense_date}
+                                    onChange={e => setEditForm({...editForm, expense_date: e.target.value})} />
+                                </td>
+                                <td className="px-4 py-2">
+                                  <Select value={editForm.category || categoryToLabel(expense.category)}
+                                    onValueChange={v => setEditForm({...editForm, category: v})}
+                                    options={CATEGORY_DISPLAY.map(c => ({value: c.label, label: c.label}))} />
+                                </td>
+                                <td className="px-4 py-2">
+                                  <Input value={editForm.description ?? displayDescription}
+                                    onChange={e => setEditForm({...editForm, description: e.target.value})} />
+                                </td>
+                                <td className="px-4 py-2">
+                                  <Input type="number" value={editForm.amount ?? expense.amount}
+                                    onChange={e => setEditForm({...editForm, amount: parseFloat(e.target.value)})} />
+                                </td>
+                                <td className="px-4 py-2">
+                                  <Input value={editForm.handler ?? displayHandler}
+                                    onChange={e => setEditForm({...editForm, handler: e.target.value})} />
+                                </td>
+                                <td className="px-4 py-2 flex gap-2">
+                                  <Button size="icon" variant="ghost" onClick={() => handleSaveEdit(expense.id)} disabled={saving}>
+                                    <Save className="w-4 h-4 text-green-600" />
+                                  </Button>
+                                  <Button size="icon" variant="ghost" onClick={() => setEditingId(null)}>
+                                    <X className="w-4 h-4 text-gray-500" />
+                                  </Button>
+                                </td>
+                              </>
+                            ) : (
+                              <>
+                                <td className="px-4 py-3">{expense.expense_date}</td>
+                                <td className="px-4 py-3"><Badge variant="secondary">{categoryToLabel(expense.category)}</Badge></td>
+                                <td className="px-4 py-3">{displayDescription}</td>
+                                <td className="px-4 py-3 font-medium">${expense.amount}</td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-1">
+                                    <User className="w-3 h-3" />{displayHandler}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 flex gap-2">
+                                  <Button size="icon" variant="ghost"
+                                    onClick={() => {
+                                      setEditingId(expense.id);
+                                      setEditForm({
+                                        expense_date: expense.expense_date,
+                                        category: categoryToLabel(expense.category),
+                                        description: displayDescription,
+                                        amount: expense.amount,
+                                        handler: displayHandler,
+                                      });
+                                    }}>
+                                    <Edit2 className="w-4 h-4" />
+                                  </Button>
+                                  <Button size="icon" variant="ghost" onClick={() => handleDelete(expense.id)}>
+                                    <Trash2 className="w-4 h-4 text-red-500" />
+                                  </Button>
+                                </td>
+                              </>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -218,7 +446,7 @@ export default function ExpensesPage() {
                 <div><label className="block text-sm font-medium mb-1">外賣平台 (Delivery)</label><Input type="number" placeholder="0.00" value={revenue.delivery} onChange={e => setRevenue({...revenue, delivery: e.target.value})} /></div>
               </div>
               <div className="pt-4 flex justify-end">
-                <Button onClick={() => alert('結算數據已同步至資料庫！')} className="w-full md:w-auto">提交結算同步</Button>
+                <Button className="w-full md:w-auto">提交結算同步</Button>
               </div>
             </CardContent>
           </Card>

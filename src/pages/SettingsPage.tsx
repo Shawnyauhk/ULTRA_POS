@@ -1,30 +1,40 @@
 import React, { useState, useEffect } from 'react';
+import { useSettings } from '@/hooks/useSupabaseData';
+import { Loader2 } from 'lucide-react';
 
 export default function SettingsPage() {
+  const { settings, loading, refetch, getSetting, updateSetting } = useSettings();
+  
   const [appId, setAppId] = useState('');
   const [appKey, setAppKey] = useState('');
-  
   const [ocrModel, setOcrModel] = useState('gemini-1.5-pro');
   const [ocrApiKey, setOcrApiKey] = useState('');
+  const [saving, setSaving] = useState(false);
 
+  // Load settings from Supabase
   useEffect(() => {
-    const savedAppId = localStorage.getItem('pospal_app_id');
-    const savedAppKey = localStorage.getItem('pospal_app_key');
-    const savedOcrModel = localStorage.getItem('ocr_model') || 'gemini-1.5-pro';
-    const savedOcrApiKey = localStorage.getItem('ocr_api_key');
-    
-    if (savedAppId) setAppId(savedAppId);
-    if (savedAppKey) setAppKey(savedAppKey);
-    setOcrModel(savedOcrModel);
-    if (savedOcrApiKey) setOcrApiKey(savedOcrApiKey);
-  }, []);
+    if (!loading) {
+      setAppId(getSetting('pospal_app_id', ''));
+      setAppKey(getSetting('pospal_app_key', ''));
+      setOcrModel(getSetting('ocr_model', 'gemini-1.5-pro'));
+      setOcrApiKey(getSetting('ocr_api_key', ''));
+    }
+  }, [loading, settings]);
 
-  const handleSave = () => {
-    localStorage.setItem('pospal_app_id', appId);
-    localStorage.setItem('pospal_app_key', appKey);
-    localStorage.setItem('ocr_model', ocrModel);
-    localStorage.setItem('ocr_api_key', ocrApiKey);
-    alert('設定已儲存');
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await updateSetting('pospal_app_id', appId);
+      await updateSetting('pospal_app_key', appKey);
+      await updateSetting('ocr_model', ocrModel);
+      await updateSetting('ocr_api_key', ocrApiKey);
+      alert('設定已儲存至 Supabase');
+    } catch (err) {
+      console.error('Error saving settings:', err);
+      alert('儲存失敗');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -44,6 +54,7 @@ export default function SettingsPage() {
                 onChange={(e) => setAppId(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 placeholder="輸入 POSPAL App ID"
+                disabled={saving}
               />
             </div>
             <div>
@@ -54,6 +65,7 @@ export default function SettingsPage() {
                 onChange={(e) => setAppKey(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 placeholder="輸入 POSPAL App Key"
+                disabled={saving}
               />
             </div>
           </div>
@@ -70,6 +82,7 @@ export default function SettingsPage() {
                 value={ocrModel}
                 onChange={(e) => setOcrModel(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                disabled={saving}
               >
                 <option value="gemini-1.5-pro">Gemini 1.5 Pro (預設)</option>
                 <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
@@ -85,6 +98,7 @@ export default function SettingsPage() {
                   type="text" 
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   placeholder="例如：my-custom-ocr-model"
+                  disabled={saving}
                 />
               </div>
             )}
@@ -96,6 +110,7 @@ export default function SettingsPage() {
                 onChange={(e) => setOcrApiKey(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 placeholder="輸入 API 密鑰"
+                disabled={saving}
               />
             </div>
           </div>
@@ -105,8 +120,10 @@ export default function SettingsPage() {
       <div className="flex justify-end">
         <button 
           onClick={handleSave}
-          className="py-2 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+          disabled={saving}
+          className="py-2 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 flex items-center gap-2"
         >
+          {saving && <Loader2 className="w-4 h-4 animate-spin" />}
           儲存所有設定
         </button>
       </div>

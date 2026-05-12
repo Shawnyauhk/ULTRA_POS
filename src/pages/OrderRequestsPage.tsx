@@ -1,26 +1,16 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Package, Clock, CheckCircle, AlertCircle } from 'lucide-react';
-
-interface Order {
-  id: string;
-  item: string;
-  requester: string;
-  status: 'request' | 'pending' | 'completed';
-}
-
-const INITIAL_ORDERS: Order[] = [
-  { id: '1', item: '鮮奶 3箱', requester: 'Shawn (天水圍)', status: 'request' },
-  { id: '2', item: '外賣紙袋 500個', requester: 'Admin', status: 'pending' },
-  { id: '3', item: '雞蛋 5盤', requester: 'YuenLong', status: 'completed' },
-];
+import { Package, Clock, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { useOrderRequests } from '@/hooks/useSupabaseData';
+import type { OrderRequest, OrderRequestStatus } from '@/types';
 
 export function OrderRequestsPage() {
-  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
-  const [draggedOrder, setDraggedOrder] = useState<Order | null>(null);
+  const { orderRequests, loading, updateOrderRequestStatus } = useOrderRequests();
+  const [draggedOrder, setDraggedOrder] = useState<OrderRequest | null>(null);
+  const [updating, setUpdating] = useState<string | null>(null);
 
-  const handleDragStart = (e: React.DragEvent, order: Order) => {
+  const handleDragStart = (e: React.DragEvent, order: OrderRequest) => {
     setDraggedOrder(order);
     e.dataTransfer.effectAllowed = 'move';
   };
@@ -30,44 +20,61 @@ export function OrderRequestsPage() {
     e.dataTransfer.dropEffect = 'move';
   };
 
-  const handleDrop = (e: React.DragEvent, status: Order['status']) => {
+  const handleDrop = async (e: React.DragEvent, newStatus: OrderRequestStatus) => {
     e.preventDefault();
-    if (draggedOrder && draggedOrder.status !== status) {
-      setOrders(orders.map(o => o.id === draggedOrder.id ? { ...o, status } : o));
+    if (draggedOrder && draggedOrder.status !== newStatus) {
+      setUpdating(draggedOrder.id);
+      await updateOrderRequestStatus(draggedOrder.id, newStatus);
+      setUpdating(null);
     }
     setDraggedOrder(null);
   };
 
-  const renderColumn = (title: string, status: Order['status'], icon: React.ReactNode, bgColor: string) => {
-    const columnOrders = orders.filter(o => o.status === status);
+  // Map order_request status to kanban columns
+  const getStatusForColumn = (status: OrderRequestStatus): 'request' | 'pending' | 'completed' => {
+    if (status === 'pending' || status === 'approved') return 'request';
+    if (status === 'ordered' || status === 'partial') return 'pending';
+    if (status === 'received' || status === 'rejected') return 'completed';
+    return 'request';
+  };
+
+  const renderColumn = (title: string, status: 'request' | 'pending' | 'completed', icon: React.ReactNode, bgColor: string) => {
+    const columnOrders = orderRequests.filter(o => getStatusForColumn(o.status) === status);
+    
     return (
       <div 
         className={`flex-1 flex flex-col min-h-[500px] rounded-xl p-4 transition-colors ${bgColor}`}
         onDragOver={handleDragOver}
-        onDrop={(e) => handleDrop(e, status)}
+        onDrop={(e) => handleDrop(e, status === 'request' ? 'pending' : status === 'pending' ? 'ordered' : 'received')}
       >
         <div className="flex items-center justify-between mb-4 px-2">
           <h2 className="font-bold text-lg flex items-center gap-2">{icon} {title}</h2>
           <Badge variant="secondary">{columnOrders.length}</Badge>
         </div>
         <div className="flex-1 space-y-3">
-          {columnOrders.map(order => (
-            <Card 
-              key={order.id} 
-              draggable 
-              onDragStart={(e) => handleDragStart(e, order)}
-              className="cursor-move hover:shadow-md transition-shadow active:cursor-grabbing"
-            >
-              <CardContent className="p-4">
-                <div className="flex justify-between items-start mb-2">
-                  <p className="font-bold">{order.item}</p>
-                  <Package className="w-4 h-4 text-gray-400" />
-                </div>
-                <p className="text-sm text-gray-500">申請人: {order.requester}</p>
-              </CardContent>
-            </Card>
-          ))}
-          {columnOrders.length === 0 && (
+          {loading ? (
+            <div className="flex items-center justify-center h-32">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : columnOrders.length > 0 ? (
+            columnOrders.map(order => (
+              <Card 
+                key={order.id} 
+                draggable 
+                onDragStart={(e) => handleDragStart(e, order)}
+                className={`cursor-move hover:shadow-md transition-shadow active:cursor-grabbing ${updating === order.id ? 'opacity-50' : ''}`}
+              >
+                <CardContent className="p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <p className="font-bold">{order.notes || '無備註'}</p>
+                    <Package className="w-4 h-4 text-gray-400" />
+                  </div>
+                  <p className="text-sm text-gray-500">申請人: {order.employee?.name || '未知'}</p>
+                  <p className="text-xs text-gray-400 mt-1">狀態: {order.status}</p>
+                </CardContent>
+              </Card>
+            ))
+          ) : (
             <div className="h-full flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 rounded-lg">
               拖曳至此處
             </div>

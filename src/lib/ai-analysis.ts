@@ -3,7 +3,7 @@
  * 只需更改 AI_PROVIDER 和相關配置即可切換不同的 AI 服務
  */
 
-export type AIProvider = 'gemini' | 'qwen';
+export type AIProvider = 'gemini' | 'qwen' | 'nvidia';
 
 export interface AIConfig {
   provider: AIProvider;
@@ -27,8 +27,16 @@ export interface AIAnalysisResult {
 
 // ================ 配置區域（只需修改這裡） ================
 
-// 選擇 AI 分析提供者: 'gemini' | 'qwen'
-const CURRENT_PROVIDER: AIProvider = 'gemini';
+// 選擇 AI 分析提供者: 'gemini' | 'qwen' | 'nvidia'
+const CURRENT_PROVIDER: AIProvider = 'nvidia';
+
+// NVIDIA NIM 配置 (推薦 - 免費額度)
+const NVIDIA_CONFIG: AIConfig = {
+  provider: 'nvidia',
+  apiKey: import.meta.env.VITE_NVIDIA_NIM_API_KEY || '',
+  model: import.meta.env.VITE_NVIDIA_NIM_MODEL || 'qwen/qwen3.5-122b-a10b',
+  apiUrl: '/api/nvidia/v1/chat/completions',  // 使用 Vite 代理繞過 CORS
+};
 
 // Google Gemini 配置
 const GEMINI_CONFIG: AIConfig = {
@@ -131,6 +139,50 @@ ${JSON.stringify(salesData, null, 2)}`;
   return parseAnalysisResult(text, 'qwen');
 }
 
+// NVIDIA NIM 分析 (使用 qwen/qwen3.5-122b-a10b)
+async function nvidiaAnalysis(salesData: SalesData): Promise<AIAnalysisResult> {
+  const context = `銷售數據：
+${JSON.stringify(salesData, null, 2)}`;
+  
+  const response = await fetch(NVIDIA_CONFIG.apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${NVIDIA_CONFIG.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: NVIDIA_CONFIG.model,
+      messages: [
+        {
+          role: 'system',
+          content: '你是一個專業的餐廳經營顧問。請用繁體中文回覆。'
+        },
+        {
+          role: 'user',
+          content: ANALYSIS_PROMPT.replace('{context}', context)
+        }
+      ],
+      max_tokens: 1024,
+      temperature: 0.3
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`NVIDIA NIM API 錯誤: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  
+  // NVIDIA NIM Qwen 模型返回的內容在 reasoning_content 字段
+  const text = 
+    data.choices?.[0]?.message?.reasoning_content ||
+    data.choices?.[0]?.message?.content ||
+    '';
+  
+  return parseAnalysisResult(text, 'nvidia');
+}
+
 // 解析分析結果
 function parseAnalysisResult(text: string, provider: AIProvider): AIAnalysisResult {
   const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -163,6 +215,8 @@ function parseAnalysisResult(text: string, provider: AIProvider): AIAnalysisResu
  */
 export async function analyzeSalesWithAI(salesData: SalesData): Promise<AIAnalysisResult> {
   switch (CURRENT_PROVIDER) {
+    case 'nvidia':
+      return nvidiaAnalysis(salesData);
     case 'gemini':
       return geminiAnalysis(salesData);
     case 'qwen':
@@ -177,6 +231,8 @@ export async function analyzeSalesWithAI(salesData: SalesData): Promise<AIAnalys
  */
 export function getAIConfig() {
   switch (CURRENT_PROVIDER) {
+    case 'nvidia':
+      return NVIDIA_CONFIG;
     case 'gemini':
       return GEMINI_CONFIG;
     case 'qwen':
@@ -191,6 +247,7 @@ export function getAIConfig() {
  */
 export function getAvailableProviders(): { id: AIProvider; name: string }[] {
   return [
+    { id: 'nvidia', name: 'NVIDIA NIM (qwen3.5-122b)' },
     { id: 'gemini', name: 'Google Gemini' },
     { id: 'qwen', name: '阿里雲通義千問' },
   ];

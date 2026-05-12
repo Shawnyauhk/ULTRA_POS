@@ -2,8 +2,11 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Camera, ShoppingCart, MessageSquare, Plus, Minus, Globe, ChevronRight, X } from 'lucide-react';
+import { Camera, ShoppingCart, MessageSquare, Plus, Minus, Globe, ChevronRight, X, Loader2, Package, CheckCircle2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { useProducts, useOrders, useInventory } from '@/hooks/useSupabaseData';
+import { useRealtimeInventory } from '@/hooks/useRealtime';
+import type { Product } from '@/types';
 
 export function POSPage() {
   const [lang, setLang] = useState<'zh' | 'en'>('zh');
@@ -13,20 +16,35 @@ export function POSPage() {
   const [aiOrderText, setAiOrderText] = useState('');
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [processingOrder, setProcessingOrder] = useState(false);
 
-  const CATEGORIES = [
-    { id: 'snack', name: lang === 'zh' ? '小食 Snacks' : 'Snacks' },
-    { id: 'drink', name: lang === 'zh' ? '飲品 Drinks' : 'Drinks' },
-    { id: 'dessert', name: lang === 'zh' ? '甜品 Desserts' : 'Desserts' },
-  ];
+  // Fetch products from Supabase
+  const { products, categories, loading } = useProducts();
+  const { createOrder } = useOrders();
+  const { inventory, refetch: refetchInventory } = useInventory();
+  useRealtimeInventory(refetchInventory);
 
-  const DUMMY_PRODUCTS = [
-    { id: '1', name: lang === 'zh' ? '原味雞蛋仔' : 'Original Egg Waffle', price: 20, category: 'snack', emoji: '🥞' },
-    { id: '2', name: lang === 'zh' ? '朱古力雞蛋仔' : 'Chocolate Egg Waffle', price: 25, category: 'snack', emoji: '🧇' },
-    { id: '3', name: lang === 'zh' ? '凍檸茶' : 'Iced Lemon Tea', price: 18, category: 'drink', emoji: '🍹' },
-    { id: '4', name: lang === 'zh' ? '珍珠奶茶' : 'Bubble Tea', price: 22, category: 'drink', emoji: '🧋' },
-    { id: '5', name: lang === 'zh' ? '芒果西米露' : 'Mango Sago', price: 28, category: 'dessert', emoji: '🥭' },
-  ];
+  const [orderSuccess, setOrderSuccess] = useState(false);
+
+  // Convert Supabase products to local format
+  const convertToCartProduct = (product: Product) => ({
+    id: product.id,
+    name: product.name,
+    price: product.price,
+    emoji: '🍽️'
+  });
+
+  // Get products for active category
+  const getProductsByCategory = (categoryId: string) => {
+    return products.filter(p => p.category_id === categoryId).map(convertToCartProduct);
+  };
+
+  // Local categories from Supabase
+  const localCategories = categories.map(cat => ({
+    id: cat.id,
+    name: cat.name,
+    supabaseId: cat.id
+  }));
 
   const handleAddToCart = (product: any) => {
     const existing = cart.find(c => c.id === product.id);
@@ -38,16 +56,60 @@ export function POSPage() {
   };
 
   const handleAIOrder = () => {
+    if (!aiOrderText.trim()) return;
     alert(`AI 正在解析您的點餐: "${aiOrderText}"...`);
-    handleAddToCart(DUMMY_PRODUCTS[2]); 
+    // TODO: Implement AI order parsing with Gemini API
     setAiOrderText('');
     setIsCartOpen(true);
+  };
+
+  const handleCheckout = async () => {
+    if (cart.length === 0) return;
+    
+    setProcessingOrder(true);
+    try {
+      const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+      
+      await createOrder(
+        {
+          order_number: '',
+          total_amount: totalAmount,
+          discount_amount: 0,
+          final_amount: totalAmount,
+          status: 'pending',
+          order_type: 'dine_in'
+        },
+        cart.map(item => ({
+          product_id: item.id,
+          product_name: item.name,
+          quantity: item.quantity,
+          unit_price: item.price,
+          subtotal: item.price * item.quantity,
+          options: item.options
+        }))
+      );
+      
+      setOrderSuccess(true);
+      setCart([]);
+      
+      // 2 秒後自動關閉成功提示並關閉購物車
+      setTimeout(() => {
+        setOrderSuccess(false);
+        setIsCartOpen(false);
+      }, 2000);
+      
+    } catch (err) {
+      console.error('Checkout error:', err);
+      alert('結帳失敗，請重試');
+    } finally {
+      setProcessingOrder(false);
+    }
   };
 
   const totalCartItems = cart.reduce((sum, item) => sum + item.quantity, 0);
   const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
-  const displayedProducts = activeCategory ? DUMMY_PRODUCTS.filter(p => p.category === activeCategory) : [];
+  const displayedProducts = activeCategory ? getProductsByCategory(activeCategory) : [];
 
   return (
     <div className="p-6 h-[calc(100vh-2rem)] flex flex-col space-y-4 relative overflow-hidden">
@@ -94,14 +156,24 @@ export function POSPage() {
           {/* Categories and Products */}
           {!activeCategory ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {CATEGORIES.map(cat => (
-                <Card key={cat.id} className="cursor-pointer hover:border-primary transition-all hover:shadow-md" onClick={() => setActiveCategory(cat.id)}>
-                  <CardContent className="p-8 flex items-center justify-between">
-                    <span className="text-xl font-bold">{cat.name}</span>
-                    <ChevronRight className="text-gray-400" />
-                  </CardContent>
-                </Card>
-              ))}
+              {loading ? (
+                <div className="col-span-3 flex items-center justify-center py-12">
+                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : localCategories.length > 0 ? (
+                localCategories.map(cat => (
+                  <Card key={cat.id} className="cursor-pointer hover:border-primary transition-all hover:shadow-md" onClick={() => setActiveCategory(cat.id)}>
+                    <CardContent className="p-8 flex items-center justify-between">
+                      <span className="text-xl font-bold">{cat.name}</span>
+                      <ChevronRight className="text-gray-400" />
+                    </CardContent>
+                  </Card>
+                ))
+              ) : (
+                <div className="col-span-3 text-center py-12 text-gray-400">
+                  請先在 Supabase 執行遷移腳本以載入產品分類
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex flex-col h-full">
@@ -110,20 +182,25 @@ export function POSPage() {
                   {lang === 'zh' ? '← 返回全部分類' : '← Back to Categories'}
                 </Button>
                 <h2 className="text-xl font-bold ml-2">
-                  {CATEGORIES.find(c => c.id === activeCategory)?.name}
+                  {localCategories.find(c => c.id === activeCategory)?.name}
                 </h2>
               </div>
               <div className="flex-1 overflow-y-auto grid grid-cols-3 gap-4 content-start pr-2">
-                {displayedProducts.map(product => (
-                  <Card key={product.id} className="cursor-pointer hover:border-primary transition-all hover:shadow-md" onClick={() => handleAddToCart(product)}>
-                    <CardContent className="p-4 flex flex-col items-center justify-center aspect-square text-center">
-                      <div className="w-16 h-16 bg-gray-50 rounded-full mb-3 flex items-center justify-center text-3xl">{product.emoji}</div>
-                      <p className="font-bold">{product.name}</p>
-                      <p className="text-primary font-medium mt-1">${product.price}</p>
-                    </CardContent>
-                  </Card>
-                ))}
-                {displayedProducts.length === 0 && (
+                {loading ? (
+                  <div className="col-span-3 flex items-center justify-center py-12">
+                    <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : displayedProducts.length > 0 ? (
+                  displayedProducts.map(product => (
+                    <Card key={product.id} className="cursor-pointer hover:border-primary transition-all hover:shadow-md" onClick={() => handleAddToCart(product)}>
+                      <CardContent className="p-4 flex flex-col items-center justify-center aspect-square text-center">
+                        <div className="w-16 h-16 bg-gray-50 rounded-full mb-3 flex items-center justify-center text-3xl">{product.emoji}</div>
+                        <p className="font-bold">{product.name}</p>
+                        <p className="text-primary font-medium mt-1">${product.price}</p>
+                      </CardContent>
+                    </Card>
+                  ))
+                ) : (
                   <div className="col-span-3 text-center py-12 text-gray-400">
                     此分類暫無產品
                   </div>
@@ -168,17 +245,39 @@ export function POSPage() {
               )}
             </CardContent>
             <div className="p-4 border-t shrink-0 bg-gray-50 rounded-b-xl">
-              <div className="flex justify-between font-bold text-xl mb-4">
-                <span>{lang === 'zh' ? '總計金額' : 'Total'}:</span>
-                <span className="text-primary">${totalAmount}</span>
+              {orderSuccess ? (
+                <div className="flex items-center justify-center gap-2 text-green-600 font-bold text-lg py-4">
+                  <CheckCircle2 className="w-6 h-6" />
+                  {lang === 'zh' ? '✓ 結帳成功！庫存已自動更新' : '✓ Checkout success! Inventory updated'}
+                </div>
+              ) : (
+                <>
+                  <div className="flex justify-between font-bold text-xl mb-4">
+                    <span>{lang === 'zh' ? '總計金額' : 'Total'}:</span>
+                    <span className="text-primary">${totalAmount}</span>
+                  </div>
+                  <Button 
+                    className="w-full h-14 text-lg rounded-xl shadow-md" 
+                    disabled={cart.length === 0 || processingOrder} 
+                    onClick={handleCheckout}
+                  >
+                    {processingOrder ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        處理中...
+                      </>
+                    ) : (
+                      lang === 'zh' ? '確認結帳 (Checkout)' : 'Checkout'
+                    )}
+                  </Button>
+                </>
+              )}
+              <div className="flex items-center justify-center gap-1 mt-2 text-xs text-gray-400">
+                <Package className="w-3 h-3" />
+                {lang === 'zh'
+                  ? `庫存物品: ${inventory.length} 項（結帳後自動扣減）`
+                  : `Inventory: ${inventory.length} items (auto-deducted on checkout)`}
               </div>
-              <Button className="w-full h-14 text-lg rounded-xl shadow-md" disabled={cart.length === 0} onClick={() => {
-                alert('結帳成功！');
-                setCart([]);
-                setIsCartOpen(false);
-              }}>
-                {lang === 'zh' ? '確認結帳 (Checkout)' : 'Checkout'}
-              </Button>
             </div>
           </Card>
         )}
