@@ -1,191 +1,103 @@
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Send, Bot, User, Loader2, Sparkles } from 'lucide-react'
-import { cn } from '@/lib/utils'
-
-interface Message {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: Date
-}
+import React, { useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Megaphone, MessageSquare, BookOpen, Star, Save } from 'lucide-react';
 
 export function AIChatPage() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      role: 'assistant',
-      content: '你好！我是 AI 客服助手，可以幫你解答關於餐廳的各種問題，例如：\n\n• 產品資訊（價格、成份等）\n• 營業時間\n• 會員優惠\n• 其他問題\n\n有什麼可以幫到你？',
-      timestamp: new Date(),
-    },
-  ])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState<'marketing' | 'cs'>('cs');
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return
+  // AI Review States
+  const [productName, setProductName] = useState('');
+  const [generatedReview, setGeneratedReview] = useState('');
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: input,
-      timestamp: new Date(),
-    }
-    setMessages([...messages, userMessage])
-    setInput('')
-    setLoading(true)
+  // CS States
+  const [chatLogs] = useState([
+    { id: 1, user: '請問營業到幾點？', ai: '我們營業到晚上 11 點哦！', status: '已訓練' },
+    { id: 2, user: '元朗廣場那間是你們分店嗎？', ai: '不是喔，我們只有天水圍和元朗金輝徑兩家分店。', status: '待修正' }
+  ]);
 
-    // Simulate AI response
-    setTimeout(() => {
-      const responses = [
-        '感謝你的提問！關於這個問題，我可以幫你查詢相關資訊。',
-        '好的，讓我為你解答... 我們的產品都是新鮮製作的，建議趁熱食用。',
-        '好的！我可以幫你推薦一些受歡迎的產品，例如椰香西米露和芒果椰香西米露。',
-        '感謝提問！我們的營業時間是上午 11 點到晚上 10 點。',
-      ]
-      const randomResponse = responses[Math.floor(Math.random() * responses.length)]
-
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: randomResponse,
-        timestamp: new Date(),
-      }
-      setMessages(prev => [...prev, assistantMessage])
-      setLoading(false)
-    }, 1500)
-  }
-
-  const suggestedQuestions = [
-    '有什麼推薦的產品？',
-    '椰香西米露多少錢？',
-    '營業時間是什麼時候？',
-    '有什麼優惠活動？',
-  ]
+  const handleGenerateReview = () => {
+    if (!productName) return;
+    setGeneratedReview(`剛剛試咗佢哋嘅 ${productName}，味道真係一流！口感層次分明，唔會太甜，非常推薦大家嚟試下！⭐⭐⭐⭐⭐`);
+  };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">AI 客服</h1>
-        <p className="text-gray-500 mt-1">智能客服助手，解答客人問題</p>
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">AI 行銷與客服機器人</h1>
+          <p className="text-muted-foreground">自動生成 Google 好評與管理客服知識庫</p>
+        </div>
+        <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
+          <Button variant={activeTab === 'cs' ? 'default' : 'ghost'} onClick={() => setActiveTab('cs')}>客服助手 & 日誌</Button>
+          <Button variant={activeTab === 'marketing' ? 'default' : 'ghost'} onClick={() => setActiveTab('marketing')}>Google 好評生成</Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Chat Area */}
-        <Card className="lg:col-span-3 h-[600px] flex flex-col">
-          <CardHeader className="flex-shrink-0 border-b">
-            <CardTitle className="flex items-center gap-2">
-              <Bot className="h-5 w-5 text-primary" />
-              AI 客服助手
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex-1 overflow-y-auto p-4">
-            <div className="space-y-4">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={cn(
-                    'flex gap-3',
-                    message.role === 'user' ? 'justify-end' : 'justify-start'
-                  )}
-                >
-                  {message.role === 'assistant' && (
-                    <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                      <Bot className="h-4 w-4 text-white" />
-                    </div>
-                  )}
-                  <div
-                    className={cn(
-                      'max-w-[70%] rounded-lg p-3',
-                      message.role === 'user'
-                        ? 'bg-primary text-white'
-                        : 'bg-gray-100 text-gray-900'
-                    )}
-                  >
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                    <p
-                      className={cn(
-                        'text-xs mt-1',
-                        message.role === 'user' ? 'text-white/70' : 'text-gray-500'
-                      )}
-                    >
-                      {message.timestamp.toLocaleTimeString('zh-HK', { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                  </div>
-                  {message.role === 'user' && (
-                    <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-                      <User className="h-4 w-4 text-gray-600" />
-                    </div>
-                  )}
-                </div>
-              ))}
-              {loading && (
-                <div className="flex gap-3 justify-start">
-                  <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center">
-                    <Bot className="h-4 w-4 text-white" />
-                  </div>
-                  <div className="bg-gray-100 rounded-lg p-3">
-                    <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
-                  </div>
-                </div>
-              )}
-            </div>
-          </CardContent>
-          <div className="p-4 border-t">
-            <div className="flex gap-2">
-              <Input
-                placeholder="輸入訊息..."
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                disabled={loading}
-              />
-              <Button onClick={handleSend} disabled={loading || !input.trim()}>
-                <Send className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </Card>
-
-        {/* Sidebar */}
-        <div className="space-y-4">
+      {activeTab === 'cs' ? (
+        <div className="space-y-6 animate-in fade-in">
           <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">常見問題</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {suggestedQuestions.map((question, index) => (
-                <button
-                  key={index}
-                  className="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
-                  onClick={() => setInput(question)}
-                >
-                  {question}
-                </button>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-primary" />
-                AI 功能
-              </CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2"><MessageSquare className="w-5 h-5" /> AI 客服日誌</CardTitle>
+                <CardDescription>查看並修正客服回覆，持續訓練 AI 知識庫</CardDescription>
+              </div>
+              <Button variant="outline"><BookOpen className="w-4 h-4 mr-2" /> 知識庫管理 (Knowledge Base)</Button>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2 text-sm text-gray-600">
-                <p>• 自動回答客人問題</p>
-                <p>• 推薦產品組合</p>
-                <p>• 提供營業資訊</p>
-                <p>• 收集客人反饋</p>
+              <div className="space-y-4">
+                {chatLogs.map(log => (
+                  <div key={log.id} className="border p-4 rounded-lg bg-gray-50 flex justify-between items-start">
+                    <div className="space-y-2">
+                      <p className="text-sm font-bold text-gray-700">Q: {log.user}</p>
+                      <p className="text-sm text-blue-700">A: {log.ai}</p>
+                    </div>
+                    <div className="flex flex-col gap-2 items-end">
+                      <span className={`text-xs px-2 py-1 rounded-full ${log.status === '待修正' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                        {log.status}
+                      </span>
+                      <Button variant="ghost" size="sm" className="text-primary">修正答案</Button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
         </div>
-      </div>
+      ) : (
+        <div className="space-y-6 animate-in fade-in">
+          <Card className="max-w-3xl">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><Star className="w-5 h-5 text-yellow-500" /> Google 好評生成器</CardTitle>
+              <CardDescription>輸入產品名稱，AI 自動生成擬真的港式好評以供複製使用</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="輸入想推薦的產品（如：朱古力雞蛋仔）"
+                  value={productName}
+                  onChange={e => setProductName(e.target.value)}
+                />
+                <Button onClick={handleGenerateReview}><Megaphone className="w-4 h-4 mr-2" /> 產生評價</Button>
+              </div>
+
+              {generatedReview && (
+                <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg space-y-4">
+                  <p className="text-gray-800">{generatedReview}</p>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setGeneratedReview('')}>重新生成</Button>
+                    <Button onClick={() => {
+                      navigator.clipboard.writeText(generatedReview);
+                      alert('已複製到剪貼簿，可前往 Google My Business 貼上！');
+                    }}><Save className="w-4 h-4 mr-2" /> 複製評價</Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
-  )
+  );
 }

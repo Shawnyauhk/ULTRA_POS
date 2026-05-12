@@ -1,9 +1,13 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import {
   DollarSign,
   TrendingUp,
   ArrowDownRight,
   ArrowUpRight,
+  Sparkles,
+  BarChart4,
+  AlertCircle
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 import { useState, useEffect } from 'react'
@@ -27,15 +31,40 @@ export function DashboardPage() {
     { name: '30號', income: 3490, expense: 4300 },
   ]);
 
+  const [generatingReport, setGeneratingReport] = useState(false);
+  const [aiReport, setAiReport] = useState<any>(null);
+
+  const handleGenerateReport = () => {
+    setGeneratingReport(true);
+    setTimeout(() => {
+      setAiReport({
+        topSellers: ['原味雞蛋仔', '凍檸茶', '朱古力雞蛋仔'],
+        worstSellers: ['熱水', '普通紙杯'],
+        actionableAdvice: '週末下午 3 點至 5 點為黃金銷售時段，建議在此時段推出「雞蛋仔+凍檸茶」的下午茶限定套餐，預計可提升 15% 營收。',
+        trendInsight: '本月「朱古力雞蛋仔」銷量相比上月增長 20%，可能有持續上升趨勢，建議增加對應原料庫存。'
+      });
+      setGeneratingReport(false);
+    }, 2000);
+  };
+
   useEffect(() => {
     // 預留加載數據的邏輯
   }, [])
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">控制面板 Dashboard</h1>
-        <p className="text-gray-500 mt-1">歡迎回來，{user?.name || '管理員'}</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">控制面板與 AI 分析</h1>
+          <p className="text-gray-500 mt-1">歡迎回來，{user?.name || '管理員'}。檢視今日營收與 AI 財務分析報告。</p>
+        </div>
+        <Button onClick={handleGenerateReport} disabled={generatingReport}>
+          {generatingReport ? (
+            <span className="flex items-center"><Sparkles className="w-4 h-4 mr-2 animate-spin" /> 報告生成中...</span>
+          ) : (
+            <span className="flex items-center"><BarChart4 className="w-4 h-4 mr-2" /> 一鍵生成 AI 銷售報告</span>
+          )}
+        </Button>
       </div>
 
       {/* Stats Grid */}
@@ -83,8 +112,51 @@ export function DashboardPage() {
         </Card>
       </div>
 
+      {/* AI Report Section */}
+      {aiReport && (
+        <Card className="bg-blue-50 border-blue-200">
+          <CardHeader>
+            <CardTitle className="text-blue-900 flex items-center gap-2"><Sparkles className="w-5 h-5" /> AI 銷售分析與洞察報告</CardTitle>
+            <CardDescription className="text-blue-700">基於近期銷售與財務數據生成的智能報告</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <div>
+                  <h4 className="font-bold text-blue-900 mb-2">暢銷與滯銷分析</h4>
+                  <div className="flex gap-4">
+                    <div className="flex-1 bg-white p-3 rounded-md shadow-sm">
+                      <p className="text-xs text-gray-500 mb-1">Top 3 暢銷產品</p>
+                      <ul className="list-disc pl-4 text-sm text-green-700 font-medium">
+                        {aiReport.topSellers.map((item: string) => <li key={item}>{item}</li>)}
+                      </ul>
+                    </div>
+                    <div className="flex-1 bg-white p-3 rounded-md shadow-sm">
+                      <p className="text-xs text-gray-500 mb-1">需注意的滯銷產品</p>
+                      <ul className="list-disc pl-4 text-sm text-red-700 font-medium">
+                        {aiReport.worstSellers.map((item: string) => <li key={item}>{item}</li>)}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-yellow-400">
+                  <h4 className="font-bold text-gray-900 flex items-center gap-2 mb-2"><AlertCircle className="w-4 h-4 text-yellow-500" /> 可行動建議 (Actionable Advice)</h4>
+                  <p className="text-sm text-gray-700">{aiReport.actionableAdvice}</p>
+                </div>
+                <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-blue-400">
+                  <h4 className="font-bold text-gray-900 flex items-center gap-2 mb-2"><TrendingUp className="w-4 h-4 text-blue-500" /> 銷售趨勢洞察</h4>
+                  <p className="text-sm text-gray-700">{aiReport.trendInsight}</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Charts Section */}
-      <Card className="col-span-3">
+      <Card>
         <CardHeader>
           <CardTitle>現金流趨勢圖表 (Cash Flow Trend)</CardTitle>
         </CardHeader>

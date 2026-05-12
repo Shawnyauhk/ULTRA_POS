@@ -8,6 +8,10 @@ import { POSPage } from '@/pages/POSPage'
 import ExpensesPage from '@/pages/ExpensesPage'
 import PayrollPage from '@/pages/PayrollPage'
 import SettingsPage from '@/pages/SettingsPage'
+import { ProductsPage } from '@/pages/ProductsPage'
+import { InventoryPage } from '@/pages/InventoryPage'
+import { OrderRequestsPage } from '@/pages/OrderRequestsPage'
+import { AIChatPage } from '@/pages/AIChatPage'
 import { useState, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
 
@@ -61,9 +65,13 @@ export default function App() {
             <AppLayout>
               <Routes>
                 <Route path="/" element={<DashboardPage />} />
-                <Route path="/pos" element={<POSPage />} />
+                <Route path="/pos-order" element={<POSPage />} />
+                <Route path="/orders" element={<OrderRequestsPage />} />
+                <Route path="/products" element={<ProductsPage />} />
+                <Route path="/inventory" element={<InventoryPage />} />
                 <Route path="/expenses" element={<ExpensesPage />} />
                 <Route path="/payroll" element={<PayrollPage />} />
+                <Route path="/ai-marketing" element={<AIChatPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Routes>
             </AppLayout>

@@ -3,18 +3,28 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard,
   Calculator,
+  ShoppingBag,
+  Package,
+  Coffee,
   Receipt,
   Users,
+  MessageSquare,
+  Megaphone,
   Settings,
+  BarChart3
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 
 const menuItems = [
-  { path: '/', label: '控制面板 Dashboard', icon: LayoutDashboard },
-  { path: '/pos', label: 'POS 收銀管理', icon: Calculator },
-  { path: '/expenses', label: '門店支出 Expenses', icon: Receipt },
-  { path: '/payroll', label: '員工考勤與薪酬', icon: Users },
-  { path: '/settings', label: '系統設置 Settings', icon: Settings },
+  { path: '/', label: '控制面板與AI分析', icon: LayoutDashboard },
+  { path: '/pos-order', label: 'POS 點餐系統', icon: ShoppingBag },
+  { path: '/orders', label: '訂貨與訂單管理', icon: Receipt },
+  { path: '/products', label: '產品管理', icon: Coffee },
+  { path: '/inventory', label: '庫存與補貨', icon: Package },
+  { path: '/expenses', label: '財務、支出與結算', icon: Calculator },
+  { path: '/payroll', label: '員工與薪酬', icon: Users },
+  { path: '/ai-marketing', label: 'AI 行銷與客服', icon: Megaphone },
+  { path: '/settings', label: '系統設置', icon: Settings },
 ]
 
 export function Sidebar() {

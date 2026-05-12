@@ -40,12 +40,24 @@ export default function PayrollPage() {
         <Card>
           <CardHeader>
             <CardTitle>拖曳上傳考勤表</CardTitle>
-            <CardDescription>支援 PDF / CSV / XLSX 格式，自動識別欄位</CardDescription>
+            <CardDescription>支援 EXCEL (.xlsx, .csv) 及 圖片 (jpg, png) 格式</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center cursor-pointer hover:border-primary transition-colors">
+            <div 
+              className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center cursor-pointer hover:border-primary transition-colors relative"
+              onClick={() => document.getElementById('attendance-upload')?.click()}
+            >
+              <input 
+                type="file" 
+                id="attendance-upload" 
+                className="hidden" 
+                accept=".xlsx,.csv,image/jpeg,image/png" 
+                onChange={(e) => {
+                  if (e.target.files?.[0]) alert(`已上傳檔案: ${e.target.files[0].name}，交由 AI 解析中...`);
+                }}
+              />
               <Upload className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-lg font-medium">拖曳檔案至此，或點擊上傳</p>
+              <p className="text-lg font-medium">點擊或拖曳檔案至此</p>
               <p className="text-sm text-muted-foreground mt-2">系統將自動過濾雜訊並合併同名工時</p>
             </div>
             
