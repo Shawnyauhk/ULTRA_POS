@@ -2,29 +2,19 @@ import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard,
-  Users,
-  Clock,
-  CalendarDays,
-  Package,
-  ShoppingCart,
-  Coffee,
+  Calculator,
   Receipt,
-  BarChart3,
-  MessageSquare,
+  Users,
+  Settings,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 
 const menuItems = [
-  { path: '/', label: '儀表板', icon: LayoutDashboard },
-  { path: '/employees', label: '員工管理', icon: Users, roles: ['owner', 'manager'] },
-  { path: '/attendance', label: '打卡記錄', icon: Clock },
-  { path: '/schedules', label: '排班管理', icon: CalendarDays },
-  { path: '/inventory', label: '倉庫存貨', icon: Package },
-  { path: '/orders', label: '訂貨管理', icon: ShoppingCart },
-  { path: '/products', label: '產品管理', icon: Coffee, roles: ['owner', 'manager'] },
-  { path: '/expenses', label: '支出記帳', icon: Receipt, roles: ['owner', 'manager'] },
-  { path: '/reports', label: '數據報表', icon: BarChart3, roles: ['owner', 'manager'] },
-  { path: '/ai-chat', label: 'AI 客服', icon: MessageSquare },
+  { path: '/', label: '控制面板 Dashboard', icon: LayoutDashboard },
+  { path: '/pos', label: 'POS 收銀管理', icon: Calculator },
+  { path: '/expenses', label: '門店支出 Expenses', icon: Receipt },
+  { path: '/payroll', label: '員工考勤與薪酬', icon: Users },
+  { path: '/settings', label: '系統設置 Settings', icon: Settings },
 ]
 
 export function Sidebar() {
@@ -68,8 +58,10 @@ export function Sidebar() {
       </nav>
       <div className="p-4 border-t border-gray-200">
         <div className="text-sm text-gray-500">
+          <p className="font-semibold text-gray-900">Multi-Tenant SaaS</p>
+          <p className="text-xs">總店 - 管理後台</p>
           {user && (
-            <div>
+            <div className="mt-4 pt-4 border-t border-gray-200">
               <p className="font-medium text-gray-900">{user.name}</p>
               <p className="text-xs">{user.role === 'owner' ? '店主' : user.role === 'manager' ? '主管' : '員工'}</p>
             </div>

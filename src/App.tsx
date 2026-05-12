@@ -4,15 +4,12 @@ import { Sidebar } from '@/components/layout/Sidebar'
 import { TopBar } from '@/components/layout/TopBar'
 import { LoginPage } from '@/pages/LoginPage'
 import { DashboardPage } from '@/pages/DashboardPage'
-import { EmployeesPage } from '@/pages/EmployeesPage'
-import { AttendancePage } from '@/pages/AttendancePage'
-import { SchedulesPage } from '@/pages/SchedulesPage'
-import { InventoryPage } from '@/pages/InventoryPage'
-import { OrderRequestsPage } from '@/pages/OrderRequestsPage'
-import { ProductsPage } from '@/pages/ProductsPage'
+import { POSPage } from '@/pages/POSPage'
 import ExpensesPage from '@/pages/ExpensesPage'
-import ReportsPage from '@/pages/ReportsPage'
-import { AIChatPage } from '@/pages/AIChatPage'
+import PayrollPage from '@/pages/PayrollPage'
+import SettingsPage from '@/pages/SettingsPage'
+import { useState, useEffect } from 'react'
+import { Loader2 } from 'lucide-react'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuthStore()
@@ -35,6 +32,25 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const [isInitializing, setIsInitializing] = useState(true);
+
+  useEffect(() => {
+    // 模擬系統初始化加載
+    const timer = setTimeout(() => {
+      setIsInitializing(false);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (isInitializing) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-gray-50">
+        <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
+        <p className="text-lg font-medium text-gray-700">正在同步雲端數據...</p>
+      </div>
+    );
+  }
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
@@ -45,15 +61,10 @@ export default function App() {
             <AppLayout>
               <Routes>
                 <Route path="/" element={<DashboardPage />} />
-                <Route path="/employees" element={<EmployeesPage />} />
-                <Route path="/attendance" element={<AttendancePage />} />
-                <Route path="/schedules" element={<SchedulesPage />} />
-                <Route path="/inventory" element={<InventoryPage />} />
-                <Route path="/orders" element={<OrderRequestsPage />} />
-                <Route path="/products" element={<ProductsPage />} />
+                <Route path="/pos" element={<POSPage />} />
                 <Route path="/expenses" element={<ExpensesPage />} />
-                <Route path="/reports" element={<ReportsPage />} />
-                <Route path="/ai-chat" element={<AIChatPage />} />
+                <Route path="/payroll" element={<PayrollPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
               </Routes>
             </AppLayout>
           </ProtectedRoute>
