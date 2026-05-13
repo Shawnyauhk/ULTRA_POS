@@ -238,7 +238,7 @@ export function useOrderRequests() {
       setLoading(true)
       const { data, error: fetchError } = await supabase
         .from('order_requests')
-        .select('*, employee:employees(*), items:order_request_items(*)')
+        .select('*, employee:employees(*), items:order_request_items(*, inventory:inventory(*))')
         .eq('restaurant_id', DEMO_RESTAURANT_ID)
         .order('created_at', { ascending: false })
 

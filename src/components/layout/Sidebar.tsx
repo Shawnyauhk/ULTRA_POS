@@ -18,7 +18,7 @@ import { useAuthStore } from '@/stores/auth'
 const menuItems = [
   { path: '/', label: '控制面板與AI分析', icon: LayoutDashboard },
   { path: '/pos-order', label: 'POS 點餐系統', icon: ShoppingBag },
-  { path: '/orders', label: '訂貨與訂單管理', icon: Receipt },
+  { path: '/orders', label: '訂貨管理', icon: Receipt },
   { path: '/products', label: '產品管理', icon: Coffee },
   { path: '/inventory', label: '庫存與補貨', icon: Package },
   { path: '/expenses', label: '財務、支出與結算', icon: Calculator },
