@@ -1,10 +1,10 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
-import { Coffee, Upload, Image as ImageIcon, FileSpreadsheet, Loader2, Plus, Edit2, Save, X, Search, RefreshCw } from 'lucide-react';
+import { Coffee, Image as ImageIcon, FileSpreadsheet, Loader2, Plus, Edit2, Save, X, Search, RefreshCw, ChevronRight, ChevronDown, FolderOpen } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import * as XLSX from 'xlsx';
 import { useProducts } from '@/hooks/useSupabaseData';
@@ -27,12 +27,35 @@ export function ProductsPage() {
   const [aiImporting, setAiImporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
   const filteredProducts = products.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = selectedCategory === 'all' || p.category_id === selectedCategory;
     return matchesSearch && matchesCategory;
   });
+
+  // 按分類分組產品
+  const categoryMap = new Map<string, { categoryId: string; categoryName: string; products: Product[] }>();
+  for (const p of filteredProducts) {
+    const catId = p.category_id || 'uncategorized';
+    const catName = p.category?.name || '未分類';
+    if (!categoryMap.has(catId)) {
+      categoryMap.set(catId, { categoryId: catId, categoryName: catName, products: [] });
+    }
+    categoryMap.get(catId)!.products.push(p);
+  }
+  // 按分類排序（有產品數量多的在前）
+  const sortedGroups = Array.from(categoryMap.values()).sort((a, b) => b.products.length - a.products.length);
+
+  const toggleCategory = (catId: string) => {
+    setExpandedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(catId)) next.delete(catId);
+      else next.add(catId);
+      return next;
+    });
+  };
 
   // =========== Excel 導入 ===========
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -294,9 +317,6 @@ export function ProductsPage() {
         <Button variant="ghost" size="sm" onClick={refetch}>
           <RefreshCw className="w-4 h-4" />
         </Button>
-        <Badge variant="secondary" className="text-sm">
-          共 {filteredProducts.length} 項產品
-        </Badge>
       </div>
 
       {/* 新增/編輯 Modal */}
@@ -346,10 +366,16 @@ export function ProductsPage() {
         </div>
       )}
 
-      {/* 產品列表 */}
+      {/* 產品列表 - 分類展開式 */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Coffee className="w-5 h-5" /> 產品列表</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <FolderOpen className="w-5 h-5" />
+            產品列表
+            <Badge variant="secondary" className="ml-2 text-sm">
+              共 {filteredProducts.length} 項產品
+            </Badge>
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -357,53 +383,86 @@ export function ProductsPage() {
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
               <span className="ml-2">載入中...</span>
             </div>
-          ) : filteredProducts.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3">名稱</th>
-                    <th className="px-4 py-3">分類</th>
-                    <th className="px-4 py-3">價格</th>
-                    <th className="px-4 py-3">狀態</th>
-                    <th className="px-4 py-3">描述</th>
-                    <th className="px-4 py-3">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredProducts.map(product => (
-                    <tr key={product.id} className="border-b hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium">{product.name}</td>
-                      <td className="px-4 py-3">
-                        <Badge variant="outline">{product.category?.name || '未分類'}</Badge>
-                      </td>
-                      <td className="px-4 py-3">${product.price}</td>
-                      <td className="px-4 py-3">
-                        <Badge variant={product.status === 'available' ? 'default' : 'secondary'}>
-                          {product.status === 'available' ? '供應中' : product.status === 'sold_out' ? '售罄' : '已下架'}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 max-w-xs truncate">{product.description || '—'}</td>
-                      <td className="px-4 py-3 flex gap-2">
-                        <Button size="icon" variant="ghost" onClick={() => openEditModal(product)}>
-                          <Edit2 className="w-4 h-4" />
-                        </Button>
-                        <Button size="icon" variant="ghost" onClick={() => handleDeleteProduct(product.id)}>
-                          <X className="w-4 h-4 text-red-500" />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
+          ) : filteredProducts.length === 0 ? (
             <div className="text-center py-12 text-gray-400">
               <Coffee className="w-12 h-12 mx-auto mb-4 opacity-20" />
               <p>目前沒有產品，請點擊上方按鈕導入或手動新增。</p>
               <p className="text-sm mt-2">
                 支援 Excel 導入 或 使用 AI 從圖片自動識別產品
               </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {sortedGroups.map(group => {
+                const isExpanded = expandedCategories.has(group.categoryId);
+                return (
+                  <div key={group.categoryId} className="border rounded-lg overflow-hidden">
+                    {/* 分類標題 */}
+                    <button
+                      onClick={() => toggleCategory(group.categoryId)}
+                      className="w-full flex items-center justify-between px-5 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+                    >
+                      <div className="flex items-center gap-3">
+                        {isExpanded ? (
+                          <ChevronDown className="w-5 h-5 text-gray-400" />
+                        ) : (
+                          <ChevronRight className="w-5 h-5 text-gray-400" />
+                        )}
+                        <span className="font-semibold text-gray-800">{group.categoryName}</span>
+                        <Badge variant="secondary" className="text-xs">
+                          {group.products.length} 項
+                        </Badge>
+                      </div>
+                      <ChevronRight
+                        className={`w-4 h-4 text-gray-400 transition-transform ${
+                          isExpanded ? 'rotate-90' : ''
+                        }`}
+                      />
+                    </button>
+
+                    {/* 展開後的產品列表 */}
+                    {isExpanded && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                          <thead className="text-xs text-gray-700 uppercase bg-gray-50/50">
+                            <tr>
+                              <th className="px-4 py-2">名稱</th>
+                              <th className="px-4 py-2">價格</th>
+                              <th className="px-4 py-2">狀態</th>
+                              <th className="px-4 py-2">描述</th>
+                              <th className="px-4 py-2">操作</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {group.products.map(product => (
+                              <tr key={product.id} className="border-t hover:bg-gray-50">
+                                <td className="px-4 py-2.5 font-medium">{product.name}</td>
+                                <td className="px-4 py-2.5">${product.price}</td>
+                                <td className="px-4 py-2.5">
+                                  <Badge variant={product.status === 'available' ? 'default' : 'secondary'}>
+                                    {product.status === 'available' ? '供應中' : product.status === 'sold_out' ? '售罄' : '已下架'}
+                                  </Badge>
+                                </td>
+                                <td className="px-4 py-2.5 text-gray-500 max-w-xs truncate">
+                                  {product.description || '—'}
+                                </td>
+                                <td className="px-4 py-2.5 flex gap-2">
+                                  <Button size="icon" variant="ghost" onClick={() => openEditModal(product)}>
+                                    <Edit2 className="w-4 h-4" />
+                                  </Button>
+                                  <Button size="icon" variant="ghost" onClick={() => handleDeleteProduct(product.id)}>
+                                    <X className="w-4 h-4 text-red-500" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>
