@@ -73,12 +73,15 @@ function ReportsContent() {
     const totalCatAmount = sortedCats.reduce((sum, [, v]) => sum + v, 0);
     const categoryData: CategoryData[] = sortedCats.map(([category, amount]) => ({ category, amount, percentage: totalCatAmount > 0 ? Math.round((amount / totalCatAmount) * 100) : 0 }));
 
+    const totalSalesCalc = salesData.reduce((sum, s) => sum + s.amount, 0);
+    const totalOrdersCalc = salesData.reduce((sum, s) => sum + s.orders, 0);
+
     return {
       sales: salesData.length > 0 ? salesData : [{ date: now.toISOString().split('T')[0], amount: 0, orders: 0 }],
       categories: categoryData.length > 0 ? categoryData : [{ category: '暫無數據', amount: 0, percentage: 100 }],
-      totalSales: salesData.reduce((sum, s) => sum + s.amount, 0),
-      totalOrders: salesData.reduce((sum, s) => sum + s.orders, 0),
-      avgOrderValue: totalOrders > 0 ? totalSales / totalOrders : 0,
+      totalSales: totalSalesCalc,
+      totalOrders: totalOrdersCalc,
+      avgOrderValue: totalOrdersCalc > 0 ? totalSalesCalc / totalOrdersCalc : 0,
     };
   }, [orders, period]);
 

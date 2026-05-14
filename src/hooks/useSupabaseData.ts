@@ -779,10 +779,21 @@ export function useExpenses(month?: string) {
 
       if (insertError) throw insertError
       await fetchExpenses()
-      return true
-    } catch (err) {
+      return { success: true }
+    } catch (err: any) {
       console.error('Error creating expense:', err)
-      return false
+      // 嘗試提取所有可能的錯誤訊息
+      let errMsg = ''
+      if (typeof err === 'string') errMsg = err
+      else if (err?.message) errMsg = err.message
+      else if (err?.error_description) errMsg = err.error_description
+      else if (err?.details) errMsg = err.details
+      else if (err?.code === '42501') errMsg = 'RLS 權限不足，請執行 SQL 添加 anon 權限策略'
+      else {
+        try { errMsg = JSON.stringify(err) } catch { errMsg = '未知錯誤' }
+      }
+      console.error('Detailed expense error:', errMsg)
+      return { success: false, error: errMsg }
     }
   }
 

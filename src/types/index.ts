@@ -126,6 +126,8 @@ export interface Expense {
   receipt_url?: string
   expense_date: string
   handler?: string
+  payment_status?: 'cash' | 'bank' | 'unpaid'
+  supplier?: string
   created_at: string
 }
 

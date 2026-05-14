@@ -34,6 +34,8 @@ interface FormExpense {
   description: string;
   handler: string;
   expense_date: string;
+  payment_status: string;
+  supplier: string;
 }
 
 export default function ExpensesPage() {
@@ -53,6 +55,8 @@ export default function ExpensesPage() {
 
   // Settlement State
   const [revenue, setRevenue] = useState({ cash: '', octopus: '', alipay_wechat: '', delivery: '' });
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
 
   // AI OCR States
@@ -67,9 +71,15 @@ export default function ExpensesPage() {
     description: '',
     handler: '',
     expense_date: new Date().toISOString().split('T')[0],
+    payment_status: '',
+    supplier: '',
   });
 
   const handleAddExpense = async () => {
+    if (!newExpense.payment_status) {
+      setErrorMessage('請選擇付款狀態（現金已付 / 銀行已付 / 未付）');
+      return;
+    }
     setSaving(true);
     const expenseData = {
       category: labelToCategory(newExpense.category),
@@ -78,14 +88,17 @@ export default function ExpensesPage() {
         ? `${newExpense.description} (經手人: ${newExpense.handler})`
         : newExpense.description,
       expense_date: newExpense.expense_date,
+      payment_status: newExpense.payment_status,
+      supplier: newExpense.supplier,
     };
-    const success = await createExpense(expenseData);
-    if (!success) alert('新增支出失敗');
+    const result = await createExpense(expenseData);
+    if (!result.success) setErrorMessage('新增支出失敗：' + (result as any).error);
     setSaving(false);
     setShowAddForm(false);
     setNewExpense({
       category: '進貨成本', amount: 0, description: '', handler: '',
       expense_date: new Date().toISOString().split('T')[0],
+      payment_status: '', supplier: '',
     });
   };
 
@@ -100,16 +113,18 @@ export default function ExpensesPage() {
         : editForm.description;
     }
     if (editForm.expense_date) updates.expense_date = editForm.expense_date;
+    if (editForm.payment_status) updates.payment_status = editForm.payment_status;
+    if (editForm.supplier !== undefined) updates.supplier = editForm.supplier;
     const success = await updateExpense(id, updates);
-    if (!success) alert('更新支出失敗');
+    if (!success) setErrorMessage('更新支出失敗');
     setSaving(false);
     setEditingId(null);
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('確定刪除此筆支出？')) return;
+    setDeleteConfirmId(null);
     const success = await deleteExpense(id);
-    if (!success) alert('刪除支出失敗');
+    if (!success) setErrorMessage('刪除支出失敗');
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -144,9 +159,10 @@ export default function ExpensesPage() {
 2. 日期 (date，格式 YYYY-MM-DD)
 3. 分類 (category，只能是以下之一：進貨成本、租金、水電瓦斯、薪資、設備雜支、其他)
 4. 項目描述 (description)
+5. 供應商/店鋪名稱 (supplier，如收據上有店名則提取，否則設為空字串)
 
 請以 JSON 格式回覆，格式如下：
-{"amount": 數字, "date": "日期字串", "category": "分類", "description": "描述"}
+{"amount": 數字, "date": "日期字串", "category": "分類", "description": "描述", "supplier": "供應商名稱"}
 
 只回覆 JSON，不要有其他文字。`
                   }
@@ -175,11 +191,13 @@ export default function ExpensesPage() {
             category: cat,
             description: parsed.description || '',
             handler: 'AI',
+            payment_status: '',
+            supplier: parsed.supplier || '',
           });
         }
       } catch (err) {
         console.error('OCR 識別失敗:', err);
-        alert('OCR 識別失敗，請確認 NVIDIA NIM API Key 是否正確');
+        setErrorMessage('OCR 識別失敗，請確認 NVIDIA NIM API Key 是否正確');
       }
     };
     reader.readAsDataURL(file);
@@ -187,17 +205,21 @@ export default function ExpensesPage() {
 
   const handleOCRConfirm = async () => {
     if (!ocrResult) return;
+    if (!ocrResult.payment_status) {
+      setErrorMessage('請選擇付款狀態（現金已付 / 銀行已付 / 未付）');
+      return;
+    }
     setSaving(true);
     const expenseData = {
       category: labelToCategory(ocrResult.category),
       amount: ocrResult.amount,
-      description: ocrResult.handler
-        ? `${ocrResult.description} (經手人: ${ocrResult.handler})`
-        : ocrResult.description,
+      description: ocrResult.description,
       expense_date: ocrResult.expense_date,
+      payment_status: ocrResult.payment_status,
+      supplier: ocrResult.supplier || '',
     };
-    const success = await createExpense(expenseData);
-    if (!success) alert('OCR 保存失敗');
+    const result = await createExpense(expenseData);
+    if (!result.success) setErrorMessage('OCR 保存失敗：' + (result as any).error);
     setSaving(false);
     setShowOCR(false);
     setOcrPreview(null);
@@ -220,7 +242,7 @@ export default function ExpensesPage() {
       {activeTab === 'expenses' ? (
         <div className="space-y-6 animate-in fade-in">
           <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => setShowOCR(!showOCR)}><Sparkles className="w-4 h-4 mr-2" /> NVIDIA AI 掃描收據</Button>
+            <Button variant="outline" onClick={() => setShowOCR(!showOCR)}><Sparkles className="w-4 h-4 mr-2" /> AI 掃描收據</Button>
             <Button onClick={() => setShowAddForm(true)}><Receipt className="w-4 h-4 mr-2" /> 手動記帳</Button>
           </div>
 
@@ -243,7 +265,21 @@ export default function ExpensesPage() {
                           <p className="font-medium">解析結果：</p>
                           <p>金額：${ocrResult.amount}</p>
                           <p>分類：{ocrResult.category}</p>
+                          <p>供應商：{ocrResult.supplier || '—'}</p>
                           <p>描述：{ocrResult.description}</p>
+                          <div>
+                            <label className="text-sm font-medium">付款狀態</label>
+                            <select
+                              value={ocrResult.payment_status}
+                              onChange={(e) => setOcrResult({ ...ocrResult, payment_status: e.target.value })}
+                              className="w-full border rounded-md px-3 py-2 text-sm mt-1"
+                            >
+                              <option value="">-- 請選擇 --</option>
+                              <option value="cash">現金已付</option>
+                              <option value="bank">銀行已付</option>
+                              <option value="unpaid">未付</option>
+                            </select>
+                          </div>
                           <Button onClick={handleOCRConfirm} disabled={saving}>
                             {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                             確認添加到資料庫
@@ -266,7 +302,7 @@ export default function ExpensesPage() {
             <Card>
               <CardHeader><CardTitle>新增支出</CardTitle></CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid md:grid-cols-3 gap-4">
+                <div className="grid md:grid-cols-4 gap-4">
                   <div>
                     <label>金額 (HKD)</label>
                     <Input type="number" value={newExpense.amount || ''}
@@ -284,6 +320,11 @@ export default function ExpensesPage() {
                       options={CATEGORY_DISPLAY.map(c => ({ value: c.label, label: c.label }))} />
                   </div>
                   <div>
+                    <label>供應商</label>
+                    <Input value={newExpense.supplier || ''}
+                      onChange={e => setNewExpense({...newExpense, supplier: e.target.value})} />
+                  </div>
+                  <div>
                     <label>描述</label>
                     <Input value={newExpense.description || ''}
                       onChange={e => setNewExpense({...newExpense, description: e.target.value})} />
@@ -292,6 +333,19 @@ export default function ExpensesPage() {
                     <label>經手人</label>
                     <Input value={newExpense.handler || ''}
                       onChange={e => setNewExpense({...newExpense, handler: e.target.value})} />
+                  </div>
+                  <div>
+                    <label>付款狀態</label>
+                    <select
+                      value={newExpense.payment_status}
+                      onChange={e => setNewExpense({...newExpense, payment_status: e.target.value})}
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                    >
+                      <option value="">-- 請選擇 --</option>
+                      <option value="cash">現金已付</option>
+                      <option value="bank">銀行已付</option>
+                      <option value="unpaid">未付</option>
+                    </select>
                   </div>
                 </div>
                 <div className="flex gap-2 justify-end">
@@ -330,9 +384,11 @@ export default function ExpensesPage() {
                       <tr>
                         <th className="px-4 py-3">日期</th>
                         <th className="px-4 py-3">類別</th>
+                        <th className="px-4 py-3">供應商</th>
                         <th className="px-4 py-3">項目描述</th>
                         <th className="px-4 py-3">金額</th>
                         <th className="px-4 py-3">經手人</th>
+                        <th className="px-4 py-3">付款狀態</th>
                         <th className="px-4 py-3">操作</th>
                       </tr>
                     </thead>
@@ -355,6 +411,11 @@ export default function ExpensesPage() {
                                     options={CATEGORY_DISPLAY.map(c => ({value: c.label, label: c.label}))} />
                                 </td>
                                 <td className="px-4 py-2">
+                                  <Input value={editForm.supplier ?? (expense.supplier || '')}
+                                    onChange={e => setEditForm({...editForm, supplier: e.target.value})}
+                                    placeholder="供應商" />
+                                </td>
+                                <td className="px-4 py-2">
                                   <Input value={editForm.description ?? displayDescription}
                                     onChange={e => setEditForm({...editForm, description: e.target.value})} />
                                 </td>
@@ -365,6 +426,18 @@ export default function ExpensesPage() {
                                 <td className="px-4 py-2">
                                   <Input value={editForm.handler ?? displayHandler}
                                     onChange={e => setEditForm({...editForm, handler: e.target.value})} />
+                                </td>
+                                <td className="px-4 py-2">
+                                  <select
+                                    value={editForm.payment_status ?? (expense.payment_status || 'unpaid')}
+                                    onChange={e => setEditForm({...editForm, payment_status: e.target.value})}
+                                    className="border rounded px-2 py-1 text-sm w-full"
+                                  >
+                                    <option value="">-- 請選擇 --</option>
+                                    <option value="cash">現金已付</option>
+                                    <option value="bank">銀行已付</option>
+                                    <option value="unpaid">未付</option>
+                                  </select>
                                 </td>
                                 <td className="px-4 py-2 flex gap-2">
                                   <Button size="icon" variant="ghost" onClick={() => handleSaveEdit(expense.id)} disabled={saving}>
@@ -379,12 +452,18 @@ export default function ExpensesPage() {
                               <>
                                 <td className="px-4 py-3">{expense.expense_date}</td>
                                 <td className="px-4 py-3"><Badge variant="secondary">{categoryToLabel(expense.category)}</Badge></td>
+                                <td className="px-4 py-3">{expense.supplier || '—'}</td>
                                 <td className="px-4 py-3">{displayDescription}</td>
                                 <td className="px-4 py-3 font-medium">${expense.amount}</td>
                                 <td className="px-4 py-3">
                                   <div className="flex items-center gap-1">
                                     <User className="w-3 h-3" />{displayHandler}
                                   </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  {expense.payment_status === 'cash' && <Badge className="bg-green-100 text-green-800">現金已付</Badge>}
+                                  {expense.payment_status === 'bank' && <Badge className="bg-blue-100 text-blue-800">銀行已付</Badge>}
+                                  {(!expense.payment_status || expense.payment_status === 'unpaid') && <Badge variant="destructive">未付</Badge>}
                                 </td>
                                 <td className="px-4 py-3 flex gap-2">
                                   <Button size="icon" variant="ghost"
@@ -396,11 +475,13 @@ export default function ExpensesPage() {
                                         description: displayDescription,
                                         amount: expense.amount,
                                         handler: displayHandler,
+                                        payment_status: expense.payment_status || 'unpaid',
+                                        supplier: expense.supplier || '',
                                       });
                                     }}>
                                     <Edit2 className="w-4 h-4" />
                                   </Button>
-                                  <Button size="icon" variant="ghost" onClick={() => handleDelete(expense.id)}>
+                                  <Button size="icon" variant="ghost" onClick={() => setDeleteConfirmId(expense.id)}>
                                     <Trash2 className="w-4 h-4 text-red-500" />
                                   </Button>
                                 </td>
@@ -454,6 +535,37 @@ export default function ExpensesPage() {
                 <Camera className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                 <p className="text-lg font-medium">AI 結算圖片上傳</p>
                 <p className="text-sm text-muted-foreground mt-1">系統將自動比對「理論現金」與「實際現金庫存」</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Error Message Modal */}
+      {errorMessage && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md mx-4">
+            <CardHeader><CardTitle>錯誤</CardTitle></CardHeader>
+            <CardContent>
+              <p className="text-gray-700 mb-4 whitespace-pre-wrap text-sm">{errorMessage}</p>
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => setErrorMessage(null)}>關閉</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-sm mx-4">
+            <CardHeader><CardTitle>確認刪除</CardTitle></CardHeader>
+            <CardContent>
+              <p className="text-gray-600 mb-4">確定要刪除此筆支出記錄？此操作無法復原。</p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>取消</Button>
+                <Button variant="destructive" onClick={() => handleDelete(deleteConfirmId)}>確認刪除</Button>
               </div>
             </CardContent>
           </Card>
