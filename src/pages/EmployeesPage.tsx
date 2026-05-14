@@ -4,8 +4,10 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
+import { useEmployees } from '@/hooks/useSupabaseData'
+import { supabase } from '@/lib/supabase'
 import type { Employee } from '@/types'
 
 const roleLabels: Record<string, string> = {
@@ -16,44 +18,38 @@ const roleLabels: Record<string, string> = {
 
 export function EmployeesPage() {
   const { user } = useAuthStore()
-  const [employees, setEmployees] = useState<Employee[]>([])
-  const [loading] = useState(true)
+  const { employees, loading, refetch, addEmployee, updateEmployee, deleteEmployee } = useEmployees()
   const [showModal, setShowModal] = useState(false)
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null)
+  const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
     email: '',
     role: 'staff' as Employee['role'],
     hourly_rate: 50,
+    monthly_salary: undefined as number | undefined,
     hire_date: new Date().toISOString().split('T')[0],
   })
 
-  useEffect(() => {
-    // Demo data
-    setEmployees([
-      { id: '1', restaurant_id: 'demo', name: '張三', phone: '91234567', email: 'zhangsan@test.com', role: 'owner', monthly_salary: 25000, hire_date: '2024-01-01', is_active: true, created_at: '2024-01-01' },
-      { id: '2', restaurant_id: 'demo', name: '李四', phone: '92345678', email: 'lisi@test.com', role: 'manager', monthly_salary: 18000, hire_date: '2024-03-15', is_active: true, created_at: '2024-03-15' },
-      { id: '3', restaurant_id: 'demo', name: '王五', phone: '93456789', email: 'wangwu@test.com', role: 'staff', hourly_rate: 55, hire_date: '2024-06-01', is_active: true, created_at: '2024-06-01' },
-      { id: '4', restaurant_id: 'demo', name: '趙六', phone: '94567890', email: 'zhaoliu@test.com', role: 'staff', hourly_rate: 50, hire_date: '2024-08-20', is_active: true, created_at: '2024-08-20' },
-    ])
-    // Demo data loaded
-  }, [])
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (editingEmployee) {
-      setEmployees(employees.map(emp => emp.id === editingEmployee.id ? { ...emp, ...formData } : emp))
-    } else {
-      const newEmployee: Employee = {
-        id: Date.now().toString(),
-        restaurant_id: 'demo',
-        ...formData,
-        is_active: true,
-        created_at: new Date().toISOString(),
-      }
-      setEmployees([...employees, newEmployee])
+    setSaving(true)
+    const empData = {
+      name: formData.name,
+      phone: formData.phone || undefined,
+      email: formData.email || undefined,
+      role: formData.role,
+      hourly_rate: formData.role === 'staff' ? formData.hourly_rate : undefined,
+      monthly_salary: formData.role !== 'staff' ? (formData.monthly_salary || 0) : undefined,
+      hire_date: formData.hire_date,
     }
+    if (editingEmployee) {
+      await updateEmployee(editingEmployee.id, empData)
+    } else {
+      await addEmployee(empData)
+    }
+    setSaving(false)
     setShowModal(false)
     setEditingEmployee(null)
     resetForm()
@@ -67,14 +63,15 @@ export function EmployeesPage() {
       email: employee.email || '',
       role: employee.role,
       hourly_rate: employee.hourly_rate || 50,
+      monthly_salary: employee.monthly_salary || undefined,
       hire_date: employee.hire_date.split('T')[0],
     })
     setShowModal(true)
   }
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('確定要刪除此員工嗎？')) {
-      setEmployees(employees.filter(emp => emp.id !== id))
+      await deleteEmployee(id)
     }
   }
 
@@ -85,6 +82,7 @@ export function EmployeesPage() {
       email: '',
       role: 'staff',
       hourly_rate: 50,
+      monthly_salary: undefined,
       hire_date: new Date().toISOString().split('T')[0],
     })
   }
@@ -218,11 +216,20 @@ export function EmployeesPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-medium">時薪 ($)</label>
+                    <label className="text-sm font-medium">
+                      {formData.role === 'staff' ? '時薪 ($)' : '月薪 ($)'}
+                    </label>
                     <Input
                       type="number"
-                      value={formData.hourly_rate}
-                      onChange={(e) => setFormData({ ...formData, hourly_rate: Number(e.target.value) })}
+                      value={formData.role === 'staff' ? formData.hourly_rate : (formData.monthly_salary || 0)}
+                      onChange={(e) => {
+                        const val = Number(e.target.value)
+                        if (formData.role === 'staff') {
+                          setFormData({ ...formData, hourly_rate: val })
+                        } else {
+                          setFormData({ ...formData, monthly_salary: val })
+                        }
+                      }}
                     />
                   </div>
                   <div>

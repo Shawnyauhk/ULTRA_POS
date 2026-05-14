@@ -6,12 +6,18 @@ import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
 import { Coffee, Image as ImageIcon, FileSpreadsheet, Loader2, Plus, Edit2, Save, X, Search, RefreshCw, ChevronRight, ChevronDown, FolderOpen } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { useAuthStore } from '@/stores/auth';
 import * as XLSX from 'xlsx';
 import { useProducts } from '@/hooks/useSupabaseData';
+import { FALLBACK_RESTAURANT_ID } from '@/hooks/useSupabaseData';
 import { useRealtimeProducts } from '@/hooks/useRealtime';
 import type { Product, Category } from '@/types';
 
-const DEMO_RESTAURANT_ID = '00000000-0000-0000-0000-000000000001';
+
+function getRestaurantId(): string {
+  const user = useAuthStore.getState().user;
+  return user?.restaurant_id || FALLBACK_RESTAURANT_ID;
+}
 
 export function ProductsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -67,7 +73,7 @@ export function ProductsPage() {
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows: any[] = XLSX.utils.sheet_to_json(firstSheet);
       const parsed = rows.map(r => ({
-        restaurant_id: DEMO_RESTAURANT_ID,
+        restaurant_id: getRestaurantId(),
         name: r['name'] ?? r['product_name'] ?? '未命名',
         price: Number(r['price'] ?? r['price_hkd'] ?? 0),
         category_id: r['category_id'] || null,
@@ -160,7 +166,7 @@ export function ProductsPage() {
           if (!existingCat) {
             const { data: newCat, error: catError } = await supabase
               .from('categories')
-              .insert([{ restaurant_id: DEMO_RESTAURANT_ID, name: catName, sort_order: 99 }])
+              .insert([{ restaurant_id: getRestaurantId(), name: catName, sort_order: 99 }])
               .select()
               .single();
             if (!catError && newCat) {
@@ -175,7 +181,7 @@ export function ProductsPage() {
 
       // 批量插入產品
       const productsToInsert = aiProducts.map((item: any) => ({
-        restaurant_id: DEMO_RESTAURANT_ID,
+        restaurant_id: getRestaurantId(),
         name: item.name || '未命名',
         price: Number(item.price) || 0,
         category_id: categoryMap[item.category] || null,
@@ -228,7 +234,7 @@ export function ProductsPage() {
         // 新增
         const { error } = await supabase
           .from('products')
-          .insert([{ ...productData, restaurant_id: DEMO_RESTAURANT_ID }]);
+          .insert([{ ...productData, restaurant_id: getRestaurantId() }]);
         if (error) throw error;
       }
 

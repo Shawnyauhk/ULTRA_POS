@@ -3,8 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Clock, CheckCircle, AlertCircle, Loader2, Plus, Search, X, Pencil, Calendar } from 'lucide-react';
+import { Clock, CheckCircle, AlertCircle, Loader2, Plus, Search, X, Pencil, Calendar, ChevronDown, ChevronRight, PackageCheck, FileCheck } from 'lucide-react';
 import { useOrderRequests, useInventory } from '@/hooks/useSupabaseData';
+import { FALLBACK_RESTAURANT_ID } from '@/hooks/useSupabaseData';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/auth';
 import type { OrderRequest, OrderRequestStatus, Inventory } from '@/types';
@@ -20,7 +21,13 @@ const warehouseCategories = [
   '雞蛋仔/格餅配料',
 ];
 
-const DEMO_RESTAURANT_ID = '00000000-0000-0000-0000-000000000001';
+
+function getRestaurantId(): string {
+  const user = useAuthStore.getState().user;
+  return user?.restaurant_id || FALLBACK_RESTAURANT_ID;
+}
+
+type ColumnType = 'request' | 'pending' | 'received' | 'completed';
 
 export function OrderRequestsPage() {
   const { orderRequests, loading, refetch, updateOrderRequestStatus } = useOrderRequests();
@@ -39,6 +46,12 @@ export function OrderRequestsPage() {
   const [editItems, setEditItems] = useState<{ id?: string; inventory: Inventory; quantity: number }[]>([]);
   const [editDate, setEditDate] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [completedExpanded, setCompletedExpanded] = useState(false);
+
+  // 簽收 Modal state
+  const [showSignModal, setShowSignModal] = useState(false);
+  const [signingOrder, setSigningOrder] = useState<OrderRequest | null>(null);
+  const [actualQuantity, setActualQuantity] = useState(0);
 
   // Filter inventory for modal
   const filteredInventory = useMemo(() => {
@@ -49,13 +62,29 @@ export function OrderRequestsPage() {
     });
   }, [inventory, searchTerm, selectedCategory]);
 
+  // 決定每個訂單屬於哪一區
+  const getOrderColumn = (order: OrderRequest): ColumnType => {
+    const status = order.status;
+    if (status === 'pending' || status === 'approved') return 'request';
+    if (status === 'ordered' || status === 'partial') return 'pending';
+    if (status === 'received') {
+      const items = order.items || [];
+      // 已簽收（received_quantity 不為 null）→ 已完成區
+      if (items.length > 0 && items[0].received_quantity != null) {
+        return 'completed';
+      }
+      // 未簽收 → 已送到欄
+      return 'received';
+    }
+    if (status === 'rejected') return 'completed';
+    return 'request';
+  };
+
   // Check if request is overdue (>3 days in request column)
   const isOverdue = (createdAt: string, status: OrderRequestStatus): boolean => {
     const created = new Date(createdAt);
     const now = new Date();
     const diffDays = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
-    
-    // Overdue if in 'request' column and more than 3 days
     const inRequestColumn = status === 'pending' || status === 'approved';
     return inRequestColumn && diffDays >= 3;
   };
@@ -80,13 +109,6 @@ export function OrderRequestsPage() {
     setDraggedOrder(null);
   };
 
-  const getStatusForColumn = (status: OrderRequestStatus): 'request' | 'pending' | 'completed' => {
-    if (status === 'pending' || status === 'approved') return 'request';
-    if (status === 'ordered' || status === 'partial') return 'pending';
-    if (status === 'received' || status === 'rejected') return 'completed';
-    return 'request';
-  };
-
   const getStatusLabel = (status: OrderRequestStatus): string => {
     const labels: Record<OrderRequestStatus, string> = {
       pending: '待審批',
@@ -94,31 +116,76 @@ export function OrderRequestsPage() {
       rejected: '已拒絕',
       ordered: '已訂貨',
       partial: '部分到貨',
-      received: '已完成'
+      received: '已送到'
     };
     return labels[status] || status;
   };
 
-  // Add/replace item (only one item per request)
-  const handleAddItem = (inv: Inventory) => {
-    setSelectedItems([{ inventory: inv, quantity: 1 }]);
+  // =========== 簽收功能 ===========
+  const handleOpenSignModal = (order: OrderRequest) => {
+    setSigningOrder(order);
+    const items = order.items || [];
+    const orderedQty = items.length > 0 ? items[0].requested_quantity : 0;
+    setActualQuantity(orderedQty);
+    setShowSignModal(true);
   };
 
-  // Remove item
-  const handleRemoveItem = () => {
-    setSelectedItems([]);
-  };
+  const handleSignConfirm = async () => {
+    if (!signingOrder) return;
+    const items = signingOrder.items || [];
+    if (items.length === 0) return;
 
-  // Update quantity for the single item
-  const handleUpdateQuantity = (qty: number) => {
-    if (qty <= 0 || !selectedItems[0]) {
-      handleRemoveItem();
-    } else {
-      setSelectedItems([{ ...selectedItems[0], quantity: qty }]);
+    setSaving(true);
+    try {
+      const item = items[0];
+      const { error } = await supabase
+        .from('order_request_items')
+        .update({ received_quantity: actualQuantity })
+        .eq('id', item.id);
+
+      if (error) throw error;
+
+      setShowSignModal(false);
+      setSigningOrder(null);
+      refetch();
+    } catch (err) {
+      console.error('簽收失敗:', err);
+      alert('簽收失敗: ' + (err as Error).message);
+    } finally {
+      setSaving(false);
     }
   };
 
-  // Submit order request
+  // =========== 訂貨請求操作（允許多選） ===========
+  const handleToggleItem = (inv: Inventory) => {
+    setSelectedItems(prev => {
+      const exists = prev.find(item => item.inventory.id === inv.id);
+      if (exists) {
+        return prev.filter(item => item.inventory.id !== inv.id);
+      } else {
+        return [...prev, { inventory: inv, quantity: 1 }];
+      }
+    });
+  };
+
+  const handleRemoveItem = (index: number) => {
+    setSelectedItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleUpdateQuantity = (index: number, qty: number) => {
+    if (qty <= 0) {
+      handleRemoveItem(index);
+    } else {
+      setSelectedItems(prev =>
+        prev.map((item, i) => i === index ? { ...item, quantity: qty } : item)
+      );
+    }
+  };
+
+  const isItemSelected = (invId: string) => {
+    return selectedItems.some(item => item.inventory.id === invId);
+  };
+
   const handleSubmitRequest = async () => {
     if (selectedItems.length === 0) {
       alert('請先選擇至少一項貨物');
@@ -127,14 +194,13 @@ export function OrderRequestsPage() {
 
     setSaving(true);
     try {
-      // Get a valid employee ID from the database
       let employeeId = user?.id;
 
       if (!employeeId || employeeId === 'demo-1') {
         const { data: employees, error: empError } = await supabase
           .from('employees')
           .select('id')
-          .eq('restaurant_id', DEMO_RESTAURANT_ID)
+          .eq('restaurant_id', getRestaurantId())
           .limit(1);
 
         if (empError) {
@@ -149,7 +215,7 @@ export function OrderRequestsPage() {
           const { data: newEmp, error: createEmpError } = await supabase
             .from('employees')
             .insert([{
-              restaurant_id: DEMO_RESTAURANT_ID,
+              restaurant_id: getRestaurantId(),
               name: '系統用戶',
               role: 'staff',
               hire_date: new Date().toISOString(),
@@ -167,52 +233,60 @@ export function OrderRequestsPage() {
         }
       }
 
-      // Title = item name (直接貨物名)
-      const notes = selectedItems[0]?.inventory.name || '訂貨請求';
+      // 每項貨物各自建立獨立的訂貨請求
+      let hasError = false;
+      for (const sel of selectedItems) {
+        const notes = sel.inventory.name;
 
-      // Create order request
-      const { data: request, error: requestError } = await supabase
-        .from('order_requests')
-        .insert([{
-          restaurant_id: DEMO_RESTAURANT_ID,
-          requested_by: employeeId,
-          status: 'pending',
-          notes
-        }])
-        .select()
-        .single();
+        const { data: request, error: requestError } = await supabase
+          .from('order_requests')
+          .insert([{
+            restaurant_id: getRestaurantId(),
+            requested_by: employeeId,
+            status: 'pending',
+            notes
+          }])
+          .select()
+          .single();
 
-      if (requestError) {
-        let msg = '創建訂貨請求失敗: ' + requestError.message;
-        if (requestError.code === '42501') {
-          msg += '\n\n需要新增 RLS 權限策略。請執行 SQL:\n' +
-            '前往 Supabase → SQL Editor → 執行 SQL 遷移腳本';
-        } else if (requestError.code === '23503') {
-          msg += '\n\n員工 ID 無效 (外鍵約束錯誤)';
+        if (requestError) {
+          console.error('創建訂貨請求失敗:', requestError);
+          hasError = true;
+          continue;
         }
-        alert(msg);
-        setSaving(false);
-        return;
+
+        const { error: itemError } = await supabase
+          .from('order_request_items')
+          .insert([{
+            order_request_id: request.id,
+            inventory_id: sel.inventory.id,
+            requested_quantity: sel.quantity
+          }]);
+
+        if (itemError) {
+          console.error('創建訂貨項目失敗:', itemError);
+          hasError = true;
+        }
       }
 
-      // Create order request items
-      const itemsToInsert = selectedItems.map(item => ({
-        order_request_id: request.id,
-        inventory_id: item.inventory.id,
-        requested_quantity: item.quantity
-      }));
-
-      const { error: itemsError } = await supabase
-        .from('order_request_items')
-        .insert(itemsToInsert);
-
-      if (itemsError) {
-        alert('創建訂貨項目失敗: ' + itemsError.message);
-        setSaving(false);
-        return;
+      if (hasError) {
+        alert('部分貨物提交失敗，請查看控制台日誌');
       }
 
-      // Reset and close
+      // 發送 WhatsApp 通知給管理員（不阻塞主流程）
+      const empName = user?.name || '系統用戶';
+      fetch('http://localhost:3001/api/whatsapp/notify-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeName: empName,
+          items: selectedItems.map(s => ({
+            name: s.inventory.name,
+            quantity: s.quantity
+          }))
+        })
+      }).catch(err => console.error('WhatsApp 通知失敗:', err));
+
       setSelectedItems([]);
       setRequestNotes('');
       setShowRequestModal(false);
@@ -225,7 +299,6 @@ export function OrderRequestsPage() {
     }
   };
 
-  // Edit order request
   const handleEditRequest = (order: OrderRequest) => {
     setEditingRequest(order);
     setRequestNotes(order.notes || '');
@@ -238,13 +311,11 @@ export function OrderRequestsPage() {
     setShowEditModal(true);
   };
 
-  // Save edit (notes + items + date)
   const handleSaveEdit = async () => {
     if (!editingRequest) return;
     
     setSaving(true);
     try {
-      // Update order notes + date
       const newNotes = requestNotes || editItems[0]?.inventory.name || '訂貨請求';
       const updates: Record<string, any> = { notes: newNotes, updated_at: new Date().toISOString() };
       if (editDate) updates.created_at = editDate;
@@ -256,7 +327,6 @@ export function OrderRequestsPage() {
 
       if (updateError) throw updateError;
 
-      // Update existing items (quantities)
       for (const item of editItems) {
         if (item.id) {
           const { error: itemError } = await supabase
@@ -280,13 +350,11 @@ export function OrderRequestsPage() {
     }
   };
 
-  // Delete order request
   const handleDeleteRequest = async () => {
     if (!editingRequest) return;
     setShowDeleteConfirm(false);
     setSaving(true);
     try {
-      // Delete items first, then the request
       await supabase.from('order_request_items').delete().eq('order_request_id', editingRequest.id);
       const { error } = await supabase.from('order_requests').delete().eq('id', editingRequest.id);
       if (error) { alert('刪除失敗: ' + error.message); setSaving(false); return; }
@@ -305,7 +373,6 @@ export function OrderRequestsPage() {
     }
   };
 
-  // Edit item helper (single item per request)
   const handleEditItemQty = (qty: number) => {
     if (qty <= 0 || editItems.length === 0) return;
     setEditItems(prev => [{ ...prev[0], quantity: qty }]);
@@ -322,14 +389,31 @@ export function OrderRequestsPage() {
     });
   };
 
-  const renderColumn = (title: string, status: 'request' | 'pending' | 'completed', icon: React.ReactNode, bgColor: string) => {
-    const columnOrders = orderRequests.filter(o => getStatusForColumn(o.status) === status);
+  const formatShortDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return `${date.getMonth() + 1}/${date.getDate()}`;
+  };
+
+  // =========== 渲染 Kanban 欄 ===========
+  const renderColumn = (
+    title: string,
+    colType: ColumnType,
+    icon: React.ReactNode,
+    bgColor: string,
+  ) => {
+    const columnOrders = orderRequests.filter(o => getOrderColumn(o) === colType);
+    // 只有 'request' 和 'pending' 的 drop 目標需要拖曳功能
+    const isDraggableColumn = colType === 'request' || colType === 'pending' || colType === 'received';
     
     return (
       <div 
         className={`flex-1 flex flex-col min-h-[500px] rounded-xl p-4 transition-colors ${bgColor}`}
-        onDragOver={handleDragOver}
-        onDrop={(e) => handleDrop(e, status === 'request' ? 'pending' : status === 'pending' ? 'ordered' : 'received')}
+        onDragOver={isDraggableColumn ? handleDragOver : undefined}
+        onDrop={isDraggableColumn ? (e) => {
+          if (colType === 'request') handleDrop(e, 'pending');
+          else if (colType === 'pending') handleDrop(e, 'ordered');
+          else if (colType === 'received') handleDrop(e, 'received');
+        } : undefined}
       >
         <div className="flex items-center justify-between mb-4 px-2">
           <h2 className="font-bold text-lg flex items-center gap-2">{icon} {title}</h2>
@@ -341,50 +425,83 @@ export function OrderRequestsPage() {
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
           ) : columnOrders.length > 0 ? (
-              columnOrders.map(order => {
+            columnOrders.map(order => {
               const overdue = isOverdue(order.created_at, order.status);
               const items = order.items || [];
+              const isReceivedColumn = colType === 'received';
+              const qtyInfo = items.length > 0
+                ? `×${items[0].requested_quantity} ${items[0].inventory?.unit || ''}`
+                : '';
               return (
-                <Card 
-                  key={order.id} 
-                  draggable 
+                <Card
+                  key={order.id}
+                  draggable
                   onDragStart={(e) => handleDragStart(e, order)}
-                  className={`cursor-move hover:shadow-md transition-shadow active:cursor-grabbing ${updating === order.id ? 'opacity-50' : ''} ${overdue ? 'border-red-500 border-2 bg-red-50' : ''}`}
+                  className={`${isReceivedColumn ? '' : 'cursor-move'} hover:shadow-md transition-shadow ${isReceivedColumn ? '' : 'active:cursor-grabbing'} ${updating === order.id ? 'opacity-50' : ''} ${overdue ? 'border-red-500 border-2 bg-red-50' : ''}`}
                 >
-                  <CardContent className="p-4">
-                    <div className="flex justify-between items-start mb-2">
-                      <p className={`font-bold text-sm ${overdue ? 'text-red-600' : 'text-gray-800'}`}>
+                  <CardContent className="p-3">
+                    {/* 第一行：名稱 + 數量(放大) + 編輯 */}
+                    <div className="flex items-start justify-between gap-2">
+                      <p className={`font-medium text-sm leading-tight truncate flex-1 ${overdue ? 'text-red-600' : 'text-gray-800'}`}>
                         {order.notes || '無備註'}
                       </p>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="h-6 w-6"
-                        onClick={() => handleEditRequest(order)}
-                      >
-                        <Pencil className="h-3 w-3" />
-                      </Button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {qtyInfo && (
+                          <span className="text-sm font-semibold text-gray-700 whitespace-nowrap">{qtyInfo}</span>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5 -mr-1"
+                          onClick={() => handleEditRequest(order)}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
-                    {/* Quantity display only */}
-                    <div className="mb-2">
-                      {items.length > 0 ? (
-                        <span className="text-sm text-gray-600">
-                          ×{items[0].requested_quantity} {items[0].inventory?.unit || ''}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-gray-400">無數量資訊</span>
-                      )}
+
+                    {/* 第二行～N行：各狀態日期分行顯示（對齊） */}
+                    <div className="flex items-start justify-between mt-1.5">
+                      <div className="flex flex-col text-xs text-gray-400 min-w-0">
+                        {/* 日期行統一縮排對齊 */}
+                        <div className="flex items-center gap-1">
+                          <span className="w-8 text-right shrink-0">申請</span>
+                          <span>{formatDate(order.created_at)}</span>
+                          <span className="text-gray-500 ml-2 text-xs">{order.employee?.name || '未知'}</span>
+                        </div>
+                        {order.ordered_at && (
+                          <div className="flex items-center gap-1">
+                            <span className="w-8 text-right shrink-0">訂貨</span>
+                            <span>{formatDate(order.ordered_at)}</span>
+                          </div>
+                        )}
+                        {order.received_at && (
+                          <div className="flex items-center gap-1">
+                            <span className="w-8 text-right shrink-0">送達</span>
+                            <span>{formatDate(order.received_at)}</span>
+                          </div>
+                        )}
+                      </div>
+                      <Badge variant={overdue ? 'destructive' : 'outline'} className="text-[10px] h-4 px-1.5">
+                        {getStatusLabel(order.status)}
+                      </Badge>
                     </div>
-                    <div className="flex items-center gap-1 text-xs text-gray-500 mb-1">
-                      <Calendar className="h-3 w-3" />
-                      <span>{formatDate(order.created_at)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-gray-500">申請人: {order.employee?.name || '未知'}</p>
-                      <p className="text-xs text-gray-400">{getStatusLabel(order.status)}</p>
-                    </div>
+
                     {overdue && (
-                      <Badge variant="destructive" className="mt-2 text-xs">已逾期 3 天以上</Badge>
+                      <p className="text-[10px] text-red-500 mt-1">已逾期 3 天以上</p>
+                    )}
+
+                    {/* 已送到欄：簽收按鈕 */}
+                    {isReceivedColumn && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="w-full mt-2 h-7 text-xs bg-green-600 hover:bg-green-700 text-white"
+                        onClick={() => handleOpenSignModal(order)}
+                      >
+                        <PackageCheck className="h-3 w-3 mr-1" />
+                        簽收
+                      </Button>
                     )}
                   </CardContent>
                 </Card>
@@ -400,6 +517,89 @@ export function OrderRequestsPage() {
     );
   };
 
+  // =========== 已完成區（可折疊） ===========
+  const completedOrders = orderRequests.filter(o => getOrderColumn(o) === 'completed');
+
+  const renderCompletedSection = () => (
+    <Card className="border-gray-300">
+      <button
+        onClick={() => setCompletedExpanded(!completedExpanded)}
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left"
+      >
+        <div className="flex items-center gap-3">
+          {completedExpanded ? (
+            <ChevronDown className="w-5 h-5 text-gray-400" />
+          ) : (
+            <ChevronRight className="w-5 h-5 text-gray-400" />
+          )}
+          <FileCheck className="w-5 h-5 text-green-600" />
+          <span className="font-semibold text-gray-800">已完成</span>
+          <Badge variant="secondary">{completedOrders.length} 項</Badge>
+        </div>
+        <ChevronRight
+          className={`w-4 h-4 text-gray-400 transition-transform ${completedExpanded ? 'rotate-90' : ''}`}
+        />
+      </button>
+
+      {completedExpanded && (
+        <CardContent className="pt-0 pb-4">
+          {completedOrders.length === 0 ? (
+            <div className="text-center py-6 text-gray-400 text-sm">暫無已完成項目</div>
+          ) : (
+            <div className="space-y-2">
+              {completedOrders.map(order => {
+                const items = order.items || [];
+                const item = items[0];
+                const orderedQty = item?.requested_quantity || 0;
+                const receivedQty = item?.received_quantity;
+                const unit = item?.inventory?.unit || '';
+                const isMatch = receivedQty != null && receivedQty === orderedQty;
+                const isRejected = order.status === 'rejected';
+
+                return (
+                  <div key={order.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
+                    <div className="flex items-center gap-3 flex-1">
+                      <div className="flex-1">
+                        <p className="font-medium text-sm text-gray-800">{order.notes || '無備註'}</p>
+                        <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
+                          <span>{formatDate(order.created_at)}</span>
+                          <span>{order.employee?.name || '未知'}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 text-sm">
+                      {isRejected ? (
+                        <Badge variant="destructive">已拒絕</Badge>
+                      ) : (
+                        <>
+                          <span className="text-gray-500">訂: {orderedQty}{unit}</span>
+                          {receivedQty != null && (
+                            <>
+                              <span className="text-gray-500">收: {receivedQty}{unit}</span>
+                              {isMatch ? (
+                                <Badge variant="success" className="flex items-center gap-1">
+                                  <CheckCircle className="h-3 w-3" /> 一致
+                                </Badge>
+                              ) : (
+                                <Badge variant="warning" className="flex items-center gap-1">
+                                  <AlertCircle className="h-3 w-3" /> 不符（差{Math.abs(orderedQty - receivedQty)}{unit}）
+                                </Badge>
+                              )}
+                            </>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  );
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -413,13 +613,17 @@ export function OrderRequestsPage() {
         </Button>
       </div>
 
+      {/* Kanban 三欄 */}
       <div className="flex gap-6 overflow-x-auto pb-4">
         {renderColumn('員工請求 (Request)', 'request', <AlertCircle className="w-5 h-5 text-red-500"/>, 'bg-red-50')}
         {renderColumn('待處理 (Pending)', 'pending', <Clock className="w-5 h-5 text-yellow-500"/>, 'bg-yellow-50')}
-        {renderColumn('已完成 (Completed)', 'completed', <CheckCircle className="w-5 h-5 text-green-500"/>, 'bg-green-50')}
+        {renderColumn('已送到 (Received)', 'received', <PackageCheck className="w-5 h-5 text-green-500"/>, 'bg-green-50')}
       </div>
 
-      {/* Order Request Modal */}
+      {/* 已完成區（可折疊） */}
+      {renderCompletedSection()}
+
+      {/* ========== Modal：訂貨請求 ========== */}
       {showRequestModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -434,40 +638,46 @@ export function OrderRequestsPage() {
               </Button>
             </CardHeader>
             <CardContent className="flex-1 overflow-hidden flex flex-col gap-4">
-              {/* Selected Item (single item per request) */}
+              {/* 已選擇的貨物（多選） */}
               {selectedItems.length > 0 && (
                 <div className="bg-blue-50 rounded-lg p-3">
-                  <h4 className="font-medium mb-2">已選擇的貨物</h4>
-                  <div className="flex items-center justify-between bg-white rounded p-3">
-                    <div>
-                      <span className="font-medium">{selectedItems[0].inventory.name}</span>
-                      <span className="text-gray-500 text-sm ml-2">({selectedItems[0].inventory.category})</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => handleUpdateQuantity(selectedItems[0].quantity - 1)}
-                      >-</Button>
-                      <span className="w-10 text-center font-medium">{selectedItems[0].quantity}</span>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => handleUpdateQuantity(selectedItems[0].quantity + 1)}
-                      >+</Button>
-                      <Button 
-                        variant="destructive" 
-                        size="sm"
-                        onClick={handleRemoveItem}
-                      >
-                        移除
-                      </Button>
-                    </div>
+                  <h4 className="font-medium mb-2">已選擇的貨物（{selectedItems.length} 項）</h4>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {selectedItems.map((item, index) => (
+                      <div key={item.inventory.id} className="flex items-center justify-between bg-white rounded p-3">
+                        <div className="flex-1 min-w-0 mr-2">
+                          <span className="font-medium text-sm truncate block">{item.inventory.name}</span>
+                          <span className="text-gray-500 text-xs">({item.inventory.category})</span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 w-7 p-0"
+                            onClick={() => handleUpdateQuantity(index, item.quantity - 1)}
+                          >-</Button>
+                          <span className="w-8 text-center font-medium text-sm">{item.quantity}</span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 w-7 p-0"
+                            onClick={() => handleUpdateQuantity(index, item.quantity + 1)}
+                          >+</Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-red-500 hover:text-red-700"
+                            onClick={() => handleRemoveItem(index)}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
 
-              {/* Search and Category Filter */}
               <div className="flex flex-col md:flex-row gap-4">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -492,7 +702,6 @@ export function OrderRequestsPage() {
                 </div>
               </div>
 
-              {/* Inventory Grid */}
               <div className="flex-1 overflow-y-auto">
                 {inventoryLoading ? (
                   <div className="flex items-center justify-center h-64">
@@ -502,24 +711,37 @@ export function OrderRequestsPage() {
                   <div className="text-center py-8 text-gray-500">沒有找到符合條件的貨物</div>
                 ) : (
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {filteredInventory.map((inv) => (
-                      <div 
-                        key={inv.id} 
-                        className="border rounded-lg p-3 hover:border-primary cursor-pointer transition-colors"
-                        onClick={() => handleAddItem(inv)}
-                      >
-                        <div className="font-medium text-sm">{inv.name}</div>
-                        <div className="text-xs text-gray-500">{inv.category}</div>
-                        <div className="text-xs text-gray-400 mt-1">
-                          庫存: {inv.current_stock} {inv.unit}
+                    {filteredInventory.map((inv) => {
+                      const selected = isItemSelected(inv.id);
+                      return (
+                        <div
+                          key={inv.id}
+                          className={`border rounded-lg p-3 cursor-pointer transition-all ${
+                            selected
+                              ? 'border-primary bg-primary/5 ring-2 ring-primary/30'
+                              : 'hover:border-primary'
+                          }`}
+                          onClick={() => handleToggleItem(inv)}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="font-medium text-sm truncate flex-1">{inv.name}</div>
+                            {selected && (
+                              <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center ml-1 shrink-0">
+                                <CheckCircle className="w-3 h-3 text-white" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-500">{inv.category}</div>
+                          <div className="text-xs text-gray-400 mt-1">
+                            單位: {inv.unit}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
-              {/* Notes and Submit */}
               <div className="border-t pt-4">
                 <div className="mb-4">
                   <label className="text-sm font-medium">備註</label>
@@ -561,7 +783,7 @@ export function OrderRequestsPage() {
         </div>
       )}
 
-      {/* Edit Request Modal */}
+      {/* ========== Modal：編輯訂貨請求 ========== */}
       {showEditModal && editingRequest && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-xl max-h-[80vh] overflow-hidden flex flex-col">
@@ -569,7 +791,6 @@ export function OrderRequestsPage() {
               <CardTitle>編輯訂貨請求</CardTitle>
             </CardHeader>
             <CardContent className="flex-1 overflow-y-auto space-y-4">
-              {/* Notes */}
               <div>
                 <label className="text-sm font-medium">備註 / 標題</label>
                 <Input
@@ -580,7 +801,6 @@ export function OrderRequestsPage() {
                 />
               </div>
 
-              {/* Single item with editable quantity */}
               {editItems.length > 0 && (
                 <div>
                   <label className="text-sm font-medium mb-2 block">訂貨項目</label>
@@ -631,16 +851,16 @@ export function OrderRequestsPage() {
               </div>
 
               <div className="flex justify-between items-center pt-2 border-t">
-                <Button 
-                  variant="destructive" 
+                <Button
+                  variant="destructive"
                   size="sm"
                   onClick={() => setShowDeleteConfirm(true)}
                 >
                   刪除
                 </Button>
                 <div className="flex gap-2">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => {
                       setShowEditModal(false);
                       setEditingRequest(null);
@@ -657,6 +877,122 @@ export function OrderRequestsPage() {
                   </Button>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ========== Modal：簽收 ========== */}
+      {showSignModal && signingOrder && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md mx-4">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <PackageCheck className="w-5 h-5 text-green-600" />
+                簽收貨物
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {(() => {
+                const items = signingOrder.items || [];
+                const item = items[0];
+                const orderedQty = item?.requested_quantity || 0;
+                const invName = item?.inventory?.name || '未知';
+                const unit = item?.inventory?.unit || '件';
+                const isMatch = actualQuantity === orderedQty;
+
+                return (
+                  <>
+                    {/* 貨物資訊 */}
+                    <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-500">貨物名稱</span>
+                        <span className="font-medium">{invName}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-500">訂貨備註</span>
+                        <span className="font-medium">{signingOrder.notes || '無'}</span>
+                      </div>
+                    </div>
+
+                    {/* 數量比對 */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between bg-blue-50 rounded-lg px-4 py-3">
+                        <span className="text-sm font-medium text-blue-800">已訂數量</span>
+                        <span className="text-lg font-bold text-blue-800">{orderedQty} {unit}</span>
+                      </div>
+
+                      <div>
+                        <label className="text-sm font-medium block mb-1">
+                          實際收到數量
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setActualQuantity(Math.max(0, actualQuantity - 1))}
+                          >-</Button>
+                          <Input
+                            type="number"
+                            value={actualQuantity}
+                            onChange={(e) => setActualQuantity(Math.max(0, Number(e.target.value)))}
+                            className="text-center text-lg font-bold"
+                            min="0"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setActualQuantity(actualQuantity + 1)}
+                          >+</Button>
+                        </div>
+                      </div>
+
+                      {/* 比對結果 */}
+                      <div className={`rounded-lg px-4 py-3 flex items-center gap-2 ${
+                        isMatch ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
+                      }`}>
+                        {isMatch ? (
+                          <>
+                            <CheckCircle className="h-5 w-5" />
+                            <span className="font-medium">✅ 數量一致，沒有問題</span>
+                          </>
+                        ) : (
+                          <>
+                            <AlertCircle className="h-5 w-5" />
+                            <span className="font-medium">
+                              ⚠️ 數量不符（訂 {orderedQty}，實收 {actualQuantity}，差 {Math.abs(orderedQty - actualQuantity)}{unit}）
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setShowSignModal(false);
+                          setSigningOrder(null);
+                        }}
+                        disabled={saving}
+                      >
+                        取消
+                      </Button>
+                      <Button
+                        onClick={handleSignConfirm}
+                        className="bg-green-600 hover:bg-green-700 text-white"
+                        disabled={saving}
+                      >
+                        {saving ? (
+                          <><Loader2 className="w-4 h-4 mr-2 animate-spin" />處理中...</>
+                        ) : (
+                          <><PackageCheck className="w-4 h-4 mr-2" />確認簽收</>
+                        )}
+                      </Button>
+                    </div>
+                  </>
+                );
+              })()}
             </CardContent>
           </Card>
         </div>

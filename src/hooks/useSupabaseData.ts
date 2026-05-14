@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useAuthStore } from '@/stores/auth'
 import type {
   Product,
   Category,
@@ -14,8 +15,13 @@ import type {
   Expense
 } from '@/types'
 
-// Default restaurant ID for demo
-const DEMO_RESTAURANT_ID = '00000000-0000-0000-0000-000000000001'
+// Fallback for demo mode - real users get their restaurant_id from auth store
+export const FALLBACK_RESTAURANT_ID = '00000000-0000-0000-0000-000000000001'
+
+function getRestaurantId(): string {
+  const user = useAuthStore.getState().user
+  return user?.restaurant_id || FALLBACK_RESTAURANT_ID
+}
 
 // ============================================
 // Product & Category Hooks
@@ -33,7 +39,7 @@ export function useProducts() {
       const { data: productsData, error: productsError } = await supabase
         .from('products')
         .select('*, category:categories(*)')
-        .eq('restaurant_id', DEMO_RESTAURANT_ID)
+        .eq('restaurant_id', getRestaurantId())
         .eq('status', 'available')
         .order('name')
 
@@ -43,7 +49,7 @@ export function useProducts() {
       const { data: categoriesData, error: categoriesError } = await supabase
         .from('categories')
         .select('*')
-        .eq('restaurant_id', DEMO_RESTAURANT_ID)
+        .eq('restaurant_id', getRestaurantId())
         .order('sort_order')
 
       if (categoriesError) throw categoriesError
@@ -78,7 +84,7 @@ export function useInventory() {
       const { data, error: fetchError } = await supabase
         .from('inventory')
         .select('*')
-        .eq('restaurant_id', DEMO_RESTAURANT_ID)
+        .eq('restaurant_id', getRestaurantId())
         .order('name')
 
       if (fetchError) throw fetchError
@@ -116,7 +122,7 @@ export function useInventory() {
       const { error: insertError } = await supabase
         .from('inventory')
         .insert([{
-          restaurant_id: DEMO_RESTAURANT_ID,
+          restaurant_id: getRestaurantId(),
           ...item,
           last_updated: new Date().toISOString()
         }])
@@ -148,7 +154,7 @@ export function useEmployees() {
       const { data, error: fetchError } = await supabase
         .from('employees')
         .select('*')
-        .eq('restaurant_id', DEMO_RESTAURANT_ID)
+        .eq('restaurant_id', getRestaurantId())
         .eq('is_active', true)
         .order('name')
 
@@ -182,12 +188,80 @@ export function useEmployees() {
     }
   }
 
-  return { employees, loading, error, refetch: fetchEmployees, updateEmployee }
+  const addEmployee = async (employeeData: Omit<Employee, 'id' | 'created_at' | 'restaurant_id' | 'is_active'>) => {
+    try {
+      const { data, error: insertError } = await supabase
+        .from('employees')
+        .insert([{
+          restaurant_id: getRestaurantId(),
+          is_active: true,
+          ...employeeData
+        }])
+        .select()
+        .single()
+
+      if (insertError) throw insertError
+      await fetchEmployees()
+      return data
+    } catch (err) {
+      console.error('Error adding employee:', err)
+      return null
+    }
+  }
+
+  const deleteEmployee = async (id: string) => {
+    try {
+      const { error: deleteError } = await supabase
+        .from('employees')
+        .update({ is_active: false })
+        .eq('id', id)
+
+      if (deleteError) throw deleteError
+      await fetchEmployees()
+      return true
+    } catch (err) {
+      console.error('Error deactivating employee:', err)
+      return false
+    }
+  }
+
+  return { employees, loading, error, refetch: fetchEmployees, updateEmployee, addEmployee, deleteEmployee }
 }
 
 // ============================================
-// Attendance Hooks
+// Restaurant Hooks
 // ============================================
+
+export function useRestaurant() {
+  const [restaurant, setRestaurant] = useState<{ id: string; name: string; business_hours?: string; logo_url?: string } | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const rid = getRestaurantId()
+    if (!rid || rid === FALLBACK_RESTAURANT_ID) {
+      setRestaurant({ id: rid, name: '家傳x飲得（示範）', business_hours: '11:00 - 22:00' })
+      setLoading(false)
+      return
+    }
+
+    supabase
+      .from('restaurants')
+      .select('id, name, business_hours, logo_url')
+      .eq('id', rid)
+      .single()
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Error fetching restaurant:', error)
+          setRestaurant({ id: rid, name: '我的餐廳', business_hours: '' })
+        } else {
+          setRestaurant(data)
+        }
+        setLoading(false)
+      })
+  }, [])
+
+  return { restaurant, loading }
+}
 
 export function useAttendance(employeeId?: string) {
   const [attendance, setAttendance] = useState<Attendance[]>([])
@@ -221,7 +295,128 @@ export function useAttendance(employeeId?: string) {
     fetchAttendance()
   }, [fetchAttendance])
 
-  return { attendance, loading, error, refetch: fetchAttendance }
+  const addAttendance = async (record: Omit<Attendance, 'id' | 'created_at'>) => {
+    try {
+      const { error: insertError } = await supabase
+        .from('attendance')
+        .insert([record])
+
+      if (insertError) throw insertError
+      await fetchAttendance()
+      return true
+    } catch (err) {
+      console.error('Error adding attendance:', err)
+      return false
+    }
+  }
+
+  const updateAttendance = async (id: string, updates: Partial<Attendance>) => {
+    try {
+      const { error: updateError } = await supabase
+        .from('attendance')
+        .update(updates)
+        .eq('id', id)
+
+      if (updateError) throw updateError
+      await fetchAttendance()
+      return true
+    } catch (err) {
+      console.error('Error updating attendance:', err)
+      return false
+    }
+  }
+
+  const getTodayAttendance = useCallback(async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const { data, error: fetchError } = await supabase
+        .from('attendance')
+        .select('*, employee:employees(*)')
+        .eq('date', today)
+        .order('clock_in', { ascending: true })
+
+      if (fetchError) throw fetchError
+      return data || []
+    } catch (err) {
+      console.error('Error fetching today attendance:', err)
+      return []
+    }
+  }, [])
+
+  return { attendance, loading, error, refetch: fetchAttendance, addAttendance, updateAttendance, getTodayAttendance }
+}
+
+// ============================================
+// Schedule Hooks
+// ============================================
+
+export function useSchedules() {
+  const [schedules, setSchedules] = useState<Schedule[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchSchedules = useCallback(async () => {
+    try {
+      setLoading(true)
+      const { data, error: fetchError } = await supabase
+        .from('schedules')
+        .select('*, employee:employees(*)')
+        .order('date', { ascending: true })
+        .order('start_time', { ascending: true })
+
+      if (fetchError) throw fetchError
+      setSchedules(data || [])
+    } catch (err) {
+      console.error('Error fetching schedules:', err)
+      setError(err instanceof Error ? err.message : 'Failed to fetch schedules')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchSchedules()
+  }, [fetchSchedules])
+
+  const addSchedule = async (schedule: Omit<Schedule, 'id' | 'created_at'>) => {
+    try {
+      const { data, error: insertError } = await supabase
+        .from('schedules')
+        .insert([{
+          employee_id: schedule.employee_id,
+          date: schedule.date,
+          start_time: schedule.start_time,
+          end_time: schedule.end_time
+        }])
+        .select()
+        .single()
+
+      if (insertError) throw insertError
+      await fetchSchedules()
+      return data
+    } catch (err) {
+      console.error('Error adding schedule:', err)
+      return null
+    }
+  }
+
+  const deleteSchedule = async (id: string) => {
+    try {
+      const { error: deleteError } = await supabase
+        .from('schedules')
+        .delete()
+        .eq('id', id)
+
+      if (deleteError) throw deleteError
+      await fetchSchedules()
+      return true
+    } catch (err) {
+      console.error('Error deleting schedule:', err)
+      return false
+    }
+  }
+
+  return { schedules, loading, error, refetch: fetchSchedules, addSchedule, deleteSchedule }
 }
 
 // ============================================
@@ -239,7 +434,7 @@ export function useOrderRequests() {
       const { data, error: fetchError } = await supabase
         .from('order_requests')
         .select('*, employee:employees(*), items:order_request_items(*, inventory:inventory(*))')
-        .eq('restaurant_id', DEMO_RESTAURANT_ID)
+        .eq('restaurant_id', getRestaurantId())
         .order('created_at', { ascending: false })
 
       if (fetchError) throw fetchError
@@ -258,9 +453,15 @@ export function useOrderRequests() {
 
   const updateOrderRequestStatus = async (id: string, status: string) => {
     try {
+      const now = new Date().toISOString()
+      const updates: Record<string, any> = { status, updated_at: now }
+      // 記錄各階段時間戳
+      if (status === 'ordered') updates.ordered_at = now
+      if (status === 'received') updates.received_at = now
+
       const { error: updateError } = await supabase
         .from('order_requests')
-        .update({ status, updated_at: new Date().toISOString() })
+        .update(updates)
         .eq('id', id)
 
       if (updateError) throw updateError
@@ -277,7 +478,8 @@ export function useOrderRequests() {
 
 // 輔助函數：下單後自動扣減庫存
 async function deductInventoryForItems(
-  items: Omit<OrderItem, 'id' | 'created_at' | 'order_id'>[]
+  items: Omit<OrderItem, 'id' | 'created_at' | 'order_id'>[],
+  restaurantId: string
 ) {
   for (const item of items) {
     if (!item.product_id) continue
@@ -287,6 +489,7 @@ async function deductInventoryForItems(
       .from('inventory')
       .select('id, name, current_stock')
       .eq('product_id', item.product_id)
+      .eq('restaurant_id', restaurantId)
 
     if (findError) {
       console.warn(`查詢庫存失敗 (product_id=${item.product_id}):`, findError)
@@ -298,6 +501,7 @@ async function deductInventoryForItems(
       const { data: nameMatches, error: nameError } = await supabase
         .from('inventory')
         .select('id, name, current_stock')
+        .eq('restaurant_id', restaurantId)
         .ilike('name', `%${item.product_name}%`)
 
       if (nameError || !nameMatches || nameMatches.length === 0) {
@@ -353,7 +557,7 @@ export function useOrders() {
       const { data, error: fetchError } = await supabase
         .from('orders')
         .select('*, items:order_items(*)')
-        .eq('restaurant_id', DEMO_RESTAURANT_ID)
+        .eq('restaurant_id', getRestaurantId())
         .order('created_at', { ascending: false })
         .limit(limit)
 
@@ -383,7 +587,7 @@ export function useOrders() {
       const { data: order, error: orderError } = await supabase
         .from('orders')
         .insert([{
-          restaurant_id: DEMO_RESTAURANT_ID,
+          restaurant_id: getRestaurantId(),
           order_number: orderNumber,
           ...orderData
         }])
@@ -404,7 +608,7 @@ export function useOrders() {
         if (itemsError) throw itemsError
 
         // Auto-deduct inventory for items with product_id
-        await deductInventoryForItems(items)
+        await deductInventoryForItems(items, getRestaurantId())
       }
 
       await fetchOrders()
@@ -433,7 +637,7 @@ export function useSettings() {
       const { data, error: fetchError } = await supabase
         .from('settings')
         .select('*')
-        .eq('restaurant_id', DEMO_RESTAURANT_ID)
+        .eq('restaurant_id', getRestaurantId())
 
       if (fetchError) throw fetchError
       setSettings(data || [])
@@ -459,7 +663,7 @@ export function useSettings() {
       const { error: updateError } = await supabase
         .from('settings')
         .update({ setting_value: value, updated_at: new Date().toISOString() })
-        .eq('restaurant_id', DEMO_RESTAURANT_ID)
+        .eq('restaurant_id', getRestaurantId())
         .eq('setting_key', key)
 
       if (updateError) throw updateError
@@ -489,7 +693,7 @@ export function useReviews() {
       const { data, error: fetchError } = await supabase
         .from('reviews')
         .select('*')
-        .eq('restaurant_id', DEMO_RESTAURANT_ID)
+        .eq('restaurant_id', getRestaurantId())
         .order('created_at', { ascending: false })
 
       if (fetchError) throw fetchError
@@ -511,7 +715,7 @@ export function useReviews() {
       const { error: insertError } = await supabase
         .from('reviews')
         .insert([{
-          restaurant_id: DEMO_RESTAURANT_ID,
+          restaurant_id: getRestaurantId(),
           ...review
         }])
 
@@ -542,7 +746,7 @@ export function useExpenses(month?: string) {
       let query = supabase
         .from('expenses')
         .select('*')
-        .eq('restaurant_id', DEMO_RESTAURANT_ID)
+        .eq('restaurant_id', getRestaurantId())
         .order('expense_date', { ascending: false })
 
       if (month) {
@@ -569,7 +773,7 @@ export function useExpenses(month?: string) {
       const { error: insertError } = await supabase
         .from('expenses')
         .insert([{
-          restaurant_id: DEMO_RESTAURANT_ID,
+          restaurant_id: getRestaurantId(),
           ...expense
         }])
 

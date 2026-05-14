@@ -89,6 +89,8 @@ export interface OrderRequest {
   notes?: string
   created_at: string
   updated_at: string
+  ordered_at?: string
+  received_at?: string
   employee?: Employee
   items?: OrderRequestItem[]
 }

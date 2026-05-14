@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
   DollarSign,
   TrendingUp,
@@ -16,6 +17,7 @@ import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { useOrders, useExpenses } from '@/hooks/useSupabaseData'
 import { useRealtime } from '@/hooks/useRealtime'
+import { analyzeSalesWithAI } from '@/lib/ai-analysis'
 import type { Order } from '@/types'
 
 export function DashboardPage() {
@@ -85,29 +87,38 @@ export function DashboardPage() {
         .slice(0, 7)
         .map(([name, data]) => ({ name, ...data }));
 
-      setChartData(sortedData.length > 0 ? sortedData : [
-        { name: '1號', income: 0, expense: 0 },
-        { name: '5號', income: 0, expense: 0 },
-        { name: '10號', income: 0, expense: 0 },
-        { name: '15號', income: 0, expense: 0 },
-        { name: '20號', income: 0, expense: 0 },
-        { name: '25號', income: 0, expense: 0 },
-        { name: '30號', income: 0, expense: 0 },
-      ]);
+      setChartData(sortedData.length > 0 ? sortedData : []);
     }
   }, [orders, expenses, ordersLoading, expensesLoading]);
 
-  const handleGenerateReport = () => {
+  const handleGenerateReport = async () => {
     setGeneratingReport(true);
-    setTimeout(() => {
-      setAiReport({
-        topSellers: ['原味雞蛋仔', '凍檸茶', '朱古力雞蛋仔'],
-        worstSellers: ['熱水', '普通紙杯'],
-        actionableAdvice: '週末下午 3 點至 5 點為黃金銷售時段，建議在此時段推出「雞蛋仔+凍檸茶」的下午茶限定套餐，預計可提升 15% 營收。',
-        trendInsight: '本月「朱古力雞蛋仔」銷量相比上月增長 20%，可能有持續上升趨勢，建議增加對應原料庫存。'
+    try {
+      const completedOrders = orders.filter(o => o.status === 'completed');
+      const totalSales = completedOrders.reduce((s, o) => s + o.final_amount, 0);
+      const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
+      
+      const result = await analyzeSalesWithAI({
+        dailySales: orders
+          .filter(o => o.status === 'completed')
+          .slice(0, 7)
+          .map(o => ({ date: o.created_at.split('T')[0], amount: o.final_amount })),
+        categorySales: [],
+        topProducts: [],
       });
+      setAiReport(result);
+    } catch (err) {
+      console.error('AI report generation error:', err);
+      // Fallback to simulated data
+      setAiReport({
+        insights: ['暫時無法連接 AI 分析服務，顯示模擬數據'],
+        recommendations: ['請檢查 NVIDIA NIM API Key 是否正確設定'],
+        peakHours: ['12:00-14:00', '18:00-20:00'],
+        provider: 'local',
+      });
+    } finally {
       setGeneratingReport(false);
-    }, 2000);
+    }
   };
 
   return (
@@ -187,39 +198,50 @@ export function DashboardPage() {
       {aiReport && (
         <Card className="bg-blue-50 border-blue-200">
           <CardHeader>
-            <CardTitle className="text-blue-900 flex items-center gap-2"><Sparkles className="w-5 h-5" /> AI 銷售分析與洞察報告</CardTitle>
+            <CardTitle className="text-blue-900 flex items-center gap-2">
+              <Sparkles className="w-5 h-5" /> AI 銷售分析與洞察報告
+              <Badge variant="outline" className="ml-auto">{aiReport.provider}</Badge>
+            </CardTitle>
             <CardDescription className="text-blue-700">基於近期銷售與財務數據生成的智能報告</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-4">
                 <div>
-                  <h4 className="font-bold text-blue-900 mb-2">暢銷與滯銷分析</h4>
-                  <div className="flex gap-4">
-                    <div className="flex-1 bg-white p-3 rounded-md shadow-sm">
-                      <p className="text-xs text-gray-500 mb-1">Top 3 暢銷產品</p>
-                      <ul className="list-disc pl-4 text-sm text-green-700 font-medium">
-                        {aiReport.topSellers.map((item: string) => <li key={item}>{item}</li>)}
-                      </ul>
-                    </div>
-                    <div className="flex-1 bg-white p-3 rounded-md shadow-sm">
-                      <p className="text-xs text-gray-500 mb-1">需注意的滯銷產品</p>
-                      <ul className="list-disc pl-4 text-sm text-red-700 font-medium">
-                        {aiReport.worstSellers.map((item: string) => <li key={item}>{item}</li>)}
-                      </ul>
-                    </div>
-                  </div>
+                  <h4 className="font-bold text-blue-900 mb-2">AI 洞察</h4>
+                  <ul className="space-y-2">
+                    {aiReport.insights?.map((insight: string, i: number) => (
+                      <li key={i} className="flex items-start gap-2 text-sm bg-white p-3 rounded-md shadow-sm">
+                        <span className="text-yellow-600 font-bold">•</span>
+                        <span>{insight}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </div>
               <div className="space-y-4">
                 <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-yellow-400">
-                  <h4 className="font-bold text-gray-900 flex items-center gap-2 mb-2"><AlertCircle className="w-4 h-4 text-yellow-500" /> 可行動建議 (Actionable Advice)</h4>
-                  <p className="text-sm text-gray-700">{aiReport.actionableAdvice}</p>
+                  <h4 className="font-bold text-gray-900 flex items-center gap-2 mb-2">
+                    <AlertCircle className="w-4 h-4 text-yellow-500" /> 經營建議
+                  </h4>
+                  <ul className="space-y-1">
+                    {aiReport.recommendations?.map((rec: string, i: number) => (
+                      <li key={i} className="text-sm text-gray-700">• {rec}</li>
+                    ))}
+                  </ul>
                 </div>
-                <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-blue-400">
-                  <h4 className="font-bold text-gray-900 flex items-center gap-2 mb-2"><TrendingUp className="w-4 h-4 text-blue-500" /> 銷售趨勢洞察</h4>
-                  <p className="text-sm text-gray-700">{aiReport.trendInsight}</p>
-                </div>
+                {aiReport.peakHours?.length > 0 && (
+                  <div className="bg-white p-4 rounded-md shadow-sm border-l-4 border-blue-400">
+                    <h4 className="font-bold text-gray-900 flex items-center gap-2 mb-2">
+                      <TrendingUp className="w-4 h-4 text-blue-500" /> 建議繁忙時段
+                    </h4>
+                    <div className="flex gap-2 flex-wrap">
+                      {aiReport.peakHours.map((hour: string, i: number) => (
+                        <Badge key={i} variant="secondary">{hour}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </CardContent>

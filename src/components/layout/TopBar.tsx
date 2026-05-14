@@ -1,11 +1,12 @@
-import { Bell, Search, LogOut } from 'lucide-react'
+import { Bell, LogOut, Store } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { useAuthStore } from '@/stores/auth'
+import { useRestaurant } from '@/hooks/useSupabaseData'
 import { supabase } from '@/lib/supabase'
 
 export function TopBar() {
   const { user, logout } = useAuthStore()
+  const { restaurant } = useRestaurant()
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -14,11 +15,14 @@ export function TopBar() {
 
   return (
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-      <div className="flex items-center gap-4 flex-1">
-        <div className="relative max-w-md flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input placeholder="搜尋..." className="pl-10" />
-        </div>
+      <div className="flex items-center gap-3">
+        <Store className="h-5 w-5 text-primary" />
+        <span className="text-sm font-medium text-gray-700">
+          {restaurant?.name || '載入中...'}
+        </span>
+        <span className="text-xs text-gray-400 px-2 py-0.5 bg-gray-100 rounded-full">
+          {user?.role === 'owner' ? '店主' : user?.role === 'manager' ? '主管' : '員工'}
+        </span>
       </div>
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" className="relative">
@@ -32,6 +36,7 @@ export function TopBar() {
           <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-white text-sm font-medium">
             {user?.name?.charAt(0) || 'U'}
           </div>
+          <span className="text-sm font-medium text-gray-700 hidden md:block">{user?.name}</span>
         </div>
       </div>
     </header>

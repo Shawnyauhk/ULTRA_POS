@@ -9,27 +9,36 @@ import {
   Receipt,
   Users,
   MessageSquare,
-  Megaphone,
+  Star,
   Settings,
-  BarChart3
+  BarChart3,
+  Clock,
+  CalendarDays,
+  Store
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
+import { useRestaurant } from '@/hooks/useSupabaseData'
 
 const menuItems = [
   { path: '/', label: '控制面板與AI分析', icon: LayoutDashboard },
   { path: '/pos-order', label: 'POS 點餐系統', icon: ShoppingBag },
-  { path: '/orders', label: '訂貨管理', icon: Receipt },
   { path: '/products', label: '產品管理', icon: Coffee },
-  { path: '/inventory', label: '庫存與補貨', icon: Package },
-  { path: '/expenses', label: '財務、支出與結算', icon: Calculator },
+  { path: '/inventory', label: '貨物表', icon: Package },
+  { path: '/orders', label: '訂貨管理', icon: Receipt },
+  { path: '/attendance', label: '打卡系統', icon: Clock },
+  { path: '/schedules', label: '排班管理', icon: CalendarDays },
   { path: '/payroll', label: '員工與薪酬', icon: Users },
-  { path: '/ai-marketing', label: 'AI 行銷與客服', icon: Megaphone },
+  { path: '/expenses', label: '財務、支出與結算', icon: Calculator },
+  { path: '/reports', label: '數據報表', icon: BarChart3 },
+  { path: '/ai-marketing', label: 'AI 客服', icon: MessageSquare },
+  { path: '/review-generator', label: 'Google 好評', icon: Star },
   { path: '/settings', label: '系統設置', icon: Settings },
 ]
 
 export function Sidebar() {
   const location = useLocation()
   const { user } = useAuthStore()
+  const { restaurant } = useRestaurant()
 
   const filteredItems = menuItems.filter((item) => {
     if (!item.roles) return true
@@ -68,12 +77,26 @@ export function Sidebar() {
       </nav>
       <div className="p-4 border-t border-gray-200">
         <div className="text-sm text-gray-500">
-          <p className="font-semibold text-gray-900">Multi-Tenant SaaS</p>
-          <p className="text-xs">總店 - 管理後台</p>
+          {/* 餐廳資訊 */}
+          <div className="flex items-center gap-2 mb-3">
+            <Store className="h-4 w-4 text-primary" />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-gray-900 truncate">
+                {restaurant?.name || '載入中...'}
+              </p>
+              {restaurant?.business_hours && (
+                <p className="text-xs text-gray-400">{restaurant.business_hours}</p>
+              )}
+            </div>
+          </div>
+          {/* 用戶資訊 */}
           {user && (
-            <div className="mt-4 pt-4 border-t border-gray-200">
-              <p className="font-medium text-gray-900">{user.name}</p>
-              <p className="text-xs">{user.role === 'owner' ? '店主' : user.role === 'manager' ? '主管' : '員工'}</p>
+            <div className="pt-3 border-t border-gray-200">
+              <p className="font-medium text-gray-900 truncate">{user.name}</p>
+              <p className="text-xs">
+                {user.role === 'owner' ? '店主' : user.role === 'manager' ? '主管' : '員工'}
+                <span className="ml-2 text-gray-400">ID: {user.restaurant_id?.slice(0, 8)}...</span>
+              </p>
             </div>
           )}
         </div>

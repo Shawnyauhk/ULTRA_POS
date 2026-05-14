@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { FALLBACK_RESTAURANT_ID } from '@/hooks/useSupabaseData'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -41,7 +42,7 @@ export function LoginPage() {
         // Create demo user if not found
         setUser({
           id: data.user.id,
-          restaurant_id: 'demo',
+          restaurant_id: FALLBACK_RESTAURANT_ID,
           name: '示範用戶',
           email: email,
           role: 'owner',
@@ -62,7 +63,7 @@ export function LoginPage() {
   const handleDemoLogin = () => {
     setUser({
       id: 'demo-1',
-      restaurant_id: 'demo',
+      restaurant_id: FALLBACK_RESTAURANT_ID,
       name: '示範用戶',
       email: 'demo@demo.com',
       role: 'owner',
@@ -124,6 +125,11 @@ export function LoginPage() {
             <p className="text-xs text-gray-500 text-center mt-2">
               示範模式可在未設定 Supabase 的情況下預覽系統
             </p>
+            <div className="mt-4 text-center">
+              <Link to="/register" className="text-sm text-primary hover:underline font-medium">
+                還沒有帳號？註冊新商家 →
+              </Link>
+            </div>
           </div>
         </CardContent>
       </Card>

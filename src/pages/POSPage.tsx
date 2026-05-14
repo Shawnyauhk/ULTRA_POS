@@ -55,12 +55,104 @@ export function POSPage() {
     }
   };
 
-  const handleAIOrder = () => {
+  const handleAIOrder = async () => {
     if (!aiOrderText.trim()) return;
-    alert(`AI 正在解析您的點餐: "${aiOrderText}"...`);
-    // TODO: Implement AI order parsing with Gemini API
+    
+    try {
+      const response = await fetch('/api/nvidia/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_NVIDIA_NIM_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: import.meta.env.VITE_NVIDIA_NIM_MODEL || 'qwen/qwen3.5-122b-a10b',
+          messages: [{
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `你是一個餐廳點餐助手。請解析以下顧客點餐文字，輸出JSON陣列。
+
+可選產品清單（name + price）：
+${products.map(p => `- ${p.name} ($${p.price})`).join('\n')}
+
+顧客點餐：${aiOrderText}
+
+請輸出 JSON 陣列，每個項目包含：
+{"name": "產品名稱", "quantity": 數量, "options": ["客製選項陣列"]}
+
+範例輸出：
+[{"name": "原味雞蛋仔", "quantity": 2, "options": []}, {"name": "凍檸茶", "quantity": 1, "options": ["少甜"]}]
+
+只回覆 JSON 陣列，不要有其他文字。`
+              }
+            ]
+          }],
+          max_tokens: 1024,
+          temperature: 0.1
+        })
+      });
+
+      if (!response.ok) throw new Error(`API 錯誤: ${response.status}`);
+
+      const data = await response.json();
+      const text = data.choices?.[0]?.message?.reasoning_content ||
+                   data.choices?.[0]?.message?.content || '';
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) throw new Error('無法解析 AI 回覆');
+
+      const parsedItems = JSON.parse(jsonMatch[0]);
+      if (!Array.isArray(parsedItems) || parsedItems.length === 0) {
+        alert('AI 未能解析您的點餐，請重新輸入');
+        return;
+      }
+
+      // Match parsed items to available products
+      const newCartItems: typeof cart = [];
+      for (const item of parsedItems) {
+        const product = products.find(p => 
+          p.name.includes(item.name) || item.name.includes(p.name)
+        );
+        if (product) {
+          const existing = cart.find(c => c.id === product.id);
+          if (existing) {
+            // Will be merged below with existing cart
+          }
+          newCartItems.push({
+            id: product.id,
+            name: product.name,
+            price: product.price,
+            quantity: item.quantity || 1,
+            options: item.options || ['預設'],
+          });
+        }
+      }
+
+      if (newCartItems.length === 0) {
+        alert('未能識別出對應的產品，請重新輸入');
+        return;
+      }
+
+      // Merge with existing cart
+      const mergedCart = [...cart];
+      for (const newItem of newCartItems) {
+        const existing = mergedCart.find(c => c.id === newItem.id);
+        if (existing) {
+          existing.quantity += newItem.quantity;
+        } else {
+          mergedCart.push(newItem);
+        }
+      }
+      setCart(mergedCart);
+      setIsCartOpen(true);
+      alert(`✅ AI 已解析您的點餐：${newCartItems.map(i => `${i.name}×${i.quantity}`).join('、')}`);
+    } catch (err) {
+      console.error('AI 點餐失敗:', err);
+      alert('AI 點餐服務暫時不可用，請手動選擇產品');
+    }
+    
     setAiOrderText('');
-    setIsCartOpen(true);
   };
 
   const handleCheckout = async () => {

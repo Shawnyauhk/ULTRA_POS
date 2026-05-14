@@ -179,14 +179,7 @@ export default function ExpensesPage() {
         }
       } catch (err) {
         console.error('OCR 識別失敗:', err);
-        // 失敗時使用模擬結果
-        setOcrResult({
-          category: '其他',
-          amount: 150.5,
-          description: '收據識別結果',
-          handler: 'AI',
-          expense_date: new Date().toISOString().split('T')[0],
-        });
+        alert('OCR 識別失敗，請確認 NVIDIA NIM API Key 是否正確');
       }
     };
     reader.readAsDataURL(file);

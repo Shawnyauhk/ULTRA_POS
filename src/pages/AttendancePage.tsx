@@ -1,63 +1,145 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Clock, LogIn, LogOut, User } from 'lucide-react'
+import { Clock, LogIn, LogOut, User, Loader2 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
-import { calculateWorkHours } from '@/lib/utils'
-import type { Attendance, Employee } from '@/types'
+import { useEmployees, useAttendance } from '@/hooks/useSupabaseData'
+import { supabase } from '@/lib/supabase'
+import type { Employee } from '@/types'
 
 export function AttendancePage() {
-  const _auth = useAuthStore() // TODO: Connect to Supabase
-  const [todayAttendance, setTodayAttendance] = useState<Attendance[]>([])
-  const [employees, setEmployees] = useState<Employee[]>([])
-  const [loading] = useState(true)
+  const { user } = useAuthStore()
+  const { employees, loading: empLoading } = useEmployees()
+  const { attendance, loading, refetch, addAttendance, updateAttendance, getTodayAttendance } = useAttendance()
+  const [todayAttendance, setTodayAttendance] = useState<any[]>([])
+  const [clockingIn, setClockingIn] = useState<string | null>(null)
+  const [clockingOut, setClockingOut] = useState<string | null>(null)
+
+  const refreshToday = useCallback(async () => {
+    const today = await getTodayAttendance()
+    setTodayAttendance(today)
+  }, [getTodayAttendance])
 
   useEffect(() => {
-    // Demo data
-    setEmployees([
-      { id: '1', restaurant_id: 'demo', name: '張三', role: 'owner', hire_date: '2024-01-01', is_active: true, created_at: '2024-01-01' },
-      { id: '2', restaurant_id: 'demo', name: '李四', role: 'manager', hire_date: '2024-03-15', is_active: true, created_at: '2024-03-15' },
-      { id: '3', restaurant_id: 'demo', name: '王五', role: 'staff', hire_date: '2024-06-01', is_active: true, created_at: '2024-06-01' },
-    ])
-    setTodayAttendance([
-      { id: '1', employee_id: '1', date: new Date().toISOString(), clock_in: '09:00', employee: employees[0] },
-      { id: '2', employee_id: '2', date: new Date().toISOString(), clock_in: '10:00', employee: employees[1] },
-      { id: '3', employee_id: '1', date: new Date().toISOString(), clock_out: '18:00', employee: employees[0] },
-    ])
-    // Demo data loaded
-  }, [])
+    refreshToday()
+  }, [attendance, refreshToday])
 
-  const handleClockIn = (employeeId: string) => {
-    const newRecord: Attendance = {
-      id: Date.now().toString(),
-      employee_id: employeeId,
-      date: new Date().toISOString(),
-      clock_in: new Date().toLocaleTimeString('zh-HK', { hour: '2-digit', minute: '2-digit' }),
+  // 檢查是否在店舖範圍內（經緯度距離）
+  const checkStoreProximity = async (): Promise<boolean> => {
+    try {
+      // 從設定中讀取店舖位置
+      const { data: settings } = await supabase
+        .from('settings')
+        .select('setting_value')
+        .eq('setting_key', 'store_location')
+        .single();
+
+      if (!settings?.setting_value) {
+        // 沒有設定位置，跳過檢查
+        return true;
+      }
+
+      const storeLoc = JSON.parse(settings.setting_value); // { lat, lng }
+
+      // 取得當前位置
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+        });
+      });
+
+      const userLat = pos.coords.latitude;
+      const userLng = pos.coords.longitude;
+
+      // 計算距離（Haversine 公式）
+      const R = 6371000; // 地球半徑（公尺）
+      const dLat = (userLat - storeLoc.lat) * Math.PI / 180;
+      const dLng = (userLng - storeLoc.lng) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) ** 2 +
+                Math.cos(storeLoc.lat * Math.PI / 180) * Math.cos(userLat * Math.PI / 180) *
+                Math.sin(dLng / 2) ** 2;
+      const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+      // 200 公尺內視為在店舖
+      if (distance > 200) {
+        alert(`⚠️ 您目前距離店舖約 ${Math.round(distance)} 公尺，請到店舖後再打卡。`);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      // GPS 不可用時允許打卡（開發階段）
+      console.warn('位置檢查失敗，跳過:', err);
+      return true;
     }
-    setTodayAttendance([...todayAttendance, newRecord])
+  };
+
+  const handleClockIn = async (employeeId: string) => {
+    // 位置檢查
+    const inStore = await checkStoreProximity();
+    if (!inStore) return;
+
+    setClockingIn(employeeId)
+    const today = new Date().toISOString().split('T')[0]
+    const now = new Date()
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+
+    try {
+      const { error } = await supabase
+        .from('attendance')
+        .insert([{
+          employee_id: employeeId,
+          date: today,
+          clock_in: timeStr,
+        }])
+
+      if (error) throw error
+      await refreshToday()
+    } catch (err) {
+      console.error('Clock in error:', err)
+      alert('打卡失敗: ' + (err as Error).message)
+    } finally {
+      setClockingIn(null)
+    }
   }
 
-  const handleClockOut = (attendanceId: string) => {
-    setTodayAttendance(todayAttendance.map(record => {
-      if (record.id === attendanceId) {
-        const clockOutTime = new Date().toLocaleTimeString('zh-HK', { hour: '2-digit', minute: '2-digit' })
-        const workHours = record.clock_in
-          ? calculateWorkHours(record.clock_in, clockOutTime)
-          : 0
-        return {
-          ...record,
-          clock_out: clockOutTime,
-          work_hours: workHours,
-        }
+  const handleClockOut = async (attendanceId: string) => {
+    setClockingOut(attendanceId)
+    const now = new Date()
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+
+    try {
+      const record = todayAttendance.find(a => a.id === attendanceId)
+      // Calculate work hours from time strings
+      let workHours = 0
+      if (record?.clock_in) {
+        const [inH, inM] = record.clock_in.split(':').map(Number)
+        const [outH, outM] = timeStr.split(':').map(Number)
+        workHours = Math.round(((outH * 60 + outM) - (inH * 60 + inM)) / 60 * 100) / 100
       }
-      return record
-    }))
+
+      const { error } = await supabase
+        .from('attendance')
+        .update({
+          clock_out: timeStr,
+          work_hours: Math.max(0, workHours),
+        })
+        .eq('id', attendanceId)
+
+      if (error) throw error
+      await refreshToday()
+    } catch (err) {
+      console.error('Clock out error:', err)
+      alert('下班打卡失敗: ' + (err as Error).message)
+    } finally {
+      setClockingOut(null)
+    }
   }
 
   const getAttendanceForEmployee = (employeeId: string) => {
-    return todayAttendance.find(a => a.employee_id === employeeId)
+    return todayAttendance.find((a: any) => a.employee_id === employeeId)
   }
 
   return (
@@ -76,48 +158,66 @@ export function AttendancePage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {employees.filter(e => e.is_active).map((employee) => {
-              const attendance = getAttendanceForEmployee(employee.id)
-              const hasClockIn = !!attendance?.clock_in
-              const hasClockOut = !!attendance?.clock_out
+          {empLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {employees.filter(e => e.is_active).map((employee) => {
+                const att = getAttendanceForEmployee(employee.id)
+                const hasClockIn = !!att?.clock_in
+                const hasClockOut = !!att?.clock_out
 
-              return (
-                <div key={employee.id} className="border rounded-lg p-4 text-center">
-                  <div className="h-12 w-12 rounded-full bg-gray-200 mx-auto mb-2 flex items-center justify-center">
-                    <User className="h-6 w-6 text-gray-500" />
-                  </div>
-                  <p className="font-medium">{employee.name}</p>
-                  <p className="text-sm text-gray-500 mb-3">{employee.role === 'owner' ? '店主' : employee.role === 'manager' ? '主管' : '員工'}</p>
-                  {hasClockOut ? (
-                    <Badge variant="success" className="w-full justify-center">已下班</Badge>
-                  ) : hasClockIn ? (
-                    <div className="space-y-2">
-                      <p className="text-sm text-green-600">上班: {attendance?.clock_in}</p>
+                return (
+                  <div key={employee.id} className="border rounded-lg p-4 text-center">
+                    <div className="h-12 w-12 rounded-full bg-gray-200 mx-auto mb-2 flex items-center justify-center">
+                      <User className="h-6 w-6 text-gray-500" />
+                    </div>
+                    <p className="font-medium">{employee.name}</p>
+                    <p className="text-sm text-gray-500 mb-3">
+                      {employee.role === 'owner' ? '店主' : employee.role === 'manager' ? '主管' : '員工'}
+                    </p>
+                    {hasClockOut ? (
+                      <Badge variant="success" className="w-full justify-center">已下班</Badge>
+                    ) : hasClockIn ? (
+                      <div className="space-y-2">
+                        <p className="text-sm text-green-600">上班: {att?.clock_in}</p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => handleClockOut(att!.id)}
+                          disabled={clockingOut === att!.id}
+                        >
+                          {clockingOut === att!.id ? (
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                          ) : (
+                            <LogOut className="h-4 w-4 mr-1" />
+                          )}
+                          下班
+                        </Button>
+                      </div>
+                    ) : (
                       <Button
                         size="sm"
-                        variant="outline"
                         className="w-full"
-                        onClick={() => handleClockOut(attendance!.id)}
+                        onClick={() => handleClockIn(employee.id)}
+                        disabled={clockingIn === employee.id}
                       >
-                        <LogOut className="h-4 w-4 mr-1" />
-                        下班
+                        {clockingIn === employee.id ? (
+                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        ) : (
+                          <LogIn className="h-4 w-4 mr-1" />
+                        )}
+                        上班
                       </Button>
-                    </div>
-                  ) : (
-                    <Button
-                      size="sm"
-                      className="w-full"
-                      onClick={() => handleClockIn(employee.id)}
-                    >
-                      <LogIn className="h-4 w-4 mr-1" />
-                      上班
-                    </Button>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -127,34 +227,45 @@ export function AttendancePage() {
           <CardTitle>今日打卡記錄</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>員工</TableHead>
-                <TableHead>上班時間</TableHead>
-                <TableHead>下班時間</TableHead>
-                <TableHead>工時</TableHead>
-                <TableHead>狀態</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {todayAttendance.map((record) => (
-                <TableRow key={record.id}>
-                  <TableCell className="font-medium">
-                    {employees.find(e => e.id === record.employee_id)?.name || '未知'}
-                  </TableCell>
-                  <TableCell>{record.clock_in || '-'}</TableCell>
-                  <TableCell>{record.clock_out || '-'}</TableCell>
-                  <TableCell>{record.work_hours ? `${record.work_hours} 小時` : '-'}</TableCell>
-                  <TableCell>
-                    <Badge variant={record.clock_out ? 'success' : 'warning'}>
-                      {record.clock_out ? '已完成' : '工作中'}
-                    </Badge>
-                  </TableCell>
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : todayAttendance.length === 0 ? (
+            <div className="text-center py-12 text-gray-400">
+              <Clock className="w-12 h-12 mx-auto mb-4 opacity-20" />
+              <p>今日尚無打卡記錄</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>員工</TableHead>
+                  <TableHead>上班時間</TableHead>
+                  <TableHead>下班時間</TableHead>
+                  <TableHead>工時</TableHead>
+                  <TableHead>狀態</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {todayAttendance.map((record: any) => (
+                  <TableRow key={record.id}>
+                    <TableCell className="font-medium">
+                      {record.employee?.name || '未知'}
+                    </TableCell>
+                    <TableCell>{record.clock_in || '-'}</TableCell>
+                    <TableCell>{record.clock_out || '-'}</TableCell>
+                    <TableCell>{record.work_hours ? `${record.work_hours} 小時` : '-'}</TableCell>
+                    <TableCell>
+                      <Badge variant={record.clock_out ? 'success' : 'warning'}>
+                        {record.clock_out ? '已完成' : '工作中'}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>

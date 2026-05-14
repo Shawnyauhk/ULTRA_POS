@@ -3,6 +3,7 @@ import { useAuthStore } from '@/stores/auth'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { TopBar } from '@/components/layout/TopBar'
 import { LoginPage } from '@/pages/LoginPage'
+import RegisterPage from '@/pages/RegisterPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { POSPage } from '@/pages/POSPage'
 import ExpensesPage from '@/pages/ExpensesPage'
@@ -12,6 +13,11 @@ import { ProductsPage } from '@/pages/ProductsPage'
 import { InventoryPage } from '@/pages/InventoryPage'
 import { OrderRequestsPage } from '@/pages/OrderRequestsPage'
 import { AIChatPage } from '@/pages/AIChatPage'
+import ReviewGeneratorPage from '@/pages/ReviewGeneratorPage'
+import { EmployeesPage } from '@/pages/EmployeesPage'
+import { AttendancePage } from '@/pages/AttendancePage'
+import { SchedulesPage } from '@/pages/SchedulesPage'
+import ReportsPage from '@/pages/ReportsPage'
 import { useState, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
 
@@ -39,11 +45,8 @@ export default function App() {
   const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
-    // 模擬系統初始化加載
-    const timer = setTimeout(() => {
-      setIsInitializing(false);
-    }, 1500);
-    return () => clearTimeout(timer);
+    // 實際初始化加載
+    setIsInitializing(false);
   }, []);
 
   if (isInitializing) {
@@ -58,6 +61,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
       <Route
         path="/*"
         element={
@@ -69,9 +73,14 @@ export default function App() {
                 <Route path="/orders" element={<OrderRequestsPage />} />
                 <Route path="/products" element={<ProductsPage />} />
                 <Route path="/inventory" element={<InventoryPage />} />
+                <Route path="/employees" element={<EmployeesPage />} />
+                <Route path="/attendance" element={<AttendancePage />} />
+                <Route path="/schedules" element={<SchedulesPage />} />
+                <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/expenses" element={<ExpensesPage />} />
                 <Route path="/payroll" element={<PayrollPage />} />
                 <Route path="/ai-marketing" element={<AIChatPage />} />
+                <Route path="/review-generator" element={<ReviewGeneratorPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Routes>
             </AppLayout>
