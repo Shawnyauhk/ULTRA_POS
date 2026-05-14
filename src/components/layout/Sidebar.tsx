@@ -29,7 +29,6 @@ const menuItems = [
   { path: '/schedules', label: '排班管理', icon: CalendarDays },
   { path: '/payroll', label: '員工與薪酬', icon: Users },
   { path: '/expenses', label: '財務、支出與結算', icon: Calculator },
-  { path: '/reports', label: '數據報表', icon: BarChart3 },
   { path: '/ai-marketing', label: 'AI 客服', icon: MessageSquare },
   { path: '/review-generator', label: 'Google 好評', icon: Star },
   { path: '/settings', label: '系統設置', icon: Settings },
