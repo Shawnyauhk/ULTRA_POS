@@ -1,16 +1,15 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { FALLBACK_RESTAURANT_ID } from '@/hooks/useSupabaseData'
 
 export function LoginPage() {
   const navigate = useNavigate()
   const { setUser } = useAuthStore()
-  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -21,57 +20,41 @@ export function LoginPage() {
     setError('')
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      // 用电话号作为内部email格式 {phone}@ultrapos.com
+      const email = `${phone}@ultrapos.com`
+
+      const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
-      if (error) throw error
+      if (signInError) throw signInError
 
-      // Fetch employee profile
-      const { data: employee } = await supabase
+      // 查找员工记录
+      const { data: employee, error: empError } = await supabase
         .from('employees')
         .select('*')
-        .eq('email', email)
+        .eq('phone', phone)
         .single()
 
-      if (employee) {
-        setUser(employee)
-        navigate('/')
-      } else {
-        // Create demo user if not found
-        setUser({
-          id: data.user.id,
-          restaurant_id: FALLBACK_RESTAURANT_ID,
-          name: '示範用戶',
-          email: email,
-          role: 'owner',
-          hire_date: new Date().toISOString(),
-          is_active: true,
-          created_at: new Date().toISOString(),
-        })
-        navigate('/')
+      if (empError || !employee) {
+        throw new Error('找不到對應的員工資料')
       }
-    } catch (err: any) {
-      setError(err.message || '登入失敗')
+
+      if (!employee.is_active) {
+        throw new Error('此帳號已被停用')
+      }
+
+      setUser(employee)
+      navigate('/')
+    } catch (err: unknown) {
+      const message = err && typeof err === 'object'
+        ? String((err as Record<string, unknown>).message ?? err)
+        : String(err)
+      setError(message)
     } finally {
       setLoading(false)
     }
-  }
-
-  // Demo login for testing without Supabase
-  const handleDemoLogin = () => {
-    setUser({
-      id: 'demo-1',
-      restaurant_id: FALLBACK_RESTAURANT_ID,
-      name: '示範用戶',
-      email: 'demo@demo.com',
-      role: 'owner',
-      hire_date: new Date().toISOString(),
-      is_active: true,
-      created_at: new Date().toISOString(),
-    })
-    navigate('/')
   }
 
   return (
@@ -91,12 +74,12 @@ export function LoginPage() {
               </div>
             )}
             <div className="space-y-2">
-              <label className="text-sm font-medium">電子郵件</label>
+              <label className="text-sm font-medium">電話號碼</label>
               <Input
-                type="email"
-                placeholder="example@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                type="tel"
+                placeholder="請輸入電話號碼"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
                 required
               />
             </div>
@@ -114,23 +97,6 @@ export function LoginPage() {
               {loading ? '登入中...' : '登入'}
             </Button>
           </form>
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={handleDemoLogin}
-            >
-              示範模式（無需設定）
-            </Button>
-            <p className="text-xs text-gray-500 text-center mt-2">
-              示範模式可在未設定 Supabase 的情況下預覽系統
-            </p>
-            <div className="mt-4 text-center">
-              <Link to="/register" className="text-sm text-primary hover:underline font-medium">
-                還沒有帳號？註冊新商家 →
-              </Link>
-            </div>
-          </div>
         </CardContent>
       </Card>
     </div>

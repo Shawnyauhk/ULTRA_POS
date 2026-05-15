@@ -10,6 +10,7 @@ import { useInventory } from '@/hooks/useSupabaseData'
 import { FALLBACK_RESTAURANT_ID } from '@/hooks/useSupabaseData'
 import { useRealtimeInventory } from '@/hooks/useRealtime'
 import { useSmartOrdering } from '@/hooks/useSmartOrdering'
+import { usePermission } from '@/hooks/usePermission'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import * as XLSX from 'xlsx'
@@ -34,6 +35,7 @@ const warehouseCategories = [
 export function InventoryPage() {
   const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const { can } = usePermission()
   const { inventory, loading, refetch, updateInventory, addInventory } = useInventory()
   const { predictions, loading: predictionsLoading } = useSmartOrdering()
   useRealtimeInventory(refetch)
@@ -368,14 +370,16 @@ export function InventoryPage() {
             accept=".xlsx,.xls,.csv,.pdf,image/*"
             onChange={handleFileUpload}
           />
-          <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={importing}>
-            {importing ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Upload className="w-4 h-4 mr-2" />
-            )}
-            {importing ? '導入中...' : '導入貨物'}
-          </Button>
+          {can('inventory.manage') && (
+            <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={importing}>
+              {importing ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Upload className="w-4 h-4 mr-2" />
+              )}
+              {importing ? '導入中...' : '導入貨物'}
+            </Button>
+          )}
           <Button variant="outline" onClick={() => navigate('/orders')}>
             <ShoppingCart className="h-4 w-4 mr-2" />
             訂貨管理
@@ -383,10 +387,12 @@ export function InventoryPage() {
           <Button variant="ghost" size="icon" onClick={refetch} title="即時刷新">
             <RefreshCw className="h-4 w-4" />
           </Button>
-          <Button onClick={() => { resetForm(); setEditingItem(null); setShowModal(true) }}>
-            <Plus className="h-4 w-4 mr-2" />
-            新增貨物
-          </Button>
+          {can('inventory.manage') && (
+            <Button onClick={() => { resetForm(); setEditingItem(null); setShowModal(true) }}>
+              <Plus className="h-4 w-4 mr-2" />
+              新增貨物
+            </Button>
+          )}
         </div>
       </div>
 
@@ -506,7 +512,7 @@ export function InventoryPage() {
                 共 {filteredInventory.length} 項貨物
               </Badge>
             </CardTitle>
-            {selectedIds.size > 0 && (
+            {can('inventory.manage') && selectedIds.size > 0 && (
               <Button variant="destructive" size="sm" onClick={confirmDeleteSelected} disabled={deleting}>
                 {deleting ? (
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -596,9 +602,11 @@ export function InventoryPage() {
                                   <TableCell className="font-medium">{item.name}</TableCell>
                                   <TableCell className="text-gray-500">{item.supplier || '-'}</TableCell>
                                   <TableCell className="text-right">
-                                    <Button variant="ghost" size="icon" onClick={() => handleEdit(item)}>
-                                      <Pencil className="h-4 w-4" />
-                                    </Button>
+                                    {can('inventory.manage') && (
+                                      <Button variant="ghost" size="icon" onClick={() => handleEdit(item)}>
+                                        <Pencil className="h-4 w-4" />
+                                      </Button>
+                                    )}
                                   </TableCell>
                                 </TableRow>
                               )

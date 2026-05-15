@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Star,
   Settings,
+  Shield,
   BarChart3,
   Clock,
   CalendarDays,
@@ -18,31 +19,45 @@ import {
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 import { useRestaurant } from '@/hooks/useSupabaseData'
+import { usePermission } from '@/hooks/usePermission'
+import type { PermissionKey } from '@/types'
 
-const menuItems = [
-  { path: '/', label: '控制面板與AI分析', icon: LayoutDashboard },
-  { path: '/pos-order', label: 'POS 點餐系統', icon: ShoppingBag },
-  { path: '/products', label: '產品管理', icon: Coffee },
-  { path: '/inventory', label: '貨物表', icon: Package },
-  { path: '/orders', label: '訂貨管理', icon: Receipt },
-  { path: '/attendance', label: '打卡系統', icon: Clock },
-  { path: '/schedules', label: '排班管理', icon: CalendarDays },
-  { path: '/payroll', label: '員工與薪酬', icon: Users },
-  { path: '/expenses', label: '財務、支出與結算', icon: Calculator },
-  { path: '/ai-marketing', label: 'AI 客服', icon: MessageSquare },
-  { path: '/review-generator', label: 'Google 好評', icon: Star },
-  { path: '/settings', label: '系統設置', icon: Settings },
+interface MenuItem {
+  path: string
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  permission: PermissionKey
+}
+
+const menuItems: MenuItem[] = [
+  { path: '/', label: '控制面板與AI分析', icon: LayoutDashboard, permission: 'dashboard.view' },
+  { path: '/pos-order', label: 'POS 點餐系統', icon: ShoppingBag, permission: 'pos.create_order' },
+  { path: '/products', label: '產品管理', icon: Coffee, permission: 'product.view' },
+  { path: '/inventory', label: '貨物表', icon: Package, permission: 'inventory.view' },
+  { path: '/orders', label: '訂貨管理', icon: Receipt, permission: 'order.view' },
+  { path: '/attendance', label: '打卡系統', icon: Clock, permission: 'attendance.view' },
+  { path: '/schedules', label: '排班管理', icon: CalendarDays, permission: 'schedule.view' },
+  { path: '/payroll', label: '員工與薪酬', icon: Users, permission: 'payroll.view' },
+  { path: '/expenses', label: '財務、支出與結算', icon: Calculator, permission: 'expense.view' },
+  { path: '/ai-marketing', label: 'AI 客服管理', icon: MessageSquare, permission: 'ai.customer_service' },
+  { path: '/review-generator', label: 'Google 好評', icon: Star, permission: 'review.view' },
+  { path: '/permissions', label: '權限設定', icon: Shield, permission: 'setting.manage' },
+  { path: '/settings', label: '系統設置', icon: Settings, permission: 'setting.view' },
 ]
+
+const roleLabels: Record<string, string> = {
+  owner: '店主',
+  manager: '主管',
+  staff: '員工',
+}
 
 export function Sidebar() {
   const location = useLocation()
   const { user } = useAuthStore()
   const { restaurant } = useRestaurant()
+  const { can } = usePermission()
 
-  const filteredItems = menuItems.filter((item) => {
-    if (!item.roles) return true
-    return user && item.roles.includes(user.role)
-  })
+  const filteredItems = menuItems.filter((item) => can(item.permission))
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
@@ -93,7 +108,7 @@ export function Sidebar() {
             <div className="pt-3 border-t border-gray-200">
               <p className="font-medium text-gray-900 truncate">{user.name}</p>
               <p className="text-xs">
-                {user.role === 'owner' ? '店主' : user.role === 'manager' ? '主管' : '員工'}
+                {roleLabels[user.role] || user.role}
                 <span className="ml-2 text-gray-400">ID: {user.restaurant_id?.slice(0, 8)}...</span>
               </p>
             </div>

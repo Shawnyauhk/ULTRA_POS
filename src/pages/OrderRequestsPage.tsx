@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Clock, CheckCircle, AlertCircle, Loader2, Plus, Search, X, Pencil, Calendar, ChevronDown, ChevronRight, PackageCheck, FileCheck } from 'lucide-react';
 import { useOrderRequests, useInventory } from '@/hooks/useSupabaseData';
 import { FALLBACK_RESTAURANT_ID } from '@/hooks/useSupabaseData';
+import { usePermission } from '@/hooks/usePermission';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/auth';
 import type { OrderRequest, OrderRequestStatus, Inventory } from '@/types';
@@ -30,6 +31,7 @@ function getRestaurantId(): string {
 type ColumnType = 'request' | 'pending' | 'received' | 'completed';
 
 export function OrderRequestsPage() {
+  const { can } = usePermission();
   const { orderRequests, loading, refetch, updateOrderRequestStatus } = useOrderRequests();
   const { inventory, loading: inventoryLoading } = useInventory();
   const { user } = useAuthStore();
@@ -449,14 +451,16 @@ export function OrderRequestsPage() {
                         {qtyInfo && (
                           <span className="text-sm font-semibold text-gray-700 whitespace-nowrap">{qtyInfo}</span>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5 -mr-1"
-                          onClick={() => handleEditRequest(order)}
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </Button>
+                        {can('order.approve') && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 -mr-1"
+                            onClick={() => handleEditRequest(order)}
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </Button>
+                        )}
                       </div>
                     </div>
 
@@ -607,10 +611,12 @@ export function OrderRequestsPage() {
           <h1 className="text-2xl font-bold text-gray-900">訂貨管理</h1>
           <p className="text-muted-foreground">拖曳卡片以更改訂貨請求狀態</p>
         </div>
-        <Button onClick={() => setShowRequestModal(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          訂貨請求
-        </Button>
+        {can('order.create') && (
+          <Button onClick={() => setShowRequestModal(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            訂貨請求
+          </Button>
+        )}
       </div>
 
       {/* Kanban 三欄 */}

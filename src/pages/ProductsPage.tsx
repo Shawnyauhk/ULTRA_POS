@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/select';
 import { Coffee, Image as ImageIcon, FileSpreadsheet, Loader2, Plus, Edit2, Save, X, Search, RefreshCw, ChevronRight, ChevronDown, FolderOpen } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/auth';
+import { usePermission } from '@/hooks/usePermission';
 import * as XLSX from 'xlsx';
 import { useProducts } from '@/hooks/useSupabaseData';
 import { FALLBACK_RESTAURANT_ID } from '@/hooks/useSupabaseData';
@@ -21,6 +22,7 @@ function getRestaurantId(): string {
 
 export function ProductsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { can } = usePermission();
   const { products, categories, loading, refetch } = useProducts();
   useRealtimeProducts(refetch);
 
@@ -283,20 +285,26 @@ export function ProductsPage() {
             accept=".xlsx,.xls,.csv,image/*"
             onChange={handleFileUpload}
           />
-          <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-            <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel 導入
-          </Button>
-          <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={aiImporting}>
-            {aiImporting ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <ImageIcon className="w-4 h-4 mr-2" />
-            )}
-            {aiImporting ? 'AI 識別中...' : '圖片 AI 導入'}
-          </Button>
-          <Button onClick={openAddModal}>
-            <Plus className="w-4 h-4 mr-2" /> 新增產品
-          </Button>
+          {can('product.manage') && (
+            <>
+              <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel 導入
+              </Button>
+              <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={aiImporting}>
+                {aiImporting ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <ImageIcon className="w-4 h-4 mr-2" />
+                )}
+                {aiImporting ? 'AI 識別中...' : '圖片 AI 導入'}
+              </Button>
+            </>
+          )}
+          {can('product.manage') && (
+            <Button onClick={openAddModal}>
+              <Plus className="w-4 h-4 mr-2" /> 新增產品
+            </Button>
+          )}
         </div>
       </div>
 
@@ -453,12 +461,16 @@ export function ProductsPage() {
                                   {product.description || '—'}
                                 </td>
                                 <td className="px-4 py-2.5 flex gap-2">
-                                  <Button size="icon" variant="ghost" onClick={() => openEditModal(product)}>
-                                    <Edit2 className="w-4 h-4" />
-                                  </Button>
-                                  <Button size="icon" variant="ghost" onClick={() => handleDeleteProduct(product.id)}>
-                                    <X className="w-4 h-4 text-red-500" />
-                                  </Button>
+                                  {can('product.manage') && (
+                                    <>
+                                      <Button size="icon" variant="ghost" onClick={() => openEditModal(product)}>
+                                        <Edit2 className="w-4 h-4" />
+                                      </Button>
+                                      <Button size="icon" variant="ghost" onClick={() => handleDeleteProduct(product.id)}>
+                                        <X className="w-4 h-4 text-red-500" />
+                                      </Button>
+                                    </>
+                                  )}
                                 </td>
                               </tr>
                             ))}

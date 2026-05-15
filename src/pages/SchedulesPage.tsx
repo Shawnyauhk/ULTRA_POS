@@ -6,9 +6,11 @@ import { ChevronLeft, ChevronRight, Trash2, Loader2 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isToday, addMonths, subMonths } from 'date-fns'
 import { zhHK } from 'date-fns/locale'
 import { useEmployees, useSchedules } from '@/hooks/useSupabaseData'
+import { usePermission } from '@/hooks/usePermission'
 import type { Schedule } from '@/types'
 
 export function SchedulesPage() {
+  const { can } = usePermission()
   const { employees, loading: empLoading } = useEmployees()
   const { schedules, loading, refetch, addSchedule, deleteSchedule } = useSchedules()
   const [currentMonth, setCurrentMonth] = useState(new Date())
@@ -110,8 +112,8 @@ export function SchedulesPage() {
                   return (
                     <div
                       key={day.toISOString()}
-                      className={`min-h-[100px] border rounded-lg p-2 cursor-pointer hover:bg-gray-50 ${isToday(day) ? 'bg-blue-50 border-blue-200' : ''}`}
-                      onClick={() => handleDateClick(day)}
+                      className={`min-h-[100px] border rounded-lg p-2 ${can('schedule.manage') ? 'cursor-pointer hover:bg-gray-50' : ''} ${isToday(day) ? 'bg-blue-50 border-blue-200' : ''}`}
+                      onClick={() => can('schedule.manage') && handleDateClick(day)}
                     >
                       <div className={`text-sm font-medium mb-1 ${isToday(day) ? 'text-blue-600' : ''}`}>
                         {format(day, 'd')}
@@ -122,12 +124,14 @@ export function SchedulesPage() {
                           return (
                             <div key={schedule.id} className="text-xs bg-primary/10 text-primary rounded px-1 py-0.5 truncate flex items-center justify-between">
                               <span>{emp?.name}</span>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleDeleteSchedule(schedule.id) }}
-                                className="hover:text-red-500"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
+                              {can('schedule.manage') && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleDeleteSchedule(schedule.id) }}
+                                  className="hover:text-red-500"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              )}
                             </div>
                           )
                         })}

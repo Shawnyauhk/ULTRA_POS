@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth'
+import { usePermission } from '@/hooks/usePermission'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { TopBar } from '@/components/layout/TopBar'
 import { LoginPage } from '@/pages/LoginPage'
@@ -13,18 +14,46 @@ import { ProductsPage } from '@/pages/ProductsPage'
 import { InventoryPage } from '@/pages/InventoryPage'
 import { OrderRequestsPage } from '@/pages/OrderRequestsPage'
 import { AIChatPage } from '@/pages/AIChatPage'
+import { AICustomerChat } from '@/pages/AICustomerChat'
 import ReviewGeneratorPage from '@/pages/ReviewGeneratorPage'
+import PermissionSettingsPage from '@/pages/PermissionSettingsPage'
 import { EmployeesPage } from '@/pages/EmployeesPage'
 import { AttendancePage } from '@/pages/AttendancePage'
 import { SchedulesPage } from '@/pages/SchedulesPage'
 import ReportsPage from '@/pages/ReportsPage'
 import { useState, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
+import type { PermissionKey } from '@/types'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuthStore()
   if (!user) return <Navigate to="/login" replace />
   return <>{children}</>
+}
+
+/** 权限路由守卫：没有对应权限时重定向到首页 */
+function PermissionGuard({ permission, children }: { permission: PermissionKey; children: React.ReactNode }) {
+  const { can } = usePermission()
+  if (!can(permission)) {
+    return <Navigate to="/" replace />
+  }
+  return <>{children}</>
+}
+
+const routePermissions: Record<string, PermissionKey> = {
+  '/pos-order': 'pos.create_order',
+  '/products': 'product.view',
+  '/inventory': 'inventory.view',
+  '/orders': 'order.view',
+  '/employees': 'employee.view',
+  '/attendance': 'attendance.view',
+  '/schedules': 'schedule.view',
+  '/payroll': 'payroll.view',
+  '/expenses': 'expense.view',
+  '/reports': 'report.view',
+  '/ai-marketing': 'ai.customer_service',
+  '/review-generator': 'review.view',
+  '/settings': 'setting.view',
 }
 
 function AppLayout({ children }: { children: React.ReactNode }) {
@@ -58,30 +87,40 @@ export default function App() {
     );
   }
 
+  const renderProtectedRoute = (path: string, element: React.ReactNode) => {
+    const perm = routePermissions[path]
+    if (perm) {
+      return <Route path={path} element={<PermissionGuard permission={perm}>{element}</PermissionGuard>} />
+    }
+    return <Route path={path} element={element} />
+  }
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+      <Route path="/ai-customer-chat" element={<AICustomerChat />} />
       <Route
         path="/*"
         element={
           <ProtectedRoute>
             <AppLayout>
               <Routes>
-                <Route path="/" element={<DashboardPage />} />
-                <Route path="/pos-order" element={<POSPage />} />
-                <Route path="/orders" element={<OrderRequestsPage />} />
-                <Route path="/products" element={<ProductsPage />} />
-                <Route path="/inventory" element={<InventoryPage />} />
-                <Route path="/employees" element={<EmployeesPage />} />
-                <Route path="/attendance" element={<AttendancePage />} />
-                <Route path="/schedules" element={<SchedulesPage />} />
-                <Route path="/reports" element={<ReportsPage />} />
-                <Route path="/expenses" element={<ExpensesPage />} />
-                <Route path="/payroll" element={<PayrollPage />} />
-                <Route path="/ai-marketing" element={<AIChatPage />} />
-                <Route path="/review-generator" element={<ReviewGeneratorPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
+                {renderProtectedRoute('/', <DashboardPage />)}
+                {renderProtectedRoute('/pos-order', <POSPage />)}
+                {renderProtectedRoute('/orders', <OrderRequestsPage />)}
+                {renderProtectedRoute('/products', <ProductsPage />)}
+                {renderProtectedRoute('/inventory', <InventoryPage />)}
+                {renderProtectedRoute('/employees', <EmployeesPage />)}
+                {renderProtectedRoute('/attendance', <AttendancePage />)}
+                {renderProtectedRoute('/schedules', <SchedulesPage />)}
+                {renderProtectedRoute('/reports', <ReportsPage />)}
+                {renderProtectedRoute('/expenses', <ExpensesPage />)}
+                {renderProtectedRoute('/payroll', <PayrollPage />)}
+                {renderProtectedRoute('/ai-marketing', <AIChatPage />)}
+                {renderProtectedRoute('/review-generator', <ReviewGeneratorPage />)}
+                {renderProtectedRoute('/permissions', <PermissionSettingsPage />)}
+                {renderProtectedRoute('/settings', <SettingsPage />)}
               </Routes>
             </AppLayout>
           </ProtectedRoute>

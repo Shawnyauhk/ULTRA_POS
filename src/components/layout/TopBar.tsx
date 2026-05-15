@@ -4,6 +4,12 @@ import { useAuthStore } from '@/stores/auth'
 import { useRestaurant } from '@/hooks/useSupabaseData'
 import { supabase } from '@/lib/supabase'
 
+const roleLabels: Record<string, string> = {
+  owner: '店主',
+  manager: '主管',
+  staff: '員工',
+}
+
 export function TopBar() {
   const { user, logout } = useAuthStore()
   const { restaurant } = useRestaurant()
@@ -21,7 +27,7 @@ export function TopBar() {
           {restaurant?.name || '載入中...'}
         </span>
         <span className="text-xs text-gray-400 px-2 py-0.5 bg-gray-100 rounded-full">
-          {user?.role === 'owner' ? '店主' : user?.role === 'manager' ? '主管' : '員工'}
+          {user?.role ? roleLabels[user.role] || user.role : ''}
         </span>
       </div>
       <div className="flex items-center gap-4">

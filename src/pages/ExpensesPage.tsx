@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useExpenses } from '@/hooks/useSupabaseData';
 import { useRealtimeExpenses } from '@/hooks/useRealtime';
+import { usePermission } from '@/hooks/usePermission';
 
 // ====== 分類映射（中文 ↔ DB 英文） ======
 const CATEGORY_DISPLAY: { value: string; label: string }[] = [
@@ -40,6 +41,7 @@ interface FormExpense {
 
 export default function ExpensesPage() {
   const [activeTab, setActiveTab] = useState<'expenses' | 'settlement'>('expenses');
+  const { can } = usePermission();
 
   // Supabase Hook
   const { expenses, loading, refetch, createExpense, updateExpense, deleteExpense } = useExpenses();
@@ -243,7 +245,9 @@ export default function ExpensesPage() {
         <div className="space-y-6 animate-in fade-in">
           <div className="flex gap-2 justify-end">
             <Button variant="outline" onClick={() => setShowOCR(!showOCR)}><Sparkles className="w-4 h-4 mr-2" /> AI 掃描收據</Button>
-            <Button onClick={() => setShowAddForm(true)}><Receipt className="w-4 h-4 mr-2" /> 手動記帳</Button>
+            {can('expense.manage') && (
+              <Button onClick={() => setShowAddForm(true)}><Receipt className="w-4 h-4 mr-2" /> 手動記帳</Button>
+            )}
           </div>
 
           {showOCR && (
@@ -466,24 +470,28 @@ export default function ExpensesPage() {
                                   {(!expense.payment_status || expense.payment_status === 'unpaid') && <Badge variant="destructive">未付</Badge>}
                                 </td>
                                 <td className="px-4 py-3 flex gap-2">
-                                  <Button size="icon" variant="ghost"
-                                    onClick={() => {
-                                      setEditingId(expense.id);
-                                      setEditForm({
-                                        expense_date: expense.expense_date,
-                                        category: categoryToLabel(expense.category),
-                                        description: displayDescription,
-                                        amount: expense.amount,
-                                        handler: displayHandler,
-                                        payment_status: expense.payment_status || 'unpaid',
-                                        supplier: expense.supplier || '',
-                                      });
-                                    }}>
-                                    <Edit2 className="w-4 h-4" />
-                                  </Button>
-                                  <Button size="icon" variant="ghost" onClick={() => setDeleteConfirmId(expense.id)}>
-                                    <Trash2 className="w-4 h-4 text-red-500" />
-                                  </Button>
+                                  {can('expense.manage') && (
+                                    <>
+                                      <Button size="icon" variant="ghost"
+                                        onClick={() => {
+                                          setEditingId(expense.id);
+                                          setEditForm({
+                                            expense_date: expense.expense_date,
+                                            category: categoryToLabel(expense.category),
+                                            description: displayDescription,
+                                            amount: expense.amount,
+                                            handler: displayHandler,
+                                            payment_status: expense.payment_status || 'unpaid',
+                                            supplier: expense.supplier || '',
+                                          });
+                                        }}>
+                                        <Edit2 className="w-4 h-4" />
+                                      </Button>
+                                      <Button size="icon" variant="ghost" onClick={() => setDeleteConfirmId(expense.id)}>
+                                        <Trash2 className="w-4 h-4 text-red-500" />
+                                      </Button>
+                                    </>
+                                  )}
                                 </td>
                               </>
                             )}

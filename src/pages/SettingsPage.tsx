@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useSettings } from '@/hooks/useSupabaseData';
+import { usePermission } from '@/hooks/usePermission';
 import { Loader2, MapPin, Crosshair } from 'lucide-react';
 
 export default function SettingsPage() {
+  const { can } = usePermission();
   const { settings, loading, refetch, getSetting, updateSetting } = useSettings();
   
   const [appId, setAppId] = useState('');
@@ -200,16 +202,18 @@ export default function SettingsPage() {
         </div>
       </div>
       
-      <div className="flex justify-end">
-        <button 
-          onClick={handleSave}
-          disabled={saving}
-          className="py-2 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 flex items-center gap-2"
-        >
-          {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-          儲存所有設定
-        </button>
-      </div>
+      {can('setting.manage') && (
+        <div className="flex justify-end">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="py-2 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 flex items-center gap-2"
+          >
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            儲存所有設定
+          </button>
+        </div>
+      )}
     </div>
   );
 }

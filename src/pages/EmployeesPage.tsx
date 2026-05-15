@@ -4,9 +4,10 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Key, Loader2 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 import { useEmployees } from '@/hooks/useSupabaseData'
+import { usePermission } from '@/hooks/usePermission'
 import { supabase } from '@/lib/supabase'
 import type { Employee } from '@/types'
 
@@ -18,6 +19,7 @@ const roleLabels: Record<string, string> = {
 
 export function EmployeesPage() {
   const { user } = useAuthStore()
+  const { can } = usePermission()
   const { employees, loading, refetch, addEmployee, updateEmployee, deleteEmployee } = useEmployees()
   const [showModal, setShowModal] = useState(false)
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null)
@@ -26,6 +28,7 @@ export function EmployeesPage() {
     name: '',
     phone: '',
     email: '',
+    password: '',
     role: 'staff' as Employee['role'],
     hourly_rate: 50,
     monthly_salary: undefined as number | undefined,
@@ -44,10 +47,23 @@ export function EmployeesPage() {
       monthly_salary: formData.role !== 'staff' ? (formData.monthly_salary || 0) : undefined,
       hire_date: formData.hire_date,
     }
+
     if (editingEmployee) {
-      await updateEmployee(editingEmployee.id, empData)
+      const ok = await updateEmployee(editingEmployee.id, empData)
+      if (ok && formData.password && can('employee.manage')) {
+        await supabase.rpc('update_auth_password', {
+          p_phone: formData.phone,
+          p_password: formData.password,
+        })
+      }
     } else {
-      await addEmployee(empData)
+      const newEmp = await addEmployee(empData)
+      if (newEmp && formData.password && can('employee.manage')) {
+        await supabase.rpc('update_auth_password', {
+          p_phone: formData.phone,
+          p_password: formData.password,
+        })
+      }
     }
     setSaving(false)
     setShowModal(false)
@@ -61,6 +77,7 @@ export function EmployeesPage() {
       name: employee.name,
       phone: employee.phone || '',
       email: employee.email || '',
+      password: '',
       role: employee.role,
       hourly_rate: employee.hourly_rate || 50,
       monthly_salary: employee.monthly_salary || undefined,
@@ -71,7 +88,10 @@ export function EmployeesPage() {
 
   const handleDelete = async (id: string) => {
     if (confirm('確定要刪除此員工嗎？')) {
-      await deleteEmployee(id)
+      const result = await deleteEmployee(id)
+      if (!result) {
+        alert('刪除失敗，請確認權限或稍後重試')
+      }
     }
   }
 
@@ -80,6 +100,7 @@ export function EmployeesPage() {
       name: '',
       phone: '',
       email: '',
+      password: '',
       role: 'staff',
       hourly_rate: 50,
       monthly_salary: undefined,
@@ -93,7 +114,7 @@ export function EmployeesPage() {
     setShowModal(true)
   }
 
-  if (user?.role === 'staff') {
+  if (!can('employee.view')) {
     return <div className="p-6 text-center text-gray-500">您沒有權限訪問此頁面</div>
   }
 
@@ -214,6 +235,21 @@ export function EmployeesPage() {
                     <option value="staff">員工</option>
                   </select>
                 </div>
+
+                {can('employee.manage') && (
+                  <div>
+                    <label className="text-sm font-medium flex items-center gap-1">
+                      <Key className="h-3.5 w-3.5" />
+                      {editingEmployee ? '重置密碼（留空不變）' : '登入密碼'}
+                    </label>
+                    <Input
+                      type="password"
+                      placeholder={editingEmployee ? '輸入新密碼...' : '預設 123456'}
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    />
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium">

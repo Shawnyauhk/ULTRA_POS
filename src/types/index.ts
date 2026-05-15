@@ -4,6 +4,7 @@ export interface Restaurant {
   name: string
   logo_url?: string
   business_hours?: string
+  features?: Record<string, boolean> | string[]
   created_at: string
 }
 
@@ -135,9 +136,57 @@ export interface Expense {
 export interface ChatMessage {
   id: string
   session_id: string
+  restaurant_id?: string
   role: 'user' | 'assistant'
   content: string
   created_at: string
+}
+
+export interface AISession {
+  id: string
+  restaurant_id: string
+  customer_name?: string
+  customer_contact?: string
+  status: 'active' | 'closed'
+  message_count: number
+  summary?: string
+  created_at: string
+  updated_at: string
+  messages?: ChatMessage[]
+}
+
+export interface AIKnowledgeBase {
+  id: string
+  restaurant_id: string
+  category: string
+  question: string
+  answer: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface AIConfigEntry {
+  id: string
+  restaurant_id: string
+  config_key: string
+  config_value: Record<string, unknown>
+  updated_at: string
+}
+
+export interface AISuggestion {
+  id: string
+  restaurant_id: string
+  session_id: string
+  message_id: string
+  role: 'user' | 'assistant'
+  original_question?: string
+  original_answer?: string
+  suggested_answer: string
+  notes?: string
+  status: 'pending' | 'approved' | 'rejected'
+  created_at: string
+  updated_at: string
 }
 
 // Order Types
@@ -223,6 +272,112 @@ export interface Report {
   period_end?: string
   generated_by?: string
   created_by?: string
+  created_at: string
+  updated_at: string
+}
+
+// =========== Permission System ===========
+
+/** 系统所有权限的定义（key = 权限标识, value = 中文说明） */
+export const ALL_PERMISSIONS = {
+  // 控制面板
+  'dashboard.view': '查看控制面板',
+
+  // POS 点餐
+  'pos.create_order': '建立訂單',
+  'pos.cancel_order': '取消訂單',
+  'pos.refund': '退款操作',
+
+  // 产品管理
+  'product.view': '查看產品',
+  'product.manage': '管理產品（新增/編輯/刪除）',
+
+  // 库存管理
+  'inventory.view': '查看庫存',
+  'inventory.manage': '管理庫存',
+
+  // 订货管理
+  'order.view': '查看訂貨',
+  'order.create': '建立訂貨單',
+  'order.approve': '審批訂貨',
+
+  // 员工管理
+  'employee.view': '查看員工',
+  'employee.manage': '管理員工（新增/編輯/刪除）',
+
+  // 打卡管理
+  'attendance.view': '查看打卡記錄',
+  'attendance.manage': '管理打卡',
+
+  // 排班管理
+  'schedule.view': '查看排班',
+  'schedule.manage': '管理排班',
+
+  // 薪酬管理
+  'payroll.view': '查看薪酬',
+  'payroll.manage': '管理薪酬',
+
+  // 财务管理
+  'expense.view': '查看支出',
+  'expense.manage': '管理支出',
+
+  // 报表
+  'report.view': '查看報表',
+  'report.export': '匯出報表',
+
+  // AI 功能
+  'ai.marketing': 'AI 行銷管理',
+  'ai.customer_service': 'AI 客服管理',
+  'ai.knowledge_base': 'AI 知識庫管理',
+
+  // 评价管理
+  'review.view': '查看評價',
+  'review.manage': '管理評價',
+
+  // 系统设置
+  'setting.view': '查看設定',
+  'setting.manage': '管理設定',
+} as const
+
+export type PermissionKey = keyof typeof ALL_PERMISSIONS
+
+/** 系统内置角色的默认权限分配 */
+export const DEFAULT_ROLE_PERMISSIONS: Record<Employee['role'], PermissionKey[]> = {
+  owner: Object.keys(ALL_PERMISSIONS) as PermissionKey[],
+  manager: [
+    'dashboard.view',
+    'pos.create_order', 'pos.cancel_order', 'pos.refund',
+    'product.view', 'product.manage',
+    'inventory.view', 'inventory.manage',
+    'order.view', 'order.create', 'order.approve',
+    'employee.view',
+    'attendance.view', 'attendance.manage',
+    'schedule.view', 'schedule.manage',
+    'payroll.view', 'payroll.manage',
+    'expense.view', 'expense.manage',
+    'report.view', 'report.export',
+    'ai.marketing', 'ai.customer_service', 'ai.knowledge_base',
+    'review.view', 'review.manage',
+    'setting.view',
+  ],
+  staff: [
+    'dashboard.view',
+    'pos.create_order',
+    'product.view',
+    'inventory.view',
+    'order.view', 'order.create',
+    'attendance.view', 'attendance.manage',
+    'schedule.view',
+    'expense.view',
+  ],
+}
+
+/** 每间餐厅可自定义的角色权限配置（数据库对应 restaurant_roles 表） */
+export interface RestaurantRole {
+  id: string
+  restaurant_id: string
+  role_name: string            // 'owner' | 'manager' | 'staff' + 可扩展自定义角色
+  permissions: PermissionKey[] // 该角色拥有的权限列表
   created_at: string
   updated_at: string
 }

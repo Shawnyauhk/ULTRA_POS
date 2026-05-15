@@ -6,6 +6,7 @@ import { Badge } from '../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Upload, Users, FileText, CheckCircle, Loader2, Download, Plus, Pencil, Trash2 } from 'lucide-react';
 import { useEmployees, FALLBACK_RESTAURANT_ID } from '@/hooks/useSupabaseData';
+import { usePermission } from '@/hooks/usePermission';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/auth';
 import * as XLSX from 'xlsx';
@@ -23,7 +24,18 @@ const roleLabels: Record<string, string> = {
   staff: '員工',
 };
 
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  if (typeof err === 'object' && err !== null) {
+    const obj = err as Record<string, unknown>;
+    return typeof obj.message === 'string' ? obj.message : String(err);
+  }
+  return String(err);
+}
+
 export default function PayrollPage() {
+  const { can } = usePermission();
   const { employees, loading, refetch, updateEmployee, addEmployee, deleteEmployee } = useEmployees();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<'employees' | 'payroll'>('employees');
@@ -34,14 +46,14 @@ export default function PayrollPage() {
   const [parsedData, setParsedData] = useState<ParsedAttendance[]>([]);
   const [totalPayroll, setTotalPayroll] = useState(0);
 
-  // Quick-create modal state
-  const [showQuickCreate, setShowQuickCreate] = useState(false);
-  const [quickCreateName, setQuickCreateName] = useState('');
-  const [quickCreateQueue, setQuickCreateQueue] = useState<string[]>([]);
-  const [quickPayType, setQuickPayType] = useState<'hourly' | 'monthly'>('hourly');
-  const [quickRate, setQuickRate] = useState(60);
-  const [quickMonthly, setQuickMonthly] = useState(18000);
-  const [quickCreating, setQuickCreating] = useState(false);
+  // Batch create unmatched employees state
+  const [showBatchCreate, setShowBatchCreate] = useState(false);
+  const [unmatchedBatch, setUnmatchedBatch] = useState<{ name: string; payType: 'hourly' | 'monthly'; hourly_rate: number; monthly_salary: number }[]>([]);
+  const [batchCreating, setBatchCreating] = useState(false);
+
+  // Inline message state (replaces alert)
+  const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   // Employee CRUD state
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
@@ -53,11 +65,18 @@ export default function PayrollPage() {
     hire_date: new Date().toISOString().split('T')[0],
   });
 
+  // Show inline message with auto-dismiss
+  const showMessage = (type: 'success' | 'error' | 'info', text: string) => {
+    setMessage({ type, text });
+    setTimeout(() => setMessage(null), 4000);
+  };
+
   // ========== Payroll upload logic ==========
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setImporting(true);
+    setMessage(null);
     try {
       let records: { name: string; hours: number }[] = [];
       if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.csv')) {
@@ -122,7 +141,7 @@ export default function PayrollPage() {
         if (!jsonMatch) throw new Error('無法解析 AI 回覆');
         records = JSON.parse(jsonMatch[0]);
       }
-      if (records.length === 0) { alert('未能解析出任何考勤記錄'); return; }
+      if (records.length === 0) { showMessage('info', '未能解析出任何考勤記錄'); return; }
 
       // 依姓名匯總工時
       const grouped = new Map<string, number>();
@@ -145,19 +164,29 @@ export default function PayrollPage() {
       setParsedData(merged);
       setTotalPayroll(merged.reduce((s, r) => s + ((r.matchedEmployee?.hourly_rate || 0) * r.hours), 0));
 
-      // 自動彈出未匹配員工的建立表單
+      // 如果發現未匹配員工，顯示批量建立頁面
       if (unmatchedNames.length > 0) {
-        setQuickCreateName(unmatchedNames[0]);
-        setQuickCreateQueue(unmatchedNames.slice(1));
-        setShowQuickCreate(true);
+        setUnmatchedBatch(
+          unmatchedNames.map(name => ({
+            name,
+            payType: 'hourly' as const,
+            hourly_rate: 60,
+            monthly_salary: 18000,
+          }))
+        );
+        setShowBatchCreate(true);
       }
-    } catch (err) { console.error('Parsing error:', err); alert('解析失敗: ' + (err as Error).message);
+      showMessage('success', `成功解析 ${merged.length} 筆考勤記錄`);
+    } catch (err) {
+      console.error('Parsing error:', err);
+      showMessage('error', '解析失敗: ' + getErrorMessage(err));
     } finally { setImporting(false); e.target.value = ''; }
   };
 
   const handleConfirmPayroll = async () => {
     if (parsedData.length === 0) return;
     setSaving(true);
+    setMessage(null);
     try {
       for (const record of parsedData) {
         if (!record.matchedEmployee) continue;
@@ -170,57 +199,59 @@ export default function PayrollPage() {
         }]);
         if (error) throw error;
       }
-      alert(`✅ 成功寫入 ${parsedData.filter(r => r.matchedEmployee).length} 筆薪資支出`);
+      showMessage('success', `✅ 成功寫入 ${parsedData.filter(r => r.matchedEmployee).length} 筆薪資支出`);
       setParsedData([]); setTotalPayroll(0);
-    } catch (err) { console.error('Payroll confirm error:', err); alert('寫入失敗: ' + (err as Error).message);
+    } catch (err) {
+      console.error('Payroll confirm error:', err);
+      showMessage('error', '寫入失敗: ' + getErrorMessage(err));
     } finally { setSaving(false); }
   };
 
-  // ========== Quick create employee handler ==========
-  const handleQuickCreate = async () => {
-    setQuickCreating(true);
+  // ========== Batch create unmatched employees (via server to bypass RLS) ==========
+  const handleBatchCreate = async () => {
+    setBatchCreating(true);
+    setMessage(null);
     try {
       const user = useAuthStore.getState().user;
       const rid = user?.restaurant_id || FALLBACK_RESTAURANT_ID;
-      const { data, error } = await supabase
-        .from('employees')
-        .insert([{
-          restaurant_id: rid, name: quickCreateName, role: 'staff',
-          hire_date: new Date().toISOString().split('T')[0], is_active: true,
-          hourly_rate: quickPayType === 'hourly' ? quickRate : undefined,
-          monthly_salary: quickPayType === 'monthly' ? quickMonthly : undefined,
-        }])
-        .select()
-        .single();
-      if (error) throw error;
+
+      const response = await fetch('/api/admin/batch-create-employees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employees: unmatchedBatch.map(item => ({
+            restaurant_id: rid,
+            name: item.name,
+            payType: item.payType,
+            hourly_rate: item.hourly_rate,
+            monthly_salary: item.monthly_salary,
+          })),
+        }),
+      });
+
+      const result = await response.json();
+      if (!result.success) throw new Error(result.message || '建立失敗');
+      const createdEmployees: Employee[] = result.data;
 
       // 配對到 parsedData
+      const nameToEmp = new Map(createdEmployees.map(e => [e.name, e]));
       const nd = parsedData.map(r =>
-        r.name === quickCreateName && !r.matchedEmployee
-          ? { ...r, matchedEmployee: data as Employee }
+        !r.matchedEmployee && nameToEmp.has(r.name)
+          ? { ...r, matchedEmployee: nameToEmp.get(r.name)! }
           : r
       );
       setParsedData(nd);
       setTotalPayroll(nd.reduce((s, r) => s + ((r.matchedEmployee?.hourly_rate || 0) * r.hours), 0));
-      await refetch(); // 更新員工列表
+      await refetch();
 
-      // 處理下一個未匹配
-      if (quickCreateQueue.length > 0) {
-        setQuickCreateName(quickCreateQueue[0]);
-        setQuickCreateQueue(prev => prev.slice(1));
-        setQuickPayType('hourly');
-        setQuickRate(60);
-        setQuickMonthly(18000);
-        // 保持 modal 開啟
-      } else {
-        setShowQuickCreate(false);
-        setQuickCreateName('');
-      }
+      setShowBatchCreate(false);
+      setUnmatchedBatch([]);
+      showMessage('success', `成功建立 ${createdEmployees.length} 位新員工`);
     } catch (err) {
-      console.error('Quick create error:', err);
-      alert('建立失敗: ' + (err as Error).message);
+      console.error('Batch create error:', err);
+      showMessage('error', '建立失敗: ' + getErrorMessage(err));
     } finally {
-      setQuickCreating(false);
+      setBatchCreating(false);
     }
   };
 
@@ -259,8 +290,14 @@ export default function PayrollPage() {
   };
 
   const handleDeleteEmployee = async (id: string) => {
-    if (!confirm('確定要刪除此員工？')) return;
-    await deleteEmployee(id);
+    setConfirmDelete(id);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!confirmDelete) return;
+    await deleteEmployee(confirmDelete);
+    setConfirmDelete(null);
+    showMessage('success', '員工已刪除');
   };
 
   return (
@@ -285,9 +322,11 @@ export default function PayrollPage() {
         /* ==================== 員工資料管理 ==================== */
         <div className="space-y-6 animate-in fade-in">
           <div className="flex justify-end">
-            <Button onClick={openAddEmployee}>
-              <Plus className="h-4 w-4 mr-2" />新增員工
-            </Button>
+            {can('payroll.manage') && (
+              <Button onClick={openAddEmployee}>
+                <Plus className="h-4 w-4 mr-2" />新增員工
+              </Button>
+            )}
           </div>
 
           <Card>
@@ -327,8 +366,12 @@ export default function PayrollPage() {
                         <TableCell><Badge variant={emp.is_active ? 'success' : 'destructive'}>{emp.is_active ? '在職' : '離職'}</Badge></TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            <Button variant="ghost" size="icon" onClick={() => openEditEmployee(emp)}><Pencil className="h-4 w-4" /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleDeleteEmployee(emp.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                            {can('payroll.manage') && (
+                              <>
+                                <Button variant="ghost" size="icon" onClick={() => openEditEmployee(emp)}><Pencil className="h-4 w-4" /></Button>
+                                <Button variant="ghost" size="icon" onClick={() => handleDeleteEmployee(emp.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                              </>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -479,61 +522,134 @@ export default function PayrollPage() {
         </div>
       )}
 
-      {/* ========== 快速建立未匹配員工 Modal ========== */}
-      {showQuickCreate && (
+      {/* ========== 批量建立未匹配員工的全頁面 ========== */}
+      {showBatchCreate && (
+        <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 overflow-y-auto py-10">
+          <Card className="w-full max-w-2xl mx-4">
+            <CardHeader>
+              <CardTitle className="text-xl">建立新員工</CardTitle>
+              <CardDescription>
+                考勤表中發現 {unmatchedBatch.length} 位新員工，請設定每位員工的薪資
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* 批量員工表格 - 橫向排版 */}
+              <div className="max-h-[60vh] overflow-y-auto pr-1">
+                {unmatchedBatch.map((item, idx) => (
+                  <div key={idx} className="border-b last:border-b-0 py-3 flex items-center gap-4">
+                    {/* 序號+姓名 - 固定寬度 */}
+                    <div className="flex items-center gap-2 w-24 shrink-0">
+                      <span className="bg-primary text-white w-6 h-6 rounded-full text-xs flex items-center justify-center shrink-0">{idx + 1}</span>
+                      <span className="font-semibold text-base truncate">{item.name}</span>
+                    </div>
+                    
+                    {/* 工時參考 - 固定寬度 */}
+                    <div className="text-sm text-gray-500 w-24 shrink-0">
+                      工時 {parsedData.find(r => r.name === item.name)?.hours ?? 0}h
+                    </div>
+                    
+                    {/* 時薪/月薪選擇 - 固定寬度 */}
+                    <div className="flex items-center gap-3 w-28 shrink-0">
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <input type="radio" name={`payType_${idx}`} checked={item.payType === 'hourly'}
+                          onChange={() => {
+                            const copy = [...unmatchedBatch];
+                            copy[idx] = { ...copy[idx], payType: 'hourly' };
+                            setUnmatchedBatch(copy);
+                          }} className="accent-primary" />
+                        <span className="text-sm">時薪</span>
+                      </label>
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <input type="radio" name={`payType_${idx}`} checked={item.payType === 'monthly'}
+                          onChange={() => {
+                            const copy = [...unmatchedBatch];
+                            copy[idx] = { ...copy[idx], payType: 'monthly' };
+                            setUnmatchedBatch(copy);
+                          }} className="accent-primary" />
+                        <span className="text-sm">月薪</span>
+                      </label>
+                    </div>
+                    
+                    {/* 薪資輸入 - 固定寬度 */}
+                    <div className="w-28 shrink-0">
+                      <input
+                        type="number"
+                        value={item.payType === 'hourly' ? item.hourly_rate : item.monthly_salary}
+                        onChange={e => {
+                          const v = Number(e.target.value);
+                          const copy = [...unmatchedBatch];
+                          if (copy[idx].payType === 'hourly') {
+                            copy[idx] = { ...copy[idx], hourly_rate: v };
+                          } else {
+                            copy[idx] = { ...copy[idx], monthly_salary: v };
+                          }
+                          setUnmatchedBatch(copy);
+                        }}
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors"
+                        placeholder={item.payType === 'hourly' ? '時薪如 60' : '月薪如 18000'}
+                      />
+                    </div>
+                    
+                    {/* 月薪估算 - 自動填滿剩餘空間 */}
+                    <div className="flex-1 text-sm min-w-0">
+                      {item.payType === 'hourly' ? (
+                        <span className="text-green-700 font-medium whitespace-nowrap">
+                          約 ${((parsedData.find(r => r.name === item.name)?.hours ?? 0) * item.hourly_rate).toLocaleString()}/月
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2 border-t">
+                <Button variant="outline" onClick={() => {
+                  setShowBatchCreate(false);
+                  setUnmatchedBatch([]);
+                }} disabled={batchCreating}>
+                  跳過全部
+                </Button>
+                <Button onClick={handleBatchCreate} disabled={batchCreating} className="bg-primary">
+                  {batchCreating ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" />建立中...</>
+                  ) : (
+                    <>全部建立 ({unmatchedBatch.length} 位)</>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ========== 内联消息提示 ========== */}
+      {message && (
+        <div
+          className={`fixed top-4 right-4 z-[100] px-4 py-3 rounded-lg shadow-lg text-sm font-medium cursor-pointer max-w-sm transition-all ${
+            message.type === 'success' ? 'bg-green-600 text-white' :
+            message.type === 'error' ? 'bg-red-600 text-white' :
+            'bg-blue-600 text-white'
+          }`}
+          onClick={() => setMessage(null)}
+        >
+          {message.text}
+        </div>
+      )}
+
+      {/* ========== 内联删除确认对话框 ========== */}
+      {confirmDelete && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <Card className="w-full max-w-sm mx-4">
             <CardHeader>
-              <CardTitle className="text-lg">建立新員工</CardTitle>
+              <CardTitle>確認刪除</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="bg-blue-50 rounded-lg p-3">
-                <p className="text-sm text-blue-800">
-                  考勤表中發現新員工「<strong>{quickCreateName}</strong>」，
-                  {quickCreateQueue.length > 0 ? `還有 ${quickCreateQueue.length} 位待建立。` : '請輸入薪資即可完成建檔。'}
-                </p>
-              </div>
-
-              <div className="flex gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="qcPayType" checked={quickPayType === 'hourly'}
-                    onChange={() => setQuickPayType('hourly')} className="accent-primary" />
-                  <span className="text-sm">時薪</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="qcPayType" checked={quickPayType === 'monthly'}
-                    onChange={() => setQuickPayType('monthly')} className="accent-primary" />
-                  <span className="text-sm">月薪</span>
-                </label>
-              </div>
-
-              <Input
-                type="number"
-                value={quickPayType === 'hourly' ? quickRate : quickMonthly}
-                onChange={e => {
-                  const v = Number(e.target.value);
-                  quickPayType === 'hourly' ? setQuickRate(v) : setQuickMonthly(v);
-                }}
-                placeholder={quickPayType === 'hourly' ? '時薪 (如 60)' : '月薪 (如 18000)'}
-              />
-
-              <div className="flex justify-end gap-2 pt-2">
-                <Button variant="outline" onClick={() => {
-                  // 跳過此員工
-                  if (quickCreateQueue.length > 0) {
-                    setQuickCreateName(quickCreateQueue[0]);
-                    setQuickCreateQueue(prev => prev.slice(1));
-                    setQuickPayType('hourly'); setQuickRate(60); setQuickMonthly(18000);
-                  } else {
-                    setShowQuickCreate(false);
-                  }
-                }} disabled={quickCreating}>
-                  跳過
-                </Button>
-                <Button onClick={handleQuickCreate} disabled={quickCreating}>
-                  {quickCreating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                  {quickCreateQueue.length > 0 ? '建立並繼續下一位' : '建立'}
-                </Button>
+              <p className="text-sm text-gray-600">確定要刪除此員工？此操作無法復原。</p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setConfirmDelete(null)}>取消</Button>
+                <Button variant="destructive" onClick={handleConfirmDelete}>確認刪除</Button>
               </div>
             </CardContent>
           </Card>

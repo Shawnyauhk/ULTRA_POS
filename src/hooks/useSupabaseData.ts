@@ -6,6 +6,7 @@ import type {
   Category,
   Inventory,
   Employee,
+  Schedule,
   Attendance,
   OrderRequest,
   Order,
@@ -233,20 +234,31 @@ export function useEmployees() {
 // ============================================
 
 export function useRestaurant() {
-  const [restaurant, setRestaurant] = useState<{ id: string; name: string; business_hours?: string; logo_url?: string } | null>(null)
+  const [restaurant, setRestaurant] = useState<{
+    id: string
+    name: string
+    business_hours?: string
+    logo_url?: string
+    features?: Record<string, boolean> | string[]
+  } | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const rid = getRestaurantId()
     if (!rid || rid === FALLBACK_RESTAURANT_ID) {
-      setRestaurant({ id: rid, name: '家傳x飲得（示範）', business_hours: '11:00 - 22:00' })
+      setRestaurant({
+        id: rid,
+        name: '家傳x飲得（示範）',
+        business_hours: '11:00 - 22:00',
+        features: {},
+      })
       setLoading(false)
       return
     }
 
     supabase
       .from('restaurants')
-      .select('id, name, business_hours, logo_url')
+      .select('id, name, business_hours, logo_url, features')
       .eq('id', rid)
       .single()
       .then(({ data, error }) => {
