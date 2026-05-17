@@ -43,7 +43,7 @@ export function AIChatPage() {
       {/* Tab Navigation */}
       <div className="flex gap-2 border-b border-gray-200 pb-2">
         {[
-          { id: 'chat' as TabType, label: '在线客服', icon: Headphones },
+          { id: 'chat' as TabType, label: '在線客服', icon: Headphones },
           { id: 'sessions' as TabType, label: '對話紀錄', icon: MessageSquare },
           { id: 'knowledge' as TabType, label: '知識庫', icon: BookOpen },
           { id: 'config' as TabType, label: 'AI 設定', icon: Settings },
@@ -71,7 +71,7 @@ export function AIChatPage() {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Headphones className="w-5 h-5" />
-                  在线客服對話
+                  在線客服對話
                 </CardTitle>
                 <CardDescription>
                   模擬客人視角測試 AI 客服回覆，對話會自動記錄到對話紀錄中

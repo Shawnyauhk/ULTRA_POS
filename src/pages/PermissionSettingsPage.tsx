@@ -3,6 +3,7 @@ import { useAuthStore } from '@/stores/auth'
 import { supabase } from '@/lib/supabase'
 import { ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from '@/types'
 import type { PermissionKey, RestaurantRole } from '@/types'
+import { clearPermissionCache, refreshCustomPermissions } from '@/hooks/usePermission'
 import { Loader2, Save, Shield, CheckCircle } from 'lucide-react'
 
 type RoleName = 'manager' | 'staff'
@@ -140,6 +141,9 @@ export default function PermissionSettingsPage() {
         }
       }
 
+      // 重新加載快取，使新權限立即生效
+      clearPermissionCache()
+      await refreshCustomPermissions()
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch (err: unknown) {

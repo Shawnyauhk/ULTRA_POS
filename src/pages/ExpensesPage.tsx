@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -6,11 +6,13 @@ import { Badge } from '../components/ui/badge';
 import { Select } from '../components/ui/select';
 import { 
   Camera, Receipt, Calendar, 
-  Trash2, Sparkles, User, Edit2, Save, X, Calculator, RefreshCw, Loader2
+  Trash2, Sparkles, User, Edit2, Save, X, Calculator, RefreshCw, Loader2, CheckCircle2, AlertCircle
 } from 'lucide-react';
 import { useExpenses } from '@/hooks/useSupabaseData';
 import { useRealtimeExpenses } from '@/hooks/useRealtime';
 import { usePermission } from '@/hooks/usePermission';
+import { useAuthStore } from '@/stores/auth';
+import { apiFetch } from '@/lib/supabase';
 
 // ====== 分類映射（中文 ↔ DB 英文） ======
 const CATEGORY_DISPLAY: { value: string; label: string }[] = [
@@ -55,11 +57,114 @@ export default function ExpensesPage() {
   const [editForm, setEditForm] = useState<Partial<any>>({});
   const [saving, setSaving] = useState(false);
 
-  // Settlement State
-  const [revenue, setRevenue] = useState({ cash: '', octopus: '', alipay_wechat: '', delivery: '' });
+  // Settlement State（對應 POSPAL 「门店销售汇总」欄位）
+  const initialSettlement = {
+    cash: '', octopus: '', foodpanda: '', alipay_hk: '', wechat_hk: '',
+    meituan_keeta: '', openrice: '',
+    total_amount: '', actual_revenue: '', total_transactions: '',
+  };
+  const [settlement, setSettlement] = useState<Record<string, string>>({...initialSettlement});
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [settlementSaving, setSettlementSaving] = useState(false);
+  const [settlementLoading, setSettlementLoading] = useState(false);
+  const [settlementResult, setSettlementResult] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+
+  // 載入該日期的結算數據
+  useEffect(() => {
+    loadSettlement(date);
+  }, [date]);
+
+  const loadSettlement = async (d: string) => {
+    const user = useAuthStore.getState().user;
+    const rid = user?.restaurant_id;
+    if (!rid) return;
+    setSettlementLoading(true);
+    try {
+      const res = await fetch(`/api/settlements?date=${d}&restaurant_id=${rid}`);
+      const json = await res.json();
+      if (json.success && json.data) {
+        const s = json.data;
+        setSettlement({
+          cash: s.cash?.toString() || '',
+          octopus: s.octopus?.toString() || '',
+          foodpanda: s.foodpanda?.toString() || '',
+          alipay_hk: s.alipay_hk?.toString() || '',
+          wechat_hk: s.wechat_hk?.toString() || '',
+          meituan_keeta: s.meituan_keeta?.toString() || '',
+          openrice: s.openrice?.toString() || '',
+          total_amount: s.total_amount?.toString() || '',
+          actual_revenue: s.actual_revenue?.toString() || '',
+          total_transactions: s.total_transactions?.toString() || '',
+        });
+      } else {
+        setSettlement({...initialSettlement});
+      }
+    } catch (e) {
+      console.error('載入結算失敗:', e);
+    } finally {
+      setSettlementLoading(false);
+    }
+  };
+
+  // 提交結算到資料庫
+  const handleSubmitSettlement = async () => {
+    const user = useAuthStore.getState().user;
+    const rid = user?.restaurant_id;
+    if (!rid) { setErrorMessage('請先登入'); return; }
+    setSettlementSaving(true);
+    setSettlementResult(null);
+    try {
+      const payload: Record<string, any> = { restaurant_id: rid, settlement_date: date, source: 'manual' };
+      for (const [key, val] of Object.entries(settlement)) {
+        if (val !== '') payload[key] = parseFloat(val) || 0;
+      }
+      const res = await fetch('/api/settlements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setSettlementResult('✅ 結算資料已成功儲存');
+      } else {
+        setSettlementResult(`❌ 儲存失敗: ${json.message}`);
+      }
+    } catch (e: any) {
+      setSettlementResult(`❌ 錯誤: ${e.message}`);
+    } finally {
+      setSettlementSaving(false);
+    }
+  };
+
+  // POSPAL 同步
+  const handlePospalSync = async () => {
+    const user = useAuthStore.getState().user;
+    const rid = user?.restaurant_id;
+    if (!rid) { setErrorMessage('請先登入'); return; }
+    setSyncing(true);
+    setSyncStatus('⏳ 正在同步 POSPAL 數據，請稍候...');
+    try {
+      const res = await apiFetch('/api/settlements/sync', {
+        method: 'POST',
+        body: JSON.stringify({ restaurant_id: rid, date }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setSyncStatus('✅ POSPAL 同步完成！');
+        await loadSettlement(date);
+      } else {
+        setSyncStatus(`❌ 同步失敗: ${json.message}`);
+      }
+    } catch (e: any) {
+      setSyncStatus(`❌ 同步錯誤: ${e.message}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   // AI OCR States
   const [showOCR, setShowOCR] = useState(false);
@@ -156,7 +261,7 @@ export default function ExpensesPage() {
                   },
                   {
                     type: 'text',
-                    text: `你是一個收據識別助手。請分析這張收據圖片，提取以下信息：
+                    text: `你是一個收據識別助手。請分析這張收據圖片，提取以下資訊：
 1. 總金額 (amount)
 2. 日期 (date，格式 YYYY-MM-DD)
 3. 分類 (category，只能是以下之一：進貨成本、租金、水電瓦斯、薪資、設備雜支、其他)
@@ -507,42 +612,102 @@ export default function ExpensesPage() {
         </div>
       ) : (
         <div className="animate-in fade-in space-y-6">
-          <Card className="max-w-2xl">
+          <Card className="max-w-4xl">
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><Calculator className="w-5 h-5"/> 每日營業額結算</CardTitle>
-              <CardDescription>記錄各項收款來源，或直接與 POSPAL 系統同步</CardDescription>
+              <CardDescription>記錄各項收款來源，或與 POSPAL 系統同步（來源：门店销售汇总）</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* 操作按鈕 */}
               <div className="flex gap-2 justify-end mb-4">
-                <Button variant="outline"><RefreshCw className="w-4 h-4 mr-2" /> POSPAL API 同步</Button>
-                <Button variant="secondary"><Camera className="w-4 h-4 mr-2" /> OCR 結算單辨識</Button>
+                <Button variant="outline" onClick={handlePospalSync} disabled={syncing}>
+                  {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                  POSPAL 同步
+                </Button>
               </div>
+
+              {/* 同步狀態 */}
+              {syncStatus && (
+                <div className={`p-3 rounded-lg text-sm ${syncStatus.startsWith('✅') ? 'bg-green-50 text-green-700' : syncStatus.startsWith('⏳') ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'}`}>
+                  {syncStatus}
+                </div>
+              )}
+
+              {/* 日期選擇 */}
               <div>
                 <label className="block text-sm font-medium mb-1">日期選擇</label>
                 <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full md:w-1/3" />
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div><label className="block text-sm font-medium mb-1">現金 (Cash)</label><Input type="number" placeholder="0.00" value={revenue.cash} onChange={e => setRevenue({...revenue, cash: e.target.value})} /></div>
-                <div><label className="block text-sm font-medium mb-1">八達通 (Octopus)</label><Input type="number" placeholder="0.00" value={revenue.octopus} onChange={e => setRevenue({...revenue, octopus: e.target.value})} /></div>
-                <div><label className="block text-sm font-medium mb-1">Alipay+WeChat</label><Input type="number" placeholder="0.00" value={revenue.alipay_wechat} onChange={e => setRevenue({...revenue, alipay_wechat: e.target.value})} /></div>
-                <div><label className="block text-sm font-medium mb-1">外賣平台 (Delivery)</label><Input type="number" placeholder="0.00" value={revenue.delivery} onChange={e => setRevenue({...revenue, delivery: e.target.value})} /></div>
-              </div>
-              <div className="pt-4 flex justify-end">
-                <Button className="w-full md:w-auto">提交結算同步</Button>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader>
-              <CardTitle>收工結算點交 (Safe Settlement)</CardTitle>
-              <CardDescription>上傳手寫打烊對帳單或保險箱現金照片，AI 自動計算誤差</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:bg-gray-50">
-                <Camera className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-lg font-medium">AI 結算圖片上傳</p>
-                <p className="text-sm text-muted-foreground mt-1">系統將自動比對「理論現金」與「實際現金庫存」</p>
+
+              {/* 載入中 */}
+              {settlementLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                  <span className="ml-2">載入結算數據...</span>
+                </div>
+              ) : (
+                <>
+                  {/* 支付方式輸入 */}
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {[
+                      { key: 'cash', label: '現金支付', icon: '💰' },
+                      { key: 'octopus', label: '八達通', icon: '💳' },
+                      { key: 'foodpanda', label: 'Foodpanda', icon: '🛵' },
+                      { key: 'alipay_hk', label: '支付寶香港', icon: '📱' },
+                      { key: 'wechat_hk', label: 'WeChat 香港', icon: '💬' },
+                      { key: 'meituan_keeta', label: '美團 KEETA', icon: '🛵' },
+                      { key: 'openrice', label: 'Openrice', icon: '🍽️' },
+                    ].map(field => (
+                      <div key={field.key}>
+                        <label className="block text-xs font-medium mb-1 text-gray-600">
+                          {field.icon} {field.label}
+                        </label>
+                        <Input
+                          type="number" step="0.01" placeholder="0.00"
+                          value={settlement[field.key] || ''}
+                          onChange={e => setSettlement({...settlement, [field.key]: e.target.value})}
+                          className="text-sm"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 分隔線 */}
+                  <div className="border-t pt-4 mt-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-1 text-blue-700">📊 總金額</label>
+                        <Input type="number" step="0.01" placeholder="0.00" value={settlement.total_amount || ''}
+                          onChange={e => setSettlement({...settlement, total_amount: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1 text-green-700">📊 營業實收</label>
+                        <Input type="number" step="0.01" placeholder="0.00" value={settlement.actual_revenue || ''}
+                          onChange={e => setSettlement({...settlement, actual_revenue: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1 text-purple-700">📊 總筆數</label>
+                        <Input type="number" step="1" placeholder="0" value={settlement.total_transactions || ''}
+                          onChange={e => setSettlement({...settlement, total_transactions: e.target.value})} />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* 提交結果 */}
+              {settlementResult && (
+                <div className={`p-3 rounded-lg text-sm ${settlementResult.startsWith('✅') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                  {settlementResult}
+                </div>
+              )}
+
+              {/* 提交按鈕 */}
+              <div className="pt-2 flex justify-end">
+                <Button onClick={handleSubmitSettlement} disabled={settlementSaving || settlementLoading} className="w-full md:w-auto">
+                  {settlementSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                  提交結算
+                </Button>
               </div>
             </CardContent>
           </Card>

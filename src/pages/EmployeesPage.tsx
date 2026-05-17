@@ -125,10 +125,12 @@ export function EmployeesPage() {
           <h1 className="text-3xl font-bold text-gray-900">員工管理</h1>
           <p className="text-gray-500 mt-1">管理餐廳員工資料</p>
         </div>
-        <Button onClick={openAddModal}>
-          <Plus className="h-4 w-4 mr-2" />
-          新增員工
-        </Button>
+        {can('employee.manage') && (
+          <Button onClick={openAddModal}>
+            <Plus className="h-4 w-4 mr-2" />
+            新增員工
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -174,12 +176,16 @@ export function EmployeesPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button variant="ghost" size="icon" onClick={() => handleEdit(employee)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(employee.id)}>
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
+                      {can('employee.manage') && (
+                        <>
+                          <Button variant="ghost" size="icon" onClick={() => handleEdit(employee)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleDelete(employee.id)}>
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

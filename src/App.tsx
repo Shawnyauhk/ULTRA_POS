@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth'
-import { usePermission } from '@/hooks/usePermission'
+import { usePermission, refreshCustomPermissions } from '@/hooks/usePermission'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { TopBar } from '@/components/layout/TopBar'
 import { LoginPage } from '@/pages/LoginPage'
@@ -71,12 +71,15 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const { user } = useAuthStore();
   const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
-    // 實際初始化加載
-    setIsInitializing(false);
-  }, []);
+    // 載入自定義權限配置
+    refreshCustomPermissions().finally(() => {
+      setIsInitializing(false);
+    });
+  }, [user?.restaurant_id]);
 
   if (isInitializing) {
     return (

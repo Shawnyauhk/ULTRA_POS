@@ -34,3 +34,28 @@ export function getSupabaseErrorMessage(error: unknown): string {
   }
   return '資料庫連線失敗，請檢查網路或 .env 設定'
 }
+
+/**
+ * 發送帶有 Auth Token 的 API 請求
+ * 所有後端 API 調用應使用此函數而非直接 fetch
+ */
+export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  // 獲取當前的 Supabase session token
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> || {}),
+  }
+
+  // 如果有 token 則帶上 Authorization header
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  return fetch(url, {
+    ...options,
+    headers,
+  })
+}

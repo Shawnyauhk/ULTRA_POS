@@ -2,8 +2,13 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import multer from 'multer';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { readFileSync, existsSync } from 'fs';
 import { spawnSync } from 'child_process';
 import { createClient } from '@supabase/supabase-js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 dotenv.config();
 
@@ -19,6 +24,114 @@ const supabaseAdmin = createClient(
   process.env.VITE_SUPABASE_URL || '',
   process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 );
+
+// =========== 後端權限驗證中間件 ===========
+
+/**
+ * 從請求頭提取並驗證 Supabase JWT
+ * 前端需在請求頭帶上 Authorization: Bearer <supabase_access_token>
+ * 或從 user 物件取得 restaurant_id + role 進行權限檢查
+ */
+async function verifyAuth(req) {
+  // 嘗試從 Authorization header 獲取 token
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+  
+  const token = authHeader.slice(7);
+  try {
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+    if (error || !user) return null;
+    
+    // 查找該用戶的員工記錄（含角色）
+    const phone = user.email?.replace('@ultrapos.com', '');
+    if (!phone) return null;
+    
+    const { data: employee } = await supabaseAdmin
+      .from('employees')
+      .select('id, name, role, restaurant_id, is_active')
+      .eq('phone', phone)
+      .eq('is_active', true)
+      .single();
+    
+    return employee;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 權限檢查中間件工廠
+ * usage: app.get('/api/xxx', requirePermission('expense.view'), handler)
+ */
+function requirePermission(requiredPermission) {
+  return async (req, res, next) => {
+    try {
+      const employee = await verifyAuth(req);
+      if (!employee) {
+        return res.status(401).json({ success: false, message: '未授權，請先登入' });
+      }
+
+      // 從 restaurant_roles 取得該角色的自定義權限
+      const { data: roleConfig } = await supabaseAdmin
+        .from('restaurant_roles')
+        .select('permissions')
+        .eq('restaurant_id', employee.restaurant_id)
+        .eq('role_name', employee.role)
+        .single();
+
+      let permissions = [];
+      if (roleConfig?.permissions && roleConfig.permissions.length > 0) {
+        permissions = roleConfig.permissions;
+      } else {
+        // 無自定義配置時回退到默認權限
+        const DEFAULT_PERMISSIONS = {
+          owner: ['dashboard.view', 'pos.create_order', 'pos.cancel_order', 'pos.refund',
+            'product.view', 'product.manage', 'inventory.view', 'inventory.manage',
+            'order.view', 'order.create', 'order.approve',
+            'employee.view', 'employee.manage',
+            'attendance.view', 'attendance.manage',
+            'schedule.view', 'schedule.manage',
+            'payroll.view', 'payroll.manage',
+            'expense.view', 'expense.manage',
+            'report.view', 'report.export',
+            'ai.marketing', 'ai.customer_service', 'ai.knowledge_base',
+            'review.view', 'review.manage',
+            'setting.view', 'setting.manage'],
+          manager: ['dashboard.view', 'pos.create_order', 'pos.cancel_order', 'pos.refund',
+            'product.view', 'product.manage', 'inventory.view', 'inventory.manage',
+            'order.view', 'order.create', 'order.approve',
+            'employee.view',
+            'attendance.view', 'attendance.manage',
+            'schedule.view', 'schedule.manage',
+            'payroll.view', 'payroll.manage',
+            'expense.view', 'expense.manage',
+            'report.view', 'report.export',
+            'ai.marketing', 'ai.customer_service', 'ai.knowledge_base',
+            'review.view', 'review.manage',
+            'setting.view'],
+          staff: ['dashboard.view', 'pos.create_order',
+            'product.view', 'inventory.view',
+            'order.view', 'order.create',
+            'attendance.view', 'attendance.manage',
+            'schedule.view', 'expense.view'],
+        };
+        permissions = DEFAULT_PERMISSIONS[employee.role] || [];
+      }
+
+      if (!permissions.includes(requiredPermission)) {
+        return res.status(403).json({ success: false, message: '權限不足' });
+      }
+
+      // 將用戶信息附加到 req 供後續 handler 使用
+      req.user = employee;
+      next();
+    } catch (err) {
+      return res.status(500).json({ success: false, message: '驗證失敗: ' + err.message });
+    }
+  };
+}
 
 // 代理 Gemini AI 請求
 app.post('/api/ai/parse-receipt', upload.single('receipt'), async (req, res) => {
@@ -71,7 +184,7 @@ app.post('/api/ai/parse-attendance', upload.single('attendance'), async (req, re
 });
 
 // =========== Admin: 批量建立員工（使用 service_role 繞過 RLS） ===========
-app.post('/api/admin/batch-create-employees', async (req, res) => {
+app.post('/api/admin/batch-create-employees', requirePermission('employee.manage'), async (req, res) => {
   try {
     const { employees: empData } = req.body;
     if (!Array.isArray(empData) || empData.length === 0) {
@@ -583,7 +696,7 @@ app.post('/api/ai/knowledge', async (req, res) => {
   }
 });
 
-app.put('/api/ai/knowledge', async (req, res) => {
+app.put('/api/ai/knowledge', requirePermission('ai.knowledge_base'), async (req, res) => {
   try {
     const { id, category, question, answer, is_active } = req.body;
     if (!id) {
@@ -613,7 +726,7 @@ app.put('/api/ai/knowledge', async (req, res) => {
   }
 });
 
-app.delete('/api/ai/knowledge/:id', async (req, res) => {
+app.delete('/api/ai/knowledge/:id', requirePermission('ai.knowledge_base'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -653,7 +766,7 @@ app.get('/api/ai/config', async (req, res) => {
   }
 });
 
-app.put('/api/ai/config', async (req, res) => {
+app.put('/api/ai/config', requirePermission('ai.marketing'), async (req, res) => {
   try {
     const { restaurant_id, config_key, config_value } = req.body;
     if (!restaurant_id || !config_key || !config_value) {
@@ -891,6 +1004,186 @@ app.post('/api/register', async (req, res) => {
       success: false,
       message: '伺服器錯誤，請稍後再試'
     });
+  }
+});
+
+// =========== 每日營業額結算 API ===========
+
+/**
+ * daily_settlements 表已通過 Supabase Migration 創建
+ * 見: supabase/migrations/013_create_daily_settlements.sql
+ */
+
+// 查詢結算紀錄（單日）
+app.get('/api/settlements', requirePermission('expense.view'), async (req, res) => {
+  try {
+    const { date, restaurant_id } = req.query;
+    if (!date || !restaurant_id) {
+      return res.status(400).json({ success: false, message: '缺少 date 或 restaurant_id' });
+    }
+    const { data, error } = await supabaseAdmin
+      .from('daily_settlements')
+      .select('*')
+      .eq('restaurant_id', restaurant_id)
+      .eq('settlement_date', date)
+      .single();
+    if (error && error.code !== 'PGRST116') throw error;
+    res.json({ success: true, data: data || null });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 查詢結算紀錄（日期範圍）
+app.get('/api/settlements/range', requirePermission('expense.view'), async (req, res) => {
+  try {
+    const { start, end, restaurant_id } = req.query;
+    if (!start || !end || !restaurant_id) {
+      return res.status(400).json({ success: false, message: '缺少 start/end/restaurant_id' });
+    }
+    const { data, error } = await supabaseAdmin
+      .from('daily_settlements')
+      .select('*')
+      .eq('restaurant_id', restaurant_id)
+      .gte('settlement_date', start)
+      .lte('settlement_date', end)
+      .order('settlement_date', { ascending: false });
+    if (error) throw error;
+    res.json({ success: true, data: data || [] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 提交/更新結算紀錄
+app.post('/api/settlements', requirePermission('expense.manage'), async (req, res) => {
+  try {
+    const { restaurant_id, settlement_date, store_name, source, ...payments } = req.body;
+    if (!restaurant_id || !settlement_date) {
+      return res.status(400).json({ success: false, message: '缺少 restaurant_id 或 settlement_date' });
+    }
+
+    const settlementData = {
+      restaurant_id,
+      settlement_date,
+      store_name: store_name || null,
+      source: source || 'manual',
+      synced_at: new Date().toISOString(),
+      ...payments,
+    };
+
+    const { data, error } = await supabaseAdmin
+      .from('daily_settlements')
+      .upsert(settlementData, { onConflict: 'restaurant_id,settlement_date' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 觸發 POSPAL 爬蟲同步
+app.post('/api/settlements/sync', requirePermission('expense.manage'), async (req, res) => {
+  try {
+    const { restaurant_id, date } = req.body;
+    if (!restaurant_id || !date) {
+      return res.status(400).json({ success: false, message: '缺少 restaurant_id 或 date' });
+    }
+
+    // 執行爬蟲
+    const { spawnSync } = await import('child_process');
+    const crawlerPath = resolve(__dirname, 'scripts/pospal-crawler');
+    
+    const result = spawnSync('npx', ['tsx', 'crawler.ts', `--date=${date}`, '--url=business-summary'], {
+      cwd: crawlerPath,
+      stdio: 'pipe',
+      shell: true,
+      timeout: 120000, // 2分钟超时
+      encoding: 'utf-8',
+    });
+
+    const output = (result.stdout || '') + (result.stderr || '');
+
+    if (result.status !== 0) {
+      return res.json({ success: false, message: '爬蟲執行失敗', output });
+    }
+
+    // 從 logs/ 讀取爬蟲結果 JSON
+    const logsDir = resolve(crawlerPath, 'logs');
+    const jsonPath = resolve(logsDir, `${date}.json`);
+    
+    let crawlData;
+    try {
+      const jsonContent = readFileSync(jsonPath, 'utf-8');
+      crawlData = JSON.parse(jsonContent);
+    } catch {
+      return res.json({ success: false, message: '找不到爬蟲結果檔案', output });
+    }
+
+    if (!crawlData.success) {
+      return res.json({ success: false, message: '爬蟲執行未成功: ' + (crawlData.error || ''), output });
+    }
+
+    // 構建資料庫記錄
+    const paymentFields = {};
+    const codeFieldMap = {
+      cash: 'cash', octopus: 'octopus', foodpanda: 'foodpanda',
+      alipay_hk: 'alipay_hk', wechat_hk: 'wechat_hk',
+      meituan_keeta: 'meituan_keeta', openrice: 'openrice',
+      booking_deposit: 'booking_deposit', visit_card: 'visit_card',
+      shopping_card: 'shopping_card', prepaid_card: 'prepaid_card',
+      unionpay: 'unionpay', stored_value: 'stored_value',
+    };
+
+    if (crawlData.payments && Array.isArray(crawlData.payments)) {
+      for (const p of crawlData.payments) {
+        const fieldName = codeFieldMap[p.code];
+        if (fieldName) {
+          paymentFields[fieldName] = p.amount;
+        }
+      }
+    }
+
+    // 從 payments 中查找 total_sales
+    let totalSales = 0;
+    if (crawlData.payments && Array.isArray(crawlData.payments)) {
+      const totalPayment = crawlData.payments.find(p => p.code === 'total_sales');
+      if (totalPayment) totalSales = totalPayment.amount;
+    }
+
+    const settlementRecord = {
+      restaurant_id,
+      settlement_date: date,
+      store_name: crawlData.storeName || '',
+      source: 'pospal_crawler',
+      ...paymentFields,
+      total_amount: crawlData.totalAmount || totalSales || 0,
+      actual_revenue: crawlData.actualRevenue || totalSales || 0,
+      total_transactions: crawlData.totalTransactions || 0,
+      raw_json: JSON.stringify(crawlData),
+      synced_at: new Date().toISOString(),
+    };
+
+    const { data: dbResult, error: dbError } = await supabaseAdmin
+      .from('daily_settlements')
+      .upsert(settlementRecord, { onConflict: 'restaurant_id,settlement_date' })
+      .select()
+      .single();
+
+    if (dbError) {
+      return res.json({ success: false, message: '資料庫寫入失敗: ' + dbError.message, output });
+    }
+
+    res.json({
+      success: true,
+      message: '同步完成，數據已寫入資料庫',
+      data: dbResult,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
