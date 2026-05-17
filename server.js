@@ -887,6 +887,20 @@ app.get('/api/ai/suggestions', async (req, res) => {
   }
 });
 
+// =========== 生產環境：提供前端靜態文件 ===========
+const distPath = resolve(__dirname, 'dist');
+if (process.env.NODE_ENV === 'production' && existsSync(distPath)) {
+  console.log('📁 提供靜態文件從:', distPath);
+  app.use(express.static(distPath));
+
+  // SPA fallback：所有非 API 請求都返回 index.html
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api')) {
+      res.sendFile(resolve(distPath, 'index.html'));
+    }
+  });
+}
+
 const PORT = process.env.PORT || 3001;
 
 // =========== 商家註冊 API（SaaS 多租戶） ===========

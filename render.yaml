@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: ultra-pos
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: VITE_NVIDIA_NIM_API_KEY
+        sync: false
+      - key: VITE_NVIDIA_NIM_MODEL
+        value: qwen/qwen3.5-122b-a10b
+      - key: PORT
+        value: 10000
