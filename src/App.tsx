@@ -23,6 +23,7 @@ import { SchedulesPage } from '@/pages/SchedulesPage'
 import ReportsPage from '@/pages/ReportsPage'
 import { useState, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
+import { ToastContainer } from '@/components/ui/toast'
 import type { PermissionKey } from '@/types'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -59,6 +60,7 @@ const routePermissions: Record<string, PermissionKey> = {
 function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen bg-gray-100">
+      <ToastContainer />
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />

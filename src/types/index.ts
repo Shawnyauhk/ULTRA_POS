@@ -256,6 +256,10 @@ export interface Review {
   posted_at?: string
   created_by?: string
   created_at: string
+  edited_content?: string
+  for_training?: boolean
+  reviewed_at?: string
+  reviewed_by?: string
 }
 
 // Report Types

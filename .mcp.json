@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=amiceplfaeofaofoveun&access_token=sbp_598e11d34cc67871c8036f09f5274404e8a59e3b"
+    }
+  }
+}

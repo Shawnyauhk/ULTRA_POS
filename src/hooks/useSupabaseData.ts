@@ -740,7 +740,41 @@ export function useReviews() {
     }
   }
 
-  return { reviews, loading, error, refetch: fetchReviews, createReview }
+  const updateReview = async (id: string, updates: Partial<Review>) => {
+    try {
+      const { error: updateError } = await supabase
+        .from('reviews')
+        .update(updates)
+        .eq('id', id)
+        .eq('restaurant_id', getRestaurantId())
+
+      if (updateError) throw updateError
+      await fetchReviews()
+      return true
+    } catch (err) {
+      console.error('Error updating review:', err)
+      return false
+    }
+  }
+
+  const deleteReview = async (id: string) => {
+    try {
+      const { error: deleteError } = await supabase
+        .from('reviews')
+        .delete()
+        .eq('id', id)
+        .eq('restaurant_id', getRestaurantId())
+
+      if (deleteError) throw deleteError
+      await fetchReviews()
+      return true
+    } catch (err) {
+      console.error('Error deleting review:', err)
+      return false
+    }
+  }
+
+  return { reviews, loading, error, refetch: fetchReviews, createReview, updateReview, deleteReview }
 }
 
 // ============================================
