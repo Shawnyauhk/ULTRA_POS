@@ -90,7 +90,7 @@ export const PAYMENT_MAP: Record<string, string> = {
   '总笔数': 'total_transactions',
   '筆數': 'total_transactions',
   '銷售合計': 'total_amount',
-  '销售合计': 'total_sales',
+  '销售合计': 'total_amount',
 };
 
 /**

@@ -248,7 +248,7 @@ export function useRestaurant() {
     if (!rid || rid === FALLBACK_RESTAURANT_ID) {
       setRestaurant({
         id: rid,
-        name: '家傳x飲得（示範）',
+        name: '家傳芋曉',
         business_hours: '11:00 - 22:00',
         features: {},
       })
@@ -781,7 +781,7 @@ export function useReviews() {
 // Expenses Hooks
 // ============================================
 
-export function useExpenses(month?: string) {
+export function useExpenses(startDate?: string, endDate?: string) {
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -795,8 +795,12 @@ export function useExpenses(month?: string) {
         .eq('restaurant_id', getRestaurantId())
         .order('expense_date', { ascending: false })
 
-      if (month) {
-        query = query.like('expense_date', `${month}%`)
+      if (startDate && endDate) {
+        query = query.gte('expense_date', startDate).lte('expense_date', endDate)
+      } else if (startDate) {
+        query = query.gte('expense_date', startDate)
+      } else if (endDate) {
+        query = query.lte('expense_date', endDate)
       }
 
       const { data, error: fetchError } = await query
@@ -808,7 +812,7 @@ export function useExpenses(month?: string) {
     } finally {
       setLoading(false)
     }
-  }, [month])
+  }, [startDate, endDate])
 
   useEffect(() => {
     fetchExpenses()

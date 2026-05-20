@@ -39,8 +39,92 @@ export interface Attendance {
   clock_in?: string
   clock_out?: string
   work_hours?: number
+  clock_in_latitude?: number
+  clock_in_longitude?: number
+  clock_in_ip?: string
+  verification_method?: 'webauthn' | 'pin' | 'manual'
+  clock_out_latitude?: number
+  clock_out_longitude?: number
+  clock_out_ip?: string
   created_at?: string
   employee?: Employee
+}
+
+// =========== 补打卡审批 ===========
+
+export type CorrectionType = 'clock_in' | 'clock_out'
+export type CorrectionStatus = 'pending' | 'approved' | 'rejected'
+
+export interface AttendanceCorrection {
+  id: string
+  employee_id: string
+  restaurant_id: string
+  correction_date: string
+  correction_type: CorrectionType
+  requested_time: string
+  reason?: string
+  status: CorrectionStatus
+  reviewed_by?: string
+  reviewed_at?: string
+  review_notes?: string
+  attendance_id?: string
+  created_at: string
+  updated_at: string
+  employee?: Employee
+  reviewer?: Employee
+}
+
+// =========== 安全打卡新类型 ===========
+
+export interface StoreLocation {
+  id: string
+  restaurant_id: string
+  location_name: string
+  latitude: number
+  longitude: number
+  allowed_radius: number
+  wifi_ssid?: string[]
+  is_active: boolean
+  created_at: string
+}
+
+export interface EmployeeBiometric {
+  id: string
+  employee_id: string
+  biometric_type: 'pin' | 'webauthn'
+  credential_id?: string
+  public_key?: string
+  pin_hash?: string
+  pin_salt?: string
+  device_name?: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface EmployeeDevice {
+  id: string
+  employee_id: string
+  device_id: string
+  device_name?: string
+  user_agent?: string
+  platform?: string
+  is_active: boolean
+  bound_at: string
+  last_used_at: string
+}
+
+export interface AttendanceAuditLog {
+  id: string
+  attendance_id?: string
+  employee_id: string
+  action: 'clock_in' | 'clock_out' | 'edit' | 'delete'
+  action_by?: string
+  ip_address?: string
+  device_info?: Record<string, unknown>
+  location_info?: Record<string, unknown>
+  verification_result?: Record<string, unknown>
+  created_at: string
 }
 
 export interface Category {

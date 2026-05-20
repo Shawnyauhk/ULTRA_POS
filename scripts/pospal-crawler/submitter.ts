@@ -45,8 +45,8 @@ export async function submitToDatabase(
 
     console.log(`[Submitter] ✅ 已提交到資料庫: ${result.date}`);
     return { success: true };
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : JSON.stringify(error, Object.getOwnPropertyNames(error));
     console.error(`[Submitter] ❌ 提交失敗: ${msg}`);
     return { success: false, error: msg };
   }

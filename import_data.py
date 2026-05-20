@@ -38,7 +38,7 @@ SUPABASE_KEY = os.getenv('SUPABASE_KEY', '')
 
 # Excel 文件路徑
 PRODUCTS_FILE = 'C:/Users/USER/Desktop/MyApp/Products.xlsx'
-INVENTORY_FILE = 'C:/Users/USER/Desktop/MyApp/家傳x飲得 貨倉表.xlsx'
+INVENTORY_FILE = 'C:/Users/USER/Desktop/MyApp/家傳芋曉 貨倉表.xlsx'
 
 # 餐廳 ID（預設）
 RESTAURANT_ID = '00000000-0000-0000-0000-000000000001'

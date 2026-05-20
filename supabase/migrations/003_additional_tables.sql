@@ -154,7 +154,7 @@ CREATE INDEX idx_reports_created_at ON reports(created_at);
 
 -- Insert default settings
 INSERT INTO settings (restaurant_id, setting_key, setting_value, setting_type, description) VALUES
-('00000000-0000-0000-0000-000000000001', 'restaurant_name', '家傳x飲得', 'string', '餐廳名稱'),
+('00000000-0000-0000-0000-000000000001', 'restaurant_name', '家傳芋曉', 'string', '餐廳名稱'),
 ('00000000-0000-0000-0000-000000000001', 'business_hours', '11:00 - 22:00', 'string', '營業時間'),
 ('00000000-0000-0000-0000-000000000001', 'tax_rate', '0', 'number', '稅率百分比'),
 ('00000000-0000-0000-0000-000000000001', 'service_charge', '0', 'number', '服務費百分比'),

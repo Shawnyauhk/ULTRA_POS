@@ -1,6 +1,7 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth'
 import { usePermission, refreshCustomPermissions } from '@/hooks/usePermission'
+import { supabase } from '@/lib/supabase'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { TopBar } from '@/components/layout/TopBar'
 import { LoginPage } from '@/pages/LoginPage'
@@ -8,6 +9,7 @@ import RegisterPage from '@/pages/RegisterPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { POSPage } from '@/pages/POSPage'
 import ExpensesPage from '@/pages/ExpensesPage'
+import SettlementPage from '@/pages/SettlementPage'
 import PayrollPage from '@/pages/PayrollPage'
 import SettingsPage from '@/pages/SettingsPage'
 import { ProductsPage } from '@/pages/ProductsPage'
@@ -27,7 +29,28 @@ import { ToastContainer } from '@/components/ui/toast'
 import type { PermissionKey } from '@/types'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuthStore()
+  const { user, logout } = useAuthStore()
+  const navigate = useNavigate()
+  const [checking, setChecking] = useState(true)
+
+  useEffect(() => {
+    async function checkSession() {
+      if (!user) {
+        setChecking(false)
+        return
+      }
+      // 檢查 Supabase session 是否仍然有效
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        console.warn('[Auth] Session 已過期，清除登入狀態')
+        logout()
+      }
+      setChecking(false)
+    }
+    checkSession()
+  }, [])
+
+  if (checking) return null // 短暫閃一下避免重定向閃爍
   if (!user) return <Navigate to="/login" replace />
   return <>{children}</>
 }
@@ -51,6 +74,7 @@ const routePermissions: Record<string, PermissionKey> = {
   '/schedules': 'schedule.view',
   '/payroll': 'payroll.view',
   '/expenses': 'expense.view',
+  '/settlement': 'expense.view',
   '/reports': 'report.view',
   '/ai-marketing': 'ai.customer_service',
   '/review-generator': 'review.view',
@@ -73,7 +97,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const { user } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
@@ -81,6 +105,17 @@ export default function App() {
     refreshCustomPermissions().finally(() => {
       setIsInitializing(false);
     });
+
+    // 監聽 Supabase Auth 狀態變化（登出 / token 過期自動清除）
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        logout();
+      }
+    });
+
+    return () => {
+      subscription?.unsubscribe();
+    };
   }, [user?.restaurant_id]);
 
   if (isInitializing) {
@@ -121,6 +156,7 @@ export default function App() {
                 {renderProtectedRoute('/schedules', <SchedulesPage />)}
                 {renderProtectedRoute('/reports', <ReportsPage />)}
                 {renderProtectedRoute('/expenses', <ExpensesPage />)}
+                {renderProtectedRoute('/settlement', <SettlementPage />)}
                 {renderProtectedRoute('/payroll', <PayrollPage />)}
                 {renderProtectedRoute('/ai-marketing', <AIChatPage />)}
                 {renderProtectedRoute('/review-generator', <ReviewGeneratorPage />)}

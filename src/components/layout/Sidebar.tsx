@@ -15,6 +15,7 @@ import {
   BarChart3,
   Clock,
   CalendarDays,
+  DollarSign,
   Store
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
@@ -38,7 +39,8 @@ const menuItems: MenuItem[] = [
   { path: '/attendance', label: '打卡系統', icon: Clock, permission: 'attendance.view' },
   { path: '/schedules', label: '排班管理', icon: CalendarDays, permission: 'schedule.view' },
   { path: '/payroll', label: '員工與薪酬', icon: Users, permission: 'payroll.view' },
-  { path: '/expenses', label: '財務、支出與結算', icon: Calculator, permission: 'expense.view' },
+  { path: '/expenses', label: '門店支出', icon: Calculator, permission: 'expense.view' },
+  { path: '/settlement', label: '營業額結算', icon: DollarSign, permission: 'expense.view' },
   { path: '/ai-marketing', label: 'AI 客服管理', icon: MessageSquare, permission: 'ai.customer_service' },
   { path: '/review-generator', label: 'Google 好評', icon: Star, permission: 'review.view' },
   { path: '/permissions', label: '權限設定', icon: Shield, permission: 'setting.manage' },

@@ -3,19 +3,25 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Clock, LogIn, LogOut, User, Loader2 } from 'lucide-react'
+import { Clock, Loader2, Shield, Fingerprint, Key, MapPin, FileText, Inbox } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
-import { useEmployees, useAttendance } from '@/hooks/useSupabaseData'
+import { useAttendance } from '@/hooks/useSupabaseData'
 import { supabase } from '@/lib/supabase'
 import type { Employee } from '@/types'
+import { SecureClockIn } from '@/components/attendance/SecureClockIn'
+import { CorrectionRequest } from '@/components/attendance/CorrectionRequest'
+import { CorrectionReview } from '@/components/attendance/CorrectionReview'
 
 export function AttendancePage() {
   const { user } = useAuthStore()
-  const { employees, loading: empLoading } = useEmployees()
   const { attendance, loading, refetch, addAttendance, updateAttendance, getTodayAttendance } = useAttendance()
   const [todayAttendance, setTodayAttendance] = useState<any[]>([])
-  const [clockingIn, setClockingIn] = useState<string | null>(null)
-  const [clockingOut, setClockingOut] = useState<string | null>(null)
+  const [showSecureClockIn, setShowSecureClockIn] = useState(false)
+  const [showCorrection, setShowCorrection] = useState(false)
+  const [showReview, setShowReview] = useState(false)
+  const [pendingCount, setPendingCount] = useState(0)
+
+  const canManage = user?.role === 'owner' || user?.role === 'manager'
 
   const refreshToday = useCallback(async () => {
     const today = await getTodayAttendance()
@@ -26,202 +32,186 @@ export function AttendancePage() {
     refreshToday()
   }, [attendance, refreshToday])
 
-  // 檢查是否在店舖範圍內（經緯度距離）
-  const checkStoreProximity = async (): Promise<boolean> => {
-    try {
-      // 從設定中讀取店舖位置
-      const { data: settings } = await supabase
-        .from('settings')
-        .select('setting_value')
-        .eq('setting_key', 'store_location')
-        .single();
+  // 加载待审核数量
+  useEffect(() => {
+    if (!user?.restaurant_id || !canManage) return
+    supabase
+      .from('attendance_corrections')
+      .select('*', { count: 'exact', head: true })
+      .eq('restaurant_id', user.restaurant_id)
+      .eq('status', 'pending')
+      .then(({ count }) => setPendingCount(count || 0))
+  }, [user?.restaurant_id, canManage])
 
-      if (!settings?.setting_value) {
-        // 沒有設定位置，跳過檢查
-        return true;
-      }
-
-      const storeLoc = JSON.parse(settings.setting_value); // { lat, lng }
-
-      // 取得當前位置
-      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 10000,
-        });
-      });
-
-      const userLat = pos.coords.latitude;
-      const userLng = pos.coords.longitude;
-
-      // 計算距離（Haversine 公式）
-      const R = 6371000; // 地球半徑（公尺）
-      const dLat = (userLat - storeLoc.lat) * Math.PI / 180;
-      const dLng = (userLng - storeLoc.lng) * Math.PI / 180;
-      const a = Math.sin(dLat / 2) ** 2 +
-                Math.cos(storeLoc.lat * Math.PI / 180) * Math.cos(userLat * Math.PI / 180) *
-                Math.sin(dLng / 2) ** 2;
-      const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-      // 200 公尺內視為在店舖
-      if (distance > 200) {
-        alert(`⚠️ 您目前距離店舖約 ${Math.round(distance)} 公尺，請到店舖後再打卡。`);
-        return false;
-      }
-      return true;
-    } catch (err) {
-      // GPS 不可用時允許打卡（開發階段）
-      console.warn('位置檢查失敗，跳過:', err);
-      return true;
-    }
-  };
-
-  const handleClockIn = async (employeeId: string) => {
-    // 位置檢查
-    const inStore = await checkStoreProximity();
-    if (!inStore) return;
-
-    setClockingIn(employeeId)
-    const today = new Date().toISOString().split('T')[0]
-    const now = new Date()
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-
-    try {
-      const { error } = await supabase
-        .from('attendance')
-        .insert([{
-          employee_id: employeeId,
-          date: today,
-          clock_in: timeStr,
-        }])
-
-      if (error) throw error
-      await refreshToday()
-    } catch (err) {
-      console.error('Clock in error:', err)
-      alert('打卡失敗: ' + (err as Error).message)
-    } finally {
-      setClockingIn(null)
-    }
-  }
-
-  const handleClockOut = async (attendanceId: string) => {
-    setClockingOut(attendanceId)
-    const now = new Date()
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-
-    try {
-      const record = todayAttendance.find(a => a.id === attendanceId)
-      // Calculate work hours from time strings
-      let workHours = 0
-      if (record?.clock_in) {
-        const [inH, inM] = record.clock_in.split(':').map(Number)
-        const [outH, outM] = timeStr.split(':').map(Number)
-        workHours = Math.round(((outH * 60 + outM) - (inH * 60 + inM)) / 60 * 100) / 100
-      }
-
-      const { error } = await supabase
-        .from('attendance')
-        .update({
-          clock_out: timeStr,
-          work_hours: Math.max(0, workHours),
-        })
-        .eq('id', attendanceId)
-
-      if (error) throw error
-      await refreshToday()
-    } catch (err) {
-      console.error('Clock out error:', err)
-      alert('下班打卡失敗: ' + (err as Error).message)
-    } finally {
-      setClockingOut(null)
-    }
-  }
-
-  const getAttendanceForEmployee = (employeeId: string) => {
-    return todayAttendance.find((a: any) => a.employee_id === employeeId)
+  // 验证方式徽章
+  const getVerificationBadge = (method: string | undefined) => {
+    if (!method || method === 'manual') return null
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+        {method === 'webauthn' ? (
+          <><Fingerprint className="h-3 w-3" /> 指紋</>
+        ) : (
+          <><Key className="h-3 w-3" /> PIN</>
+        )}
+      </span>
+    )
   }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-gray-900">打卡系統</h1>
-        <p className="text-gray-500 mt-1">員工上下班打卡記錄</p>
+        <p className="text-gray-500 mt-1">員工上下班安全打卡記錄</p>
       </div>
 
-      {/* Quick Clock In/Out */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="h-5 w-5" />
-            快速打卡
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {empLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* ====== 左栏：安全打卡 + 我的状态 ====== */}
+        <div className="space-y-4">
+          {showSecureClockIn ? (
+            <SecureClockIn onClockSuccess={() => refreshToday()} />
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {employees.filter(e => e.is_active).map((employee) => {
-                const att = getAttendanceForEmployee(employee.id)
-                const hasClockIn = !!att?.clock_in
-                const hasClockOut = !!att?.clock_out
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="h-5 w-5 text-green-600" />
+                  安全打卡
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-center space-y-4">
+                <div className="text-sm text-gray-600 space-y-2">
+                  <p className="flex items-center justify-center gap-2">
+                    <MapPin className="h-4 w-4 text-blue-500" />
+                    GPS 位置验证（店铺200公尺内）
+                  </p>
+                  <p className="flex items-center justify-center gap-2">
+                    <Fingerprint className="h-4 w-4 text-green-500" />
+                    指纹 / Face ID 验证（本人）
+                  </p>
+                </div>
+                <Button onClick={() => setShowSecureClockIn(true)} size="lg" className="w-full">
+                  <Shield className="h-5 w-5 mr-2" />
+                  我要打卡
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
-                return (
-                  <div key={employee.id} className="border rounded-lg p-4 text-center">
-                    <div className="h-12 w-12 rounded-full bg-gray-200 mx-auto mb-2 flex items-center justify-center">
-                      <User className="h-6 w-6 text-gray-500" />
-                    </div>
-                    <p className="font-medium">{employee.name}</p>
-                    <p className="text-sm text-gray-500 mb-3">
-                      {employee.role === 'owner' ? '店主' : employee.role === 'manager' ? '主管' : '員工'}
-                    </p>
-                    {hasClockOut ? (
-                      <Badge variant="success" className="w-full justify-center">已下班</Badge>
-                    ) : hasClockIn ? (
-                      <div className="space-y-2">
-                        <p className="text-sm text-green-600">上班: {att?.clock_in}</p>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="w-full"
-                          onClick={() => handleClockOut(att!.id)}
-                          disabled={clockingOut === att!.id}
-                        >
-                          {clockingOut === att!.id ? (
-                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                          ) : (
-                            <LogOut className="h-4 w-4 mr-1" />
-                          )}
-                          下班
-                        </Button>
+          {/* 我的打卡状态 */}
+          {user && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">我的打卡狀態</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {(() => {
+                  const myRecord = todayAttendance.find((a: any) => a.employee_id === user.id)
+                  if (!myRecord) {
+                    return <p className="text-gray-400 text-sm text-center py-2">今日尚未打卡</p>
+                  }
+                  return (
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">上班時間</span>
+                        <span className="font-medium">{myRecord.clock_in || '-'}</span>
                       </div>
-                    ) : (
-                      <Button
-                        size="sm"
-                        className="w-full"
-                        onClick={() => handleClockIn(employee.id)}
-                        disabled={clockingIn === employee.id}
-                      >
-                        {clockingIn === employee.id ? (
-                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                        ) : (
-                          <LogIn className="h-4 w-4 mr-1" />
-                        )}
-                        上班
-                      </Button>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">下班時間</span>
+                        <span className="font-medium">{myRecord.clock_out || '-'}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">驗證方式</span>
+                        <span>{getVerificationBadge(myRecord.verification_method)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">狀態</span>
+                        <Badge variant={myRecord.clock_out ? 'success' : 'warning'}>
+                          {myRecord.clock_out ? '已完成' : '工作中'}
+                        </Badge>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* ====== 右栏：补打卡系统 ====== */}
+        <div className="space-y-4">
+          {/* 补打卡入口 */}
+          {!showCorrection && !showReview && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <FileText className="h-5 w-5" />
+                  补打卡
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-gray-500">
+                  忘记打卡或手机故障？通过补打卡申请来补录记录。
+                </p>
+
+                <Button
+                  onClick={() => setShowCorrection(true)}
+                  variant="outline"
+                  className="w-full justify-start"
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  提交补打卡申请
+                </Button>
+
+                {canManage && (
+                  <Button
+                    onClick={() => setShowReview(true)}
+                    className="w-full justify-start"
+                  >
+                    <Inbox className="h-4 w-4 mr-2" />
+                    审核补打卡申请
+                    {pendingCount > 0 && (
+                      <span className="ml-auto bg-yellow-200 text-yellow-800 text-xs font-bold px-2 py-0.5 rounded-full">
+                        {pendingCount}
+                      </span>
                     )}
-                  </div>
-                )
-              })}
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 补打卡申请表单 + 记录 */}
+          {showCorrection && (
+            <div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mb-2"
+                onClick={() => setShowCorrection(false)}
+              >
+                ← 返回
+              </Button>
+              <CorrectionRequest onRequestSubmitted={() => refreshToday()} />
             </div>
           )}
-        </CardContent>
-      </Card>
 
-      {/* Today's Records */}
+          {/* 补打卡审核面板 */}
+          {showReview && (
+            <div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mb-2"
+                onClick={() => setShowReview(false)}
+              >
+                ← 返回
+              </Button>
+              <CorrectionReview />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 今日打卡記錄 */}
       <Card>
         <CardHeader>
           <CardTitle>今日打卡記錄</CardTitle>
@@ -237,34 +227,48 @@ export function AttendancePage() {
               <p>今日尚無打卡記錄</p>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>員工</TableHead>
-                  <TableHead>上班時間</TableHead>
-                  <TableHead>下班時間</TableHead>
-                  <TableHead>工時</TableHead>
-                  <TableHead>狀態</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {todayAttendance.map((record: any) => (
-                  <TableRow key={record.id}>
-                    <TableCell className="font-medium">
-                      {record.employee?.name || '未知'}
-                    </TableCell>
-                    <TableCell>{record.clock_in || '-'}</TableCell>
-                    <TableCell>{record.clock_out || '-'}</TableCell>
-                    <TableCell>{record.work_hours ? `${record.work_hours} 小時` : '-'}</TableCell>
-                    <TableCell>
-                      <Badge variant={record.clock_out ? 'success' : 'warning'}>
-                        {record.clock_out ? '已完成' : '工作中'}
-                      </Badge>
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>員工</TableHead>
+                    <TableHead>上班時間</TableHead>
+                    <TableHead>下班時間</TableHead>
+                    <TableHead>工時</TableHead>
+                    <TableHead>驗證</TableHead>
+                    <TableHead>位置</TableHead>
+                    <TableHead>狀態</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {todayAttendance.map((record: any) => (
+                    <TableRow key={record.id}>
+                      <TableCell className="font-medium">
+                        {record.employee?.name || '未知'}
+                      </TableCell>
+                      <TableCell>{record.clock_in || '-'}</TableCell>
+                      <TableCell>{record.clock_out || '-'}</TableCell>
+                      <TableCell>{record.work_hours ? `${record.work_hours} 小時` : '-'}</TableCell>
+                      <TableCell>
+                        {getVerificationBadge(record.verification_method) || '-'}
+                      </TableCell>
+                      <TableCell>
+                        {record.clock_in_latitude ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-green-600">
+                            <MapPin className="h-3 w-3" /> 已驗證
+                          </span>
+                        ) : '-'}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={record.clock_out ? 'success' : 'warning'}>
+                          {record.clock_out ? '已完成' : '工作中'}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

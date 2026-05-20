@@ -6,7 +6,10 @@
   "scripts": {
     "crawl": "tsx crawler.ts",
     "crawl:today": "tsx crawler.ts --date=today",
-    "crawl:debug": "tsx crawler.ts --debug"
+    "crawl:debug": "tsx crawler.ts --debug",
+    "schedule": "tsx scheduler.ts",
+    "schedule:now": "tsx scheduler.ts --now",
+    "schedule:dry": "tsx scheduler.ts --dry-run"
   },
   "dependencies": {
     "puppeteer": "^23.0.0",

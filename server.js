@@ -1201,6 +1201,197 @@ app.post('/api/settlements/sync', requirePermission('expense.manage'), async (re
   }
 });
 
+// =========== AI 收據掃描 API ===========
+app.use('/api/ocr', express.json({ limit: '10mb' }));
+
+/**
+ * 內部 OCR 調用函數，帶自動重試機制
+ * @param {string} dataUrl - base64 圖片
+ * @param {boolean} isHandwritten - 是否手寫模式
+ * @param {number} maxRetries - 最大重試次數
+ * @returns {Promise<{success: boolean, text?: string, error?: string}>}
+ */
+async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3) {
+  const prompt = isHandwritten
+    ? `你是餐廳記賬本辨識助手。分析這張手寫記賬本圖片，提取每一筆支出記錄。
+
+重要：每筆支出的日期可能不同（一頁記賬本包含多天的記錄），必須為每個項目提取對應的日期。
+
+要求：
+1. 每行格式：日期: YYYY-MM-DD, 項目: XXX, 支出: $金額
+2. 日期欄位是「日/月」格式（如 8/4 = 4月8日，9/4 = 4月9日，10/4 = 4月10日，11/4 = 4月11日）。請轉換為 YYYY-MM-DD 格式：8/4→2026-04-08，9/4→2026-04-09，10/4→2026-04-10，11/4→2026-04-11
+3. 每個項目都要有自己的日期，不要合併
+4. 如只有日期和金額，無描述項目，則項目留空
+5. 所有支出金額以 $ 前綴
+6. 不要輸出收入或結餘欄位的內容，只輸出支出記錄
+7. 每筆一行，最後輸出：總支出: $總金額
+8. 只回覆以下格式，不要其他文字
+
+範例輸出（同一張紙上4天的記錄）：
+日期: 2026-04-08, 項目: 快遞費, 支出: $26
+日期: 2026-04-09, 項目: 菜，洋葱, 支出: $48
+日期: 2026-04-10, 項目: 紅豆, 支出: $38
+日期: 2026-04-11, 項目: , 支出: $3
+總支出: $115`
+    : `你是餐廳收據辨識助手。分析收據圖片，提取每項品名和價格。
+
+要求：
+1. 提取單據日期，格式 YYYY-MM-DD，輸出：日期: YYYY-MM-DD
+2. 供應商名稱請簡化，去掉「貿易」「國際」「有限公司」「企業」「股份」等後綴。格式：供應商: XXX
+3. 如有發票編號，輸出：發票: 編號
+4. 列出每一項貨品：只保留核心品名，移除品牌（安佳、維他等）、規格（360裝、1箱、10KG等）和包裝描述
+5. 每項一行，格式：品名 $價格
+6. 最後一行輸出：總價 $總金額
+7. 只回覆以下內容，不要其他文字
+
+範例輸出：
+日期: 2026-05-18
+供應商: 炳記行
+發票: INV-20260518
+蛋 $270
+淡忌廉 $630
+椰漿 $280
+總價 $1180`;
+
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    // 第一次嘗試用 90 秒，重試用 120 秒（給更多時間）
+    const timeoutMs = attempt === 1 ? 90000 : 120000;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      console.log(`[OCR] 第 ${attempt}/${maxRetries} 次調用 NVIDIA API...`);
+
+      const response = await fetch(NVIDIA_API_URL, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${NVIDIA_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: NVIDIA_MODEL,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'image_url', image_url: { url: dataUrl } },
+                { type: 'text', text: prompt }
+              ]
+            }
+          ],
+          max_tokens: 512,
+          temperature: 0.1,
+        }),
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        let errorText = '';
+        try { errorText = await response.text(); } catch {}
+
+        // 504 不立即拋出，允許重試
+        if (response.status === 504) {
+          lastError = new Error(`NVIDIA API 504 Gateway Timeout (attempt ${attempt})`);
+          console.warn(`[OCR] ⚠️ 504 超時，第 ${attempt} 次失敗`);
+          if (attempt < maxRetries) {
+            // 重試前等待 3 秒
+            await new Promise(r => setTimeout(r, 3000));
+            continue;
+          }
+          throw lastError;
+        }
+
+        throw new Error(`OCR API 錯誤: ${response.status} - ${errorText.slice(0, 200)}`);
+      }
+
+      // 安全解析響應
+      let data;
+      try {
+        const raw = await response.text();
+        if (!raw || raw.trim() === '') {
+          throw new Error('NVIDIA API 返回空響應');
+        }
+        data = JSON.parse(raw);
+      } catch (parseErr) {
+        if (parseErr.message?.includes('API')) {
+          lastError = parseErr;
+          if (attempt < maxRetries) {
+            await new Promise(r => setTimeout(r, 2000));
+            continue;
+          }
+          throw parseErr;
+        }
+        throw new Error('NVIDIA API 響應解析失敗');
+      }
+
+      let text = data.choices?.[0]?.message?.reasoning_content ||
+                 data.choices?.[0]?.message?.content || '';
+
+      // 後端校正日期格式
+      if (isHandwritten) {
+        text = text.replace(/(\d{4})-(\d{2})-(\d{2})/g, (match, y, m, d) => {
+          const mm = parseInt(m), dd = parseInt(d);
+          if (mm > 12 && dd <= 12) return `${y}-${d}-${m}`;
+          return match;
+        });
+      }
+
+      console.log(`[OCR] ✅ 第 ${attempt} 次成功`);
+      return { success: true, text };
+    } catch (err) {
+      clearTimeout(timeout);
+
+      if (err.name === 'AbortError') {
+        lastError = new Error(`請求超時 (${timeoutMs / 1000}s)，服務繁忙`);
+        console.warn(`[OCR] ⚠️ 超時 (第 ${attempt} 次)`);
+      } else {
+        lastError = err;
+      }
+
+      if (attempt < maxRetries) {
+        // 指數退避：2s, 4s, 8s...
+        const backoffMs = Math.min(2000 * Math.pow(2, attempt - 1), 10000);
+        console.log(`[OCR] ⏳ ${backoffMs}ms 後重試...`);
+        await new Promise(r => setTimeout(r, backoffMs));
+      }
+    }
+  }
+
+  return { success: false, error: lastError?.message || '所有重試均失敗' };
+}
+
+app.post('/api/ocr/receipt', async (req, res) => {
+  try {
+    if (!NVIDIA_API_KEY) {
+      return res.status(500).json({ success: false, message: 'NVIDIA API Key 未配置，请在 .env 中设置 VITE_NVIDIA_NIM_API_KEY' });
+    }
+
+    const { image, mode } = req.body;
+    if (!image) {
+      return res.status(400).json({ success: false, message: '請提供圖片' });
+    }
+
+    const isHandwritten = mode === 'handwritten';
+
+    console.log(`[OCR] 開始處理圖片 (mode=${mode}, base64長度=${image.length})`);
+
+    const result = await callNVIDIAOCR(image, isHandwritten, 3);
+
+    if (!result.success) {
+      return res.status(504).json({ success: false, message: result.error });
+    }
+
+    res.json({ success: true, data: { text: result.text } });
+  } catch (error) {
+    console.error('[OCR] 辨識失敗:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);
 });

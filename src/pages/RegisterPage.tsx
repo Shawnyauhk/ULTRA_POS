@@ -102,7 +102,7 @@ export default function RegisterPage() {
                       <Input
                         value={formData.restaurantName}
                         onChange={(e) => handleChange('restaurantName', e.target.value)}
-                        placeholder="例如：家傳x飲得"
+                        placeholder="例如：家傳芋曉"
                         required
                       />
                     </div>

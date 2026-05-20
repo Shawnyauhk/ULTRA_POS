@@ -184,7 +184,7 @@ CREATE INDEX idx_expenses_date ON expenses(expense_date);
 
 -- Insert demo restaurant
 INSERT INTO restaurants (id, name, business_hours) 
-VALUES ('00000000-0000-0000-0000-000000000001', '家傳x飲得', '11:00 - 22:00');
+VALUES ('00000000-0000-0000-0000-000000000001', '家傳芋曉', '11:00 - 22:00');
 
 -- Insert demo categories (11 categories)
 INSERT INTO categories (restaurant_id, name, sort_order) VALUES
