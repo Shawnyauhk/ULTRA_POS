@@ -254,7 +254,7 @@ app.post('/api/whatsapp/notify-order', async (req, res) => {
 
 // NVIDIA NIM 配置
 const NVIDIA_API_KEY = process.env.VITE_NVIDIA_NIM_API_KEY || '';
-const NVIDIA_MODEL = process.env.VITE_NVIDIA_NIM_MODEL || 'qwen/qwen3.5-122b-a10b';
+const NVIDIA_MODEL = process.env.VITE_NVIDIA_NIM_MODEL || 'meta/llama-3.2-11b-vision-instruct';
 const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
 /**
@@ -1213,26 +1213,32 @@ app.use('/api/ocr', express.json({ limit: '10mb' }));
  */
 async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3) {
   const prompt = isHandwritten
-    ? `你是餐廳記賬本辨識助手。分析這張手寫記賬本圖片，提取每一筆支出記錄。
+    ? `你是餐廳記賬本精確辨識助手。分析這張手寫記賬本圖片，**仔細查看每一個欄位**，提取每一筆支出記錄。
 
 重要：每筆支出的日期可能不同（一頁記賬本包含多天的記錄），必須為每個項目提取對應的日期。
 
 要求：
-1. 每行格式：日期: YYYY-MM-DD, 項目: XXX, 支出: $金額
-2. 日期欄位是「日/月」格式（如 8/4 = 4月8日，9/4 = 4月9日，10/4 = 4月10日，11/4 = 4月11日）。請轉換為 YYYY-MM-DD 格式：8/4→2026-04-08，9/4→2026-04-09，10/4→2026-04-10，11/4→2026-04-11
-3. 每個項目都要有自己的日期，不要合併
-4. 如只有日期和金額，無描述項目，則項目留空
-5. 所有支出金額以 $ 前綴
-6. 不要輸出收入或結餘欄位的內容，只輸出支出記錄
-7. 每筆一行，最後輸出：總支出: $總金額
-8. 只回覆以下格式，不要其他文字
+1. **每行嚴格格式**：日期: YYYY-MM-DD, 項目: XXX, 支出: $金額
+2. **提取所有項目**：仔細查看圖片中每一個條目，不要遺漏任何一筆。同一天的項目必須逐一分開列出。圖片中通常有10-30筆支出。
+3. 日期欄位是「日/月」格式（如 8/4 = 4月8日，9/4 = 4月9日，10/4 = 4月10日，11/4 = 4月11日）。請轉換為 YYYY-MM-DD 格式：8/4→2026-04-08，9/4→2026-04-09，10/4→2026-04-10，11/4→2026-04-11
+4. **同一天的不同品項要分開列為多行**，共用同一個日期
+5. 如只有日期和金額，無描述項目，則項目留空：日期: 2026-04-08, 項目: , 支出: $26
+6. 所有支出金額以 $ 前綴
+7. 不要輸出收入或結餘欄位的內容，只輸出支出記錄
+8. 每筆一行，最後輸出：總支出: $總金額
+9. **只回覆以下格式，不要其他文字**
 
-範例輸出（同一張紙上4天的記錄）：
+範例輸出（同一張紙上多天的多筆記錄）：
 日期: 2026-04-08, 項目: 快遞費, 支出: $26
-日期: 2026-04-09, 項目: 菜，洋葱, 支出: $48
-日期: 2026-04-10, 項目: 紅豆, 支出: $38
-日期: 2026-04-11, 項目: , 支出: $3
-總支出: $115`
+日期: 2026-04-08, 項目: 菜，洋葱, 支出: $48
+日期: 2026-04-08, 項目: 紅豆, 支出: $38
+日期: 2026-04-09, 項目: 燒賣, 支出: $26
+日期: 2026-04-09, 項目: 芋圓, 支出: $50
+日期: 2026-04-10, 項目: 餐巾紙, 支出: $100
+日期: 2026-04-10, 項目: 糯米粉, 支出: $83
+日期: 2026-04-10, 項目: 糖, 支出: $170
+日期: 2026-04-10, 項目: 油, 支出: $165
+總支出: $706`
     : `你是餐廳收據辨識助手。分析收據圖片，提取每項品名和價格。
 
 要求：
@@ -1257,8 +1263,8 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3) {
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const controller = new AbortController();
-    // 第一次嘗試用 90 秒，重試用 120 秒（給更多時間）
-    const timeoutMs = attempt === 1 ? 90000 : 120000;
+    // 每次嘗試都用 120 秒（手寫模式需要更多時間解析多筆）
+    const timeoutMs = 120000;
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
@@ -1282,7 +1288,7 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3) {
               ]
             }
           ],
-          max_tokens: 512,
+          max_tokens: isHandwritten ? 768 : 512,
           temperature: 0.1,
         }),
       });
