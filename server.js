@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 import multer from 'multer';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -25,6 +26,20 @@ const supabaseAdmin = createClient(
   process.env.VITE_SUPABASE_URL || '',
   process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 );
+
+// =========== 健康檢查 + 保活端點 ===========
+/**
+ * Render 免費版 15 分鐘無訪問會休眠。
+ * 此端點用來被外部定時任務（如 cron-job.org）每 5 分鐘呼叫一次，保持服務甦醒。
+ */
+app.get('/api/health', (req, res) => {
+  res.json({
+    success: true,
+    status: 'alive',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // =========== 後端權限驗證中間件 ===========
 
@@ -1640,7 +1655,234 @@ app.get('/api/attendance/today', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Backend server running on port ${PORT}`);
+// =========== 純 IP 打卡系統（無 QR Code）============
+
+/**
+ * 門店裝置上報公網 IP
+ * 放在店裡的裝置（舊手機/平板）每幾分鐘調用一次
+ */
+app.post('/api/attendance/store/update-ip', async (req, res) => {
+  try {
+    const { restaurant_id, device_id, manual_ip } = req.body;
+    if (!restaurant_id) {
+      return res.status(400).json({ success: false, message: '缺少 restaurant_id' });
+    }
+
+    // manual_ip 來自手動填寫，否則從請求中自動獲取
+    const publicIp = manual_ip
+      ? manual_ip.trim()
+      : (req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+        || req.socket.remoteAddress
+        || '0.0.0.0');
+
+    // 紀錄資料來源
+    const source = manual_ip ? 'manual' : 'auto';
+
+    const { error } = await supabaseAdmin
+      .from('store_wifi_ip')
+      .upsert([{
+        restaurant_id,
+        public_ip: publicIp,
+        device_id: device_id || (manual_ip ? 'manual' : 'kiosk'),
+        last_update: new Date().toISOString(),
+      }], {
+        onConflict: 'restaurant_id',
+        ignoreDuplicates: false,
+      });
+
+    if (error) throw error;
+
+    res.json({ success: true, data: { public_ip: publicIp, source, last_update: new Date().toISOString() } });
+  } catch (error) {
+    console.error('[StoreIP] 更新 IP 失敗:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * 獲取門店當前存儲的 IP
+ */
+app.get('/api/attendance/store/ip', async (req, res) => {
+  try {
+    const { restaurant_id } = req.query;
+    if (!restaurant_id) {
+      return res.status(400).json({ success: false, message: '缺少 restaurant_id' });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('store_wifi_ip')
+      .select('public_ip, last_update, device_id')
+      .eq('restaurant_id', restaurant_id)
+      .order('last_update', { ascending: false })
+      .limit(1);
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ success: false, message: '門店 IP 尚未設定，請先讓打卡機上線' });
+    }
+
+    res.json({ success: true, data: data[0] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * 員工端：純 IP 打卡（無 QR Code）
+ * 員工連上門店 WiFi 後，直接在手機打開頁面點擊按鈕打卡
+ * 後端比對員工 IP 是否與門店 IP 相同
+ */
+app.post('/api/attendance/wifi-clock', async (req, res) => {
+  try {
+    const { employee_id, clock_type, restaurant_id } = req.body;
+    if (!employee_id || !clock_type || !restaurant_id) {
+      return res.status(400).json({ success: false, message: '缺少必要參數（employee_id、clock_type、restaurant_id）' });
+    }
+
+    // 獲取員工的 IP
+    const employeeIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+      || req.socket.remoteAddress
+      || '0.0.0.0';
+
+    // 查詢門店最新存儲的 IP
+    const { data: storeIps, error: ipError } = await supabaseAdmin
+      .from('store_wifi_ip')
+      .select('public_ip')
+      .eq('restaurant_id', restaurant_id)
+      .order('last_update', { ascending: false })
+      .limit(1);
+
+    if (ipError) throw ipError;
+
+    if (!storeIps || storeIps.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: '門店打卡機尚未上線，請稍後再試或使用 QR Code 打卡',
+      });
+    }
+
+    const storeIp = storeIps[0].public_ip;
+
+    // IP 比對
+    if (employeeIp !== storeIp) {
+      return res.status(403).json({
+        success: false,
+        message: '打卡失敗：您不在門店 WiFi 網絡中。請確保已連上門店 WiFi 後重試',
+        debug: { employeeIp, storeIp }
+      });
+    }
+
+    // 取得員工資料
+    const { data: employee } = await supabaseAdmin
+      .from('employees')
+      .select('name')
+      .eq('id', employee_id)
+      .single();
+
+    const today = new Date().toISOString().split('T')[0];
+    const timeStr = new Date().toLocaleTimeString('zh-HK', { hour12: false, hour: '2-digit', minute: '2-digit' });
+
+    if (clock_type === 'in') {
+      // 檢查是否已上班打卡
+      const { data: existing } = await supabaseAdmin
+        .from('attendance')
+        .select('id')
+        .eq('employee_id', employee_id)
+        .eq('date', today)
+        .not('clock_in', 'is', null)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        return res.status(400).json({ success: false, message: '今日已上班打卡，請點擊下班打卡' });
+      }
+
+      const { data: record, error: insertError } = await supabaseAdmin
+        .from('attendance')
+        .insert([{
+          employee_id,
+          restaurant_id,
+          date: today,
+          clock_in: timeStr,
+          clock_in_ip: employeeIp,
+          verification_method: 'ip',
+        }])
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
+
+      // 審計日誌
+      await supabaseAdmin
+        .from('attendance_audit_logs')
+        .insert([{
+          attendance_id: record.id,
+          employee_id,
+          action: 'clock_in',
+          ip_address: employeeIp,
+          device_info: { method: 'ip', store_ip: storeIp },
+          verification_result: { method: 'ip', passed: true }
+        }]).catch(() => {});
+
+      res.json({ success: true, message: `${employee?.name || ''} 上班打卡成功！`, data: { clock_in: timeStr, method: 'ip' } });
+    } else if (clock_type === 'out') {
+      // 查找今日上班記錄
+      const { data: todayRecord } = await supabaseAdmin
+        .from('attendance')
+        .select('*')
+        .eq('employee_id', employee_id)
+        .eq('date', today)
+        .not('clock_in', 'is', null)
+        .is('clock_out', null)
+        .order('clock_in', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!todayRecord) {
+        return res.status(400).json({ success: false, message: '未找到今日上班記錄，請先上班打卡' });
+      }
+
+      // 計算工時
+      const [inH, inM] = (todayRecord.clock_in || '00:00').split(':').map(Number);
+      const [outH, outM] = timeStr.split(':').map(Number);
+      const workHours = Math.max(0, Math.round(((outH * 60 + outM) - (inH * 60 + inM)) / 60 * 100) / 100);
+
+      const { error: updateError } = await supabaseAdmin
+        .from('attendance')
+        .update({
+          clock_out: timeStr,
+          work_hours: workHours,
+          clock_out_ip: employeeIp,
+        })
+        .eq('id', todayRecord.id);
+
+      if (updateError) throw updateError;
+
+      // 審計日誌
+      await supabaseAdmin
+        .from('attendance_audit_logs')
+        .insert([{
+          attendance_id: todayRecord.id,
+          employee_id,
+          action: 'clock_out',
+          ip_address: employeeIp,
+          device_info: { method: 'ip', store_ip: storeIp },
+          verification_result: { method: 'ip', passed: true }
+        }]).catch(() => {});
+
+      res.json({ success: true, message: `${employee?.name || ''} 下班打卡成功！工作 ${workHours} 小時`, data: { clock_out: timeStr, work_hours: workHours } });
+    } else {
+      res.status(400).json({ success: false, message: 'clock_type 必須為 in 或 out' });
+    }
+  } catch (error) {
+    console.error('[WiFiClock] 打卡失敗:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ ULTRA POS 服務器啟動成功，端口: ${PORT}`);
+  console.log(`   🔗 健康檢查: http://localhost:${PORT}/api/health`);
+  console.log(`   ⏰ 保活機制: 請使用 cron-job.org 每 5 分鐘 ping /api/health`);
 });
 
