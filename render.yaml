@@ -17,6 +17,4 @@ services:
       - key: VITE_NVIDIA_NIM_API_KEY
         sync: false
       - key: VITE_NVIDIA_NIM_MODEL
-        value: qwen/qwen3.5-122b-a10b
-      - key: PORT
-        value: 10000
+        value: meta/llama-3.2-11b-vision-instruct
