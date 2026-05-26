@@ -16,7 +16,8 @@ import {
   Clock,
   CalendarDays,
   DollarSign,
-  Store
+  Store,
+  Smartphone
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 import { useRestaurant } from '@/hooks/useSupabaseData'
@@ -37,6 +38,7 @@ const menuItems: MenuItem[] = [
   { path: '/inventory', label: '貨物表', icon: Package, permission: 'inventory.view' },
   { path: '/orders', label: '訂貨管理', icon: Receipt, permission: 'order.view' },
   { path: '/attendance', label: '打卡系統', icon: Clock, permission: 'attendance.view' },
+  { path: '/attendance-device', label: '打卡裝置', icon: Smartphone, permission: 'attendance.view' },
   { path: '/schedules', label: '排班管理', icon: CalendarDays, permission: 'schedule.view' },
   { path: '/payroll', label: '員工與薪酬', icon: Users, permission: 'payroll.view' },
   { path: '/expenses', label: '門店支出', icon: Calculator, permission: 'expense.view' },

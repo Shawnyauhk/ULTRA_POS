@@ -3,12 +3,13 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Clock, Loader2, Shield, Fingerprint, Key, MapPin, FileText, Inbox } from 'lucide-react'
+import { Clock, Loader2, Shield, Fingerprint, Key, MapPin, FileText, Inbox, ScanLine, Smartphone, Wifi } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 import { useAttendance } from '@/hooks/useSupabaseData'
 import { supabase } from '@/lib/supabase'
 import type { Employee } from '@/types'
 import { SecureClockIn } from '@/components/attendance/SecureClockIn'
+import { QRCodeScanner } from '@/components/attendance/QRCodeScanner'
 import { CorrectionRequest } from '@/components/attendance/CorrectionRequest'
 import { CorrectionReview } from '@/components/attendance/CorrectionReview'
 
@@ -17,6 +18,7 @@ export function AttendancePage() {
   const { attendance, loading, refetch, addAttendance, updateAttendance, getTodayAttendance } = useAttendance()
   const [todayAttendance, setTodayAttendance] = useState<any[]>([])
   const [showSecureClockIn, setShowSecureClockIn] = useState(false)
+  const [showQRClock, setShowQRClock] = useState(false)
   const [showCorrection, setShowCorrection] = useState(false)
   const [showReview, setShowReview] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
@@ -46,13 +48,14 @@ export function AttendancePage() {
   // 验证方式徽章
   const getVerificationBadge = (method: string | undefined) => {
     if (!method || method === 'manual') return null
+    const badges: Record<string, { icon: React.ReactNode; label: string }> = {
+      'webauthn': { icon: <Fingerprint className="h-3 w-3" />, label: '指紋' },
+      'qrcode+ip': { icon: <ScanLine className="h-3 w-3" />, label: 'QR碼' },
+    };
+    const b = badges[method] || { icon: <Key className="h-3 w-3" />, label: method };
     return (
       <span className="inline-flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
-        {method === 'webauthn' ? (
-          <><Fingerprint className="h-3 w-3" /> 指紋</>
-        ) : (
-          <><Key className="h-3 w-3" /> PIN</>
-        )}
+        {b.icon} {b.label}
       </span>
     )
   }
@@ -65,35 +68,66 @@ export function AttendancePage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* ====== 左栏：安全打卡 + 我的状态 ====== */}
+        {/* ====== 左栏 ====== */}
         <div className="space-y-4">
-          {showSecureClockIn ? (
-            <SecureClockIn onClockSuccess={() => refreshToday()} />
+          {showQRClock ? (
+            <QRCodeScanner onSuccess={() => { setShowQRClock(false); refreshToday(); }} />
+          ) : showSecureClockIn ? (
+            <SecureClockIn onClockSuccess={() => { setShowSecureClockIn(false); refreshToday(); }} />
           ) : (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Shield className="h-5 w-5 text-green-600" />
-                  安全打卡
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="text-center space-y-4">
-                <div className="text-sm text-gray-600 space-y-2">
-                  <p className="flex items-center justify-center gap-2">
-                    <MapPin className="h-4 w-4 text-blue-500" />
-                    GPS 位置验证（店铺200公尺内）
-                  </p>
-                  <p className="flex items-center justify-center gap-2">
-                    <Fingerprint className="h-4 w-4 text-green-500" />
-                    指纹 / Face ID 验证（本人）
-                  </p>
-                </div>
-                <Button onClick={() => setShowSecureClockIn(true)} size="lg" className="w-full">
-                  <Shield className="h-5 w-5 mr-2" />
-                  我要打卡
-                </Button>
-              </CardContent>
-            </Card>
+            <>
+              {/* QR Code 打卡 */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ScanLine className="h-5 w-5 text-blue-600" />
+                    QR Code 打卡
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="text-center space-y-3">
+                  <div className="text-sm text-gray-600 space-y-2">
+                    <p className="flex items-center justify-center gap-2">
+                      <Smartphone className="h-4 w-4 text-blue-500" />
+                      掃描店內打卡機的 QR Code（IP 驗證）
+                    </p>
+                    <p className="flex items-center justify-center gap-2">
+                      <Wifi className="h-4 w-4 text-green-500" />
+                      自動驗證是否在店鋪 WiFi 網絡
+                    </p>
+                  </div>
+                  <Button onClick={() => setShowQRClock(true)} size="lg" className="w-full">
+                    <ScanLine className="h-5 w-5 mr-2" />
+                    掃碼打卡
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* GPS+指紋打卡 */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Shield className="h-5 w-5 text-green-600" />
+                    安全打卡（備用）
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="text-center space-y-3">
+                  <div className="text-sm text-gray-600 space-y-2">
+                    <p className="flex items-center justify-center gap-2">
+                      <MapPin className="h-4 w-4 text-blue-500" />
+                      GPS 位置验证
+                    </p>
+                    <p className="flex items-center justify-center gap-2">
+                      <Fingerprint className="h-4 w-4 text-green-500" />
+                      指纹 / Face ID 验证
+                    </p>
+                  </div>
+                  <Button onClick={() => setShowSecureClockIn(true)} variant="outline" size="lg" className="w-full">
+                    <Shield className="h-5 w-5 mr-2" />
+                    備用打卡
+                  </Button>
+                </CardContent>
+              </Card>
+            </>
           )}
 
           {/* 我的打卡状态 */}
@@ -256,6 +290,10 @@ export function AttendancePage() {
                         {record.clock_in_latitude ? (
                           <span className="inline-flex items-center gap-1 text-xs text-green-600">
                             <MapPin className="h-3 w-3" /> 已驗證
+                          </span>
+                        ) : record.clock_in_ip ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                            <Wifi className="h-3 w-3" /> IP
                           </span>
                         ) : '-'}
                       </TableCell>

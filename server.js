@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { readFileSync, existsSync } from 'fs';
 import { spawnSync } from 'child_process';
 import { createClient } from '@supabase/supabase-js';
+import QRCode from 'qrcode';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -1398,6 +1399,248 @@ app.post('/api/ocr/receipt', async (req, res) => {
   }
 });
 
+// =========== 打卡系統 API（動態 QR Code + IP 驗證）============
+
+/**
+ * 公司手機端：生成動態 QR Code Token
+ * 每10秒調用一次，返回 token 和 QR Code Base64 圖片
+ */
+app.post('/api/attendance/device/generate-qrcode', async (req, res) => {
+  try {
+    const { restaurant_id, device_id } = req.body;
+    if (!restaurant_id) {
+      return res.status(400).json({ success: false, message: '缺少 restaurant_id' });
+    }
+
+    // 清理過期 token
+    await supabaseAdmin
+      .from('attendance_qrcode_tokens')
+      .delete()
+      .lt('expires_at', new Date().toISOString());
+
+    const token = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 10000).toISOString(); // 10秒過期
+
+    // 獲取公司手機的 IP
+    const deviceIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+      || req.socket.remoteAddress
+      || '0.0.0.0';
+
+    const { error } = await supabaseAdmin
+      .from('attendance_qrcode_tokens')
+      .insert([{
+        restaurant_id,
+        token,
+        device_id: device_id || 'kiosk',
+        device_ip: deviceIp,
+        expires_at: expiresAt,
+      }]);
+
+    if (error) throw error;
+
+    // 生成 QR Code 圖片（Base64 PNG）
+    // QR Code 內容：系統網址 + token，員工掃碼後自動發送打卡請求
+    const qrContent = `${process.env.APP_URL || 'https://ultra-pos.onrender.com'}/attendance?qrcode=${token}`;
+    const qrDataUrl = await QRCode.toDataURL(qrContent, {
+      width: 300,
+      margin: 2,
+      color: { dark: '#1a1a2e', light: '#ffffff' },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        token,
+        qr_data_url: qrDataUrl,
+        qr_content: qrContent,
+        expires_at: expiresAt,
+        device_ip: deviceIp,
+      }
+    });
+  } catch (error) {
+    console.error('[QRCode] 生成失敗:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * 員工端：打卡（上班/下班）
+ * 驗證 QR Code 有效性 + IP 是否與公司手機相同
+ */
+app.post('/api/attendance/clock', async (req, res) => {
+  try {
+    const { token, employee_id, clock_type, restaurant_id } = req.body;
+    if (!token || !employee_id || !clock_type || !restaurant_id) {
+      return res.status(400).json({ success: false, message: '缺少必要參數（token、employee_id、clock_type、restaurant_id）' });
+    }
+
+    // 驗證 token 是否有效
+    const { data: tokens, error: tokenError } = await supabaseAdmin
+      .from('attendance_qrcode_tokens')
+      .select('*')
+      .eq('token', token)
+      .eq('restaurant_id', restaurant_id)
+      .gt('expires_at', new Date().toISOString())
+      .eq('used', false)
+      .limit(1);
+
+    if (tokenError) throw tokenError;
+    if (!tokens || tokens.length === 0) {
+      return res.status(403).json({ success: false, message: 'QR Code 已過期或無效，請重新掃描' });
+    }
+
+    const qrRecord = tokens[0];
+
+    // 驗證 IP 是否與公司手機相同
+    const employeeIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+      || req.socket.remoteAddress
+      || '0.0.0.0';
+
+    const deviceIp = qrRecord.device_ip;
+    if (employeeIp !== deviceIp) {
+      return res.status(403).json({
+        success: false,
+        message: '打卡失敗：您不在店鋪網絡中。請確保已連上店鋪 WiFi',
+        debug: { employeeIp, deviceIp }
+      });
+    }
+
+    // 標記 token 為已使用
+    await supabaseAdmin
+      .from('attendance_qrcode_tokens')
+      .update({ used: true })
+      .eq('id', qrRecord.id);
+
+    const today = new Date().toISOString().split('T')[0];
+    const timeStr = new Date().toLocaleTimeString('zh-HK', { hour12: false, hour: '2-digit', minute: '2-digit' });
+
+    // 取得員工資料
+    const { data: employee } = await supabaseAdmin
+      .from('employees')
+      .select('name')
+      .eq('id', employee_id)
+      .single();
+
+    if (clock_type === 'in') {
+      // 檢查今日是否已打卡
+      const { data: existing } = await supabaseAdmin
+        .from('attendance')
+        .select('id')
+        .eq('employee_id', employee_id)
+        .eq('date', today)
+        .not('clock_in', 'is', null)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        return res.status(400).json({ success: false, message: '今日已上班打卡，請點擊下班打卡' });
+      }
+
+      const { data: record, error: insertError } = await supabaseAdmin
+        .from('attendance')
+        .insert([{
+          employee_id,
+          restaurant_id,
+          date: today,
+          clock_in: timeStr,
+          clock_in_ip: employeeIp,
+          verification_method: 'qrcode+ip',
+        }])
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
+
+      // 記錄審計日誌
+      await supabaseAdmin
+        .from('attendance_audit_logs')
+        .insert([{
+          attendance_id: record.id,
+          employee_id,
+          action: 'clock_in',
+          ip_address: employeeIp,
+          device_info: { method: 'qrcode+ip', token_id: qrRecord.id, device_ip: deviceIp },
+          verification_result: { method: 'qrcode+ip', passed: true }
+        }]).catch(() => {});
+
+      res.json({ success: true, message: `${employee?.name || ''} 上班打卡成功！`, data: { clock_in: timeStr, method: 'qrcode+ip' } });
+    } else if (clock_type === 'out') {
+      // 查找今日上班記錄
+      const { data: todayRecord } = await supabaseAdmin
+        .from('attendance')
+        .select('*')
+        .eq('employee_id', employee_id)
+        .eq('date', today)
+        .not('clock_in', 'is', null)
+        .is('clock_out', null)
+        .order('clock_in', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!todayRecord) {
+        return res.status(400).json({ success: false, message: '未找到今日上班記錄，請先上班打卡' });
+      }
+
+      // 計算工時
+      const [inH, inM] = (todayRecord.clock_in || '00:00').split(':').map(Number);
+      const [outH, outM] = timeStr.split(':').map(Number);
+      const workHours = Math.max(0, Math.round(((outH * 60 + outM) - (inH * 60 + inM)) / 60 * 100) / 100);
+
+      const { error: updateError } = await supabaseAdmin
+        .from('attendance')
+        .update({
+          clock_out: timeStr,
+          work_hours: workHours,
+          clock_out_ip: employeeIp,
+        })
+        .eq('id', todayRecord.id);
+
+      if (updateError) throw updateError;
+
+      // 記錄審計日誌
+      await supabaseAdmin
+        .from('attendance_audit_logs')
+        .insert([{
+          attendance_id: todayRecord.id,
+          employee_id,
+          action: 'clock_out',
+          ip_address: employeeIp,
+          device_info: { method: 'qrcode+ip', token_id: qrRecord.id, device_ip: deviceIp },
+          verification_result: { method: 'qrcode+ip', passed: true }
+        }]).catch(() => {});
+
+      res.json({ success: true, message: `${employee?.name || ''} 下班打卡成功！工作 ${workHours} 小時`, data: { clock_out: timeStr, work_hours: workHours } });
+    } else {
+      res.status(400).json({ success: false, message: 'clock_type 必須為 in 或 out' });
+    }
+  } catch (error) {
+    console.error('[Attendance] 打卡失敗:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * 取得今日打卡記錄
+ */
+app.get('/api/attendance/today', async (req, res) => {
+  try {
+    const { restaurant_id } = req.query;
+    if (!restaurant_id) return res.status(400).json({ success: false, message: '缺少 restaurant_id' });
+
+    const today = new Date().toISOString().split('T')[0];
+    const { data, error } = await supabaseAdmin
+      .from('attendance')
+      .select('*, employee:employees(name, role)')
+      .eq('date', today)
+      .order('clock_in', { ascending: true });
+
+    if (error) throw error;
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);
 });
+

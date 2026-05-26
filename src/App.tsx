@@ -21,6 +21,7 @@ import ReviewGeneratorPage from '@/pages/ReviewGeneratorPage'
 import PermissionSettingsPage from '@/pages/PermissionSettingsPage'
 import { EmployeesPage } from '@/pages/EmployeesPage'
 import { AttendancePage } from '@/pages/AttendancePage'
+import AttendanceDevicePage from '@/pages/AttendanceDevicePage'
 import { SchedulesPage } from '@/pages/SchedulesPage'
 import ReportsPage from '@/pages/ReportsPage'
 import { useState, useEffect } from 'react'
@@ -162,6 +163,7 @@ export default function App() {
                 {renderProtectedRoute('/review-generator', <ReviewGeneratorPage />)}
                 {renderProtectedRoute('/permissions', <PermissionSettingsPage />)}
                 {renderProtectedRoute('/settings', <SettingsPage />)}
+                {renderProtectedRoute('/attendance-device', <AttendanceDevicePage />)}
               </Routes>
             </AppLayout>
           </ProtectedRoute>
