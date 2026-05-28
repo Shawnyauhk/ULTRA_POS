@@ -910,7 +910,7 @@ if (process.env.NODE_ENV === 'production' && existsSync(distPath)) {
   app.use(express.static(distPath));
 
   // SPA fallback：所有非 API 請求都返回 index.html
-  app.get('*', (req, res) => {
+  app.get('*splat', (req, res) => {
     if (!req.path.startsWith('/api')) {
       res.sendFile(resolve(distPath, 'index.html'));
     }
