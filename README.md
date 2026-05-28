@@ -1,3 +1,13 @@
+---
+title: Ultra POS
+emoji: 🏪
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+app_port: 7860
+---
+
 # ULTRA_POS - 餐廳後台管理系統
 
 適用於「家傳芋曉」糖水店的智能後台管理系統。
