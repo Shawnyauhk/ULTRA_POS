@@ -1,6 +1,6 @@
 // NVIDIA NIM API 测试脚本
 const NVIDIA_API_KEY = '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';
-const NVIDIA_MODEL = 'qwen/qwen3.5-122b-a10b';
+const NVIDIA_MODEL = 'meta/llama-3.2-11b-vision-instruct';
 const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
 async function testNVIDIAAPI() {

@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Clock, Loader2, Shield, Fingerprint, Key, MapPin, FileText, Inbox, ScanLine, Smartphone, Wifi } from 'lucide-react'
+import { WiFiClockIn } from '@/components/attendance/WiFiClockIn'
 import { useAuthStore } from '@/stores/auth'
 import { useAttendance } from '@/hooks/useSupabaseData'
 import { supabase } from '@/lib/supabase'
@@ -19,6 +20,7 @@ export function AttendancePage() {
   const [todayAttendance, setTodayAttendance] = useState<any[]>([])
   const [showSecureClockIn, setShowSecureClockIn] = useState(false)
   const [showQRClock, setShowQRClock] = useState(false)
+  const [showWiFiClock, setShowWiFiClock] = useState(false)
   const [showCorrection, setShowCorrection] = useState(false)
   const [showReview, setShowReview] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
@@ -51,6 +53,7 @@ export function AttendancePage() {
     const badges: Record<string, { icon: React.ReactNode; label: string }> = {
       'webauthn': { icon: <Fingerprint className="h-3 w-3" />, label: '指紋' },
       'qrcode+ip': { icon: <ScanLine className="h-3 w-3" />, label: 'QR碼' },
+      'ip': { icon: <Wifi className="h-3 w-3" />, label: 'WiFi' },
     };
     const b = badges[method] || { icon: <Key className="h-3 w-3" />, label: method };
     return (
@@ -74,9 +77,35 @@ export function AttendancePage() {
             <QRCodeScanner onSuccess={() => { setShowQRClock(false); refreshToday(); }} />
           ) : showSecureClockIn ? (
             <SecureClockIn onClockSuccess={() => { setShowSecureClockIn(false); refreshToday(); }} />
+          ) : showWiFiClock ? (
+            <WiFiClockIn onSuccess={() => { setShowWiFiClock(false); refreshToday(); }} />
           ) : (
             <>
-              {/* QR Code 打卡 */}
+              {/* WiFi 打卡（最簡便） */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Wifi className="h-5 w-5 text-green-600" />
+                    WiFi 打卡
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="text-center space-y-3">
+                  <div className="text-sm text-gray-600 space-y-2">
+                    <p className="flex items-center justify-center gap-2">
+                      <Wifi className="h-4 w-4 text-green-500" />
+                      連上門店 WiFi，一鍵打卡
+                    </p>
+                    <p className="flex items-center justify-center gap-2">
+                      <Clock className="h-4 w-4 text-blue-500" />
+                      無需掃碼，最快最簡單
+                    </p>
+                  </div>
+                  <Button onClick={() => setShowWiFiClock(true)} size="lg" className="w-full bg-green-600 hover:bg-green-700">
+                    <Wifi className="h-5 w-5 mr-2" />
+                    WiFi 打卡
+                  </Button>
+                </CardContent>
+              </Card>
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
