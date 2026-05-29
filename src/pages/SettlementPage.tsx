@@ -12,7 +12,7 @@ import { apiFetch } from '@/lib/supabase';
 import DateRangeFilter from '@/components/ui/DateRangeFilter';
 
 const initialSettlement = {
-  cash: '', octopus: '', foodpanda: '', alipay_hk: '', wechat_hk: '',
+  cash: '', octopus: '', foodpanda: '', payme: '', alipay_hk: '', wechat_hk: '',
   meituan_keeta: '', openrice: '',
   total_amount: '', actual_revenue: '', total_transactions: '',
 };
@@ -61,6 +61,7 @@ export default function SettlementPage() {
           cash: s.cash?.toString() || '',
           octopus: s.octopus?.toString() || '',
           foodpanda: s.foodpanda?.toString() || '',
+          payme: s.payme?.toString() || '',
           alipay_hk: s.alipay_hk?.toString() || '',
           wechat_hk: s.wechat_hk?.toString() || '',
           meituan_keeta: s.meituan_keeta?.toString() || '',
@@ -158,6 +159,7 @@ export default function SettlementPage() {
       cash: record.cash?.toString() || '',
       octopus: record.octopus?.toString() || '',
       foodpanda: record.foodpanda?.toString() || '',
+      payme: record.payme?.toString() || '',
       alipay_hk: record.alipay_hk?.toString() || '',
       wechat_hk: record.wechat_hk?.toString() || '',
       meituan_keeta: record.meituan_keeta?.toString() || '',
@@ -218,6 +220,7 @@ export default function SettlementPage() {
                   { key: 'cash', label: '現金支付', icon: '💰' },
                   { key: 'octopus', label: '八達通', icon: '💳' },
                   { key: 'foodpanda', label: 'Foodpanda', icon: '🛵' },
+                  { key: 'payme', label: 'Payme', icon: '💳' },
                   { key: 'alipay_hk', label: '支付寶香港', icon: '📱' },
                   { key: 'wechat_hk', label: 'WeChat 香港', icon: '💬' },
                   { key: 'meituan_keeta', label: '美團 KEETA', icon: '🛵' },
@@ -373,6 +376,7 @@ export default function SettlementPage() {
                   <div><span className="text-gray-500">現金：</span><span className="font-medium">${record.cash || 0}</span></div>
                   <div><span className="text-gray-500">八達通：</span><span className="font-medium">${record.octopus || 0}</span></div>
                   <div><span className="text-gray-500">Foodpanda：</span><span className="font-medium">${record.foodpanda || 0}</span></div>
+                  <div><span className="text-gray-500">Payme：</span><span className="font-medium">${record.payme || 0}</span></div>
                   <div><span className="text-gray-500">支付寶香港：</span><span className="font-medium">${record.alipay_hk || 0}</span></div>
                   <div><span className="text-gray-500">WeChat 香港：</span><span className="font-medium">${record.wechat_hk || 0}</span></div>
                   <div><span className="text-gray-500">美團 KEETA：</span><span className="font-medium">${record.meituan_keeta || 0}</span></div>

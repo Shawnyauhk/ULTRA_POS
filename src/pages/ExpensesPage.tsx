@@ -144,7 +144,12 @@ export default function ExpensesPage() {
   const [ocrHandwrittenEntries, setOcrHandwrittenEntries] = useState<FormExpense[]>([]);
   const [editingEntryIndex, setEditingEntryIndex] = useState(-1);
   const [expandedEntryIndex, setExpandedEntryIndex] = useState<number | null>(null);
-  const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    return new Set([`year:${y}`, `month:${y}-${m}`]);
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [newExpense, setNewExpense] = useState<FormExpense>({
@@ -919,36 +924,36 @@ export default function ExpensesPage() {
                   </div>
 
                   {expenseTree.groups.map(yg => {
-                    const yCollapsed = collapsedNodes.has(yg.yearKey);
+                    const yExpanded = expandedNodes.has(yg.yearKey);
                     return (
                       <div key={yg.yearKey}>
                         {/* 年份層 */}
                         <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors"
-                             onClick={() => { const n = new Set(collapsedNodes); if (n.has(yg.yearKey)) n.delete(yg.yearKey); else n.add(yg.yearKey); setCollapsedNodes(n); }}>
-                          {yCollapsed ? <ChevronRight className="w-4 h-4 text-blue-600" /> : <ChevronDown className="w-4 h-4 text-blue-600" />}
+                             onClick={() => { const n = new Set(expandedNodes); if (n.has(yg.yearKey)) n.delete(yg.yearKey); else n.add(yg.yearKey); setExpandedNodes(n); }}>
+                          {yExpanded ? <ChevronDown className="w-4 h-4 text-blue-600" /> : <ChevronRight className="w-4 h-4 text-blue-600" />}
                           <span className="font-semibold text-blue-800">{yg.year} 年</span>
                           <Badge variant="secondary" className="ml-1 text-xs">{yg.yEntries.length} 筆</Badge>
                           <span className="ml-auto font-medium text-blue-700">${yg.yTotal.toLocaleString()}</span>
                         </div>
 
-                        {!yCollapsed && (
+                        {yExpanded && (
                           <div className="ml-4 mt-1 space-y-1">
                             {yg.months.map(mg => {
-                              const mCollapsed = collapsedNodes.has(mg.monthKey);
+                              const mExpanded = expandedNodes.has(mg.monthKey);
                               const mParts = mg.month.split('-');
                               const mLabel = mParts.length === 2 ? `${parseInt(mParts[1])}月` : mg.month;
                               return (
                                 <div key={mg.monthKey}>
                                   {/* 月份層 */}
                                   <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors"
-                                       onClick={() => { const n = new Set(collapsedNodes); if (n.has(mg.monthKey)) n.delete(mg.monthKey); else n.add(mg.monthKey); setCollapsedNodes(n); }}>
-                                    {mCollapsed ? <ChevronRight className="w-3.5 h-3.5 text-gray-500" /> : <ChevronDown className="w-3.5 h-3.5 text-gray-500" />}
+                                       onClick={() => { const n = new Set(expandedNodes); if (n.has(mg.monthKey)) n.delete(mg.monthKey); else n.add(mg.monthKey); setExpandedNodes(n); }}>
+                                    {mExpanded ? <ChevronDown className="w-3.5 h-3.5 text-gray-500" /> : <ChevronRight className="w-3.5 h-3.5 text-gray-500" />}
                                     <span className="font-medium text-gray-700">{mLabel}</span>
                                     <Badge variant="outline" className="text-xs">{mg.mEntries.length} 筆</Badge>
                                     <span className="ml-auto text-sm text-gray-600">${mg.mTotal.toLocaleString()}</span>
                                   </div>
 
-                                  {!mCollapsed && (
+                                  {mExpanded && (
                                     <div className="ml-4 mt-1 space-y-1">
                                       {mg.days.map(dg => {
                                         const dParts = dg.day.split('-');

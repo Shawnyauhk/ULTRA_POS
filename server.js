@@ -6,7 +6,7 @@ import multer from 'multer';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readFileSync, existsSync } from 'fs';
-import { spawnSync } from 'child_process';
+import { spawnSync, spawn } from 'child_process';
 import { createClient } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
 
@@ -341,6 +341,74 @@ app.post('/api/whatsapp/test-send', async (req, res) => {
   } catch (error) {
     console.error('❌ WhatsApp 測試發送失敗:', error.message);
     res.json({ success: false, message: error.message });
+  }
+});
+
+// WhatsApp 認證（掃碼登入）
+const wacliPath = process.env.WACLI_PATH || 'wacli';
+
+app.post('/api/whatsapp/auth-qr', async (req, res) => {
+  try {
+    const statusResult = spawnSync(wacliPath, ['auth', 'status', '--json'], { encoding: 'utf-8', timeout: 10000 });
+    if (statusResult.status === 0) {
+      try {
+        const status = JSON.parse(statusResult.stdout);
+        if (status.success && status.data?.authenticated) {
+          return res.json({ success: true, authenticated: true, message: '已認證，無需重新掃碼' });
+        }
+      } catch {}
+    }
+
+    const authProcess = spawn(wacliPath, ['auth', '--events', '--json', '--timeout', '120s'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 125000,
+    });
+
+    let qrCode = '';
+
+    authProcess.stderr?.on('data', (data) => {
+      const lines = data.toString().split('\n').filter(Boolean);
+      for (const line of lines) {
+        try {
+          const evt = JSON.parse(line);
+          if (evt.event === 'qr_code' && evt.data?.code) {
+            qrCode = evt.data.code;
+          }
+        } catch {}
+      }
+    });
+
+    let elapsed = 0;
+    while (elapsed < 20000 && !qrCode) {
+      await new Promise(r => setTimeout(r, 300));
+      elapsed += 300;
+    }
+
+    if (!qrCode) {
+      authProcess.kill();
+      return res.json({ success: false, message: '無法取得 QR code，請確認 wacli 已正確安裝' });
+    }
+
+    // WhatsApp 配對 QR URL 格式
+    const qrUrl = `https://web.whatsapp.com/?code=${qrCode}`;
+    const qrPng = await QRCode.toDataURL(qrUrl, { width: 300, margin: 2 });
+    res.json({ success: true, authenticated: false, qrImage: qrPng });
+  } catch (error) {
+    console.error('❌ WhatsApp 認證失敗:', error.message);
+    res.json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/whatsapp/auth-status', async (req, res) => {
+  try {
+    const result = spawnSync(wacliPath, ['auth', 'status', '--json'], { encoding: 'utf-8', timeout: 10000 });
+    if (result.status !== 0) {
+      return res.json({ success: false, authenticated: false, message: '無法檢查認證狀態' });
+    }
+    const status = JSON.parse(result.stdout);
+    res.json({ success: true, authenticated: !!(status.success && status.data?.authenticated) });
+  } catch (error) {
+    res.json({ success: false, authenticated: false, message: error.message });
   }
 });
 
@@ -1239,6 +1307,7 @@ app.post('/api/settlements/sync', requirePermission('expense.manage'), async (re
     const paymentFields = {};
     const codeFieldMap = {
       cash: 'cash', octopus: 'octopus', foodpanda: 'foodpanda',
+      payme: 'payme',
       alipay_hk: 'alipay_hk', wechat_hk: 'wechat_hk',
       meituan_keeta: 'meituan_keeta', openrice: 'openrice',
       booking_deposit: 'booking_deposit', visit_card: 'visit_card',

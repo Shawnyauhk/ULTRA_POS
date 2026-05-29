@@ -617,12 +617,12 @@ class PospalCrawler {
 
   /**
    * 從「门店销售汇总」頁面提取（ZhengZhong/BusinessSummary）
-   * 表格結構：
-   *   0=區域, 1=門店名
-   *   2=銷售(span: "销售：10047.13") / 储值卡充值
-   *   3=現金支付, 4=銀聯支付, 5=儲值卡支付
-   *   6=八達通, 7=Foodpanda, 8=支付寶香港
-   *   9=Wechat香港, 10=美團KEETA, 11=Openrice
+   *
+   * POSPAL 的表格欄位是動態的——沒有資料的支付方式不會顯示欄位，
+   * 因此不能使用固定欄位索引，改為：
+   * 1. 讀取 thead 中的欄位標題
+   * 2. 用 PAYMENT_MAP 動態對應支付方式
+   * 3. 從對應的 td 取值
    */
   private async extractBusinessSummary(dateStr: string): Promise<CrawlResult> {
     if (!this.page) throw new Error('頁面未初始化');
@@ -638,47 +638,75 @@ class PospalCrawler {
       );
     }
 
-    // 使用 page.evaluate 提取數據（注意：內部不可有任何 TypeScript 類型標註）
+    // 動態提取：讀取標題行 → 對應支付方式 → 讀取數值
     const tableData = await this.page.evaluate(() => {
       const r = {};
-      const tbls = document.querySelectorAll('table');
-      for (let ti = 0; ti < tbls.length; ti++) {
-        const tb = tbls[ti];
-        const bd = tb.querySelector('tbody');
-        if (!bd) continue;
-        const rs = bd.querySelectorAll('tr');
-        if (rs.length === 0) continue;
-        let dr = null;
-        for (let ri = 0; ri < rs.length; ri++) {
-          const cl = rs[ri].querySelectorAll('td');
-          if (cl.length >= 10) {
-            const c0 = (cl[0].textContent || '').trim();
-            const c1 = (cl[1].textContent || '').trim();
-            if (c0 === '总计' || c0 === '總計') continue;
-            if (c1 && c1 !== '-') { dr = rs[ri]; break; }
-          }
+
+      // 找到 #mainTable
+      const table = document.querySelector('table#mainTable');
+      if (!table) return r;
+
+      const thead = table.querySelector('thead');
+      if (!thead) return r;
+      const headerRow = thead.querySelector('tr');
+      if (!headerRow) return r;
+      const headerCells = headerRow.querySelectorAll('th');
+
+      const tbody = table.querySelector('tbody');
+      if (!tbody) return r;
+      const rows = tbody.querySelectorAll('tr');
+      if (rows.length === 0) return r;
+
+      // 找到第一個有效資料行（跳過「儲值卡充值」行和「總計」行）
+      let dataRow: Element | null = null;
+      for (let ri = 0; ri < rows.length; ri++) {
+        const cells = rows[ri].querySelectorAll('td');
+        if (cells.length < 3) continue;
+        const c0 = (cells[0].textContent || '').trim();
+        const c2text = (cells[2] ? cells[2].textContent || '' : '').trim();
+        // 跳過儲值卡充值和總計行
+        if (c2text.includes('儲值卡充值') || c2text.includes('储值卡充值')) continue;
+        if (c0 === '总计' || c0 === '總計') continue;
+        // 門店名必須有效
+        const c1 = (cells[1] ? cells[1].textContent || '' : '').trim();
+        if (c1 && c1 !== '-') {
+          dataRow = rows[ri];
+          break;
         }
-        if (!dr) continue;
-        const cs = dr.querySelectorAll('td');
-        r['店名'] = (cs[1].textContent || '').trim();
-        const idxList = [
-          [2, '销售合计'], [3, '现金支付'], [4, '银联支付'],
-          [5, '储值卡支付'], [6, '八達通'], [7, 'Foodpanda'],
-          [8, '支付寶香港'], [9, 'Wechat香港'], [10, '美團KEETA'],
-          [11, 'Openrice'],
-        ];
-        for (let fi = 0; fi < idxList.length; fi++) {
-          const colIdx = idxList[fi][0];
-          const colKey = idxList[fi][1];
-          if (cs[colIdx]) {
-            const sp = cs[colIdx].querySelector('span');
-            let v = sp ? (sp.textContent || '').trim() : '0';
-            v = v.replace(/^[^0-9.\-]+/, '') || '0';
-            r[colKey] = v;
-          }
-        }
-        return r;
       }
+      if (!dataRow) return r;
+
+      const dataCells = dataRow.querySelectorAll('td');
+
+      // 標題行第 2 欄（col 2）通常為空，但存放銷售/儲值卡
+      // 後面才是支付方式欄位
+      if (dataCells[2]) {
+        const sp = dataCells[2].querySelector('span');
+        let v = sp ? (sp.textContent || '').trim() : (dataCells[2].textContent || '').trim();
+        v = v.replace(/^[^0-9.\-]+/, '') || '0';
+        r['销售合计'] = v;
+      }
+
+      // 門店名
+      if (dataCells[1]) {
+        r['店名'] = (dataCells[1].textContent || '').trim();
+      }
+
+      // 從 col 3 開始，動態對應標題行 → 支付方式
+      // col 0=区域, col 1=门店, col 2=销售/储值卡
+      for (let ci = 3; ci < headerCells.length && ci < dataCells.length; ci++) {
+        const headerText = (headerCells[ci].textContent || '').trim();
+        if (!headerText) continue;
+
+        const sp = dataCells[ci].querySelector('span');
+        let rawVal = sp ? (sp.textContent || '').trim() : (dataCells[ci].textContent || '').trim();
+        const numVal = rawVal.replace(/^[^0-9.\-]+/, '') || '0';
+
+        // 用 PAYMENT_MAP 查找對應的支付方式代碼
+        // 如果 headerText 不在 PAYMENT_MAP 中，用 headerText 作為 key 讓 mapPaymentName 處理
+        r[headerText] = numVal;
+      }
+
       return r;
     });
 

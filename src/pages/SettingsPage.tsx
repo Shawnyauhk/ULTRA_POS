@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSettings } from '@/hooks/useSupabaseData';
 import { usePermission } from '@/hooks/usePermission';
 import { useAuthStore } from '@/stores/auth';
 import { apiFetch } from '@/lib/supabase';
-import { Loader2, MapPin, Crosshair, Wifi, WifiOff, CheckCircle2, AlertCircle, Globe, MessageSquare, Send, Smartphone } from 'lucide-react';
+import { Loader2, MapPin, Crosshair, Wifi, WifiOff, CheckCircle2, AlertCircle, Globe, MessageSquare, Send, Smartphone, QrCode, Scan } from 'lucide-react';
 
 export default function SettingsPage() {
   const { can } = usePermission();
@@ -32,6 +32,13 @@ export default function SettingsPage() {
   const [whatsappAdmin, setWhatsappAdmin] = useState('');
   const [testSending, setTestSending] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  // WhatsApp 認證狀態
+  const [wacliAuthState, setWacliAuthState] = useState<'unknown' | 'loading' | 'done'>('unknown');
+  const [wacliQrImage, setWacliQrImage] = useState<string | null>(null);
+  const [wacliAuthing, setWacliAuthing] = useState(false);
+  const [wacliAuthMessage, setWacliAuthMessage] = useState('');
+  const [senderDisabled, setSenderDisabled] = useState(true);
+  const authPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Load settings from Supabase
   useEffect(() => {
@@ -150,6 +157,55 @@ export default function SettingsPage() {
       setTestSending(false);
     }
   };
+
+  // 掃碼登入 WhatsApp
+  const handleAuthWhatsApp = async () => {
+    setWacliAuthing(true);
+    setWacliQrImage(null);
+    setWacliAuthMessage('正在獲取 QR Code...');
+    try {
+      const res = await apiFetch('/api/whatsapp/auth-qr', { method: 'POST' });
+      const json = await res.json();
+      if (json.success && json.authenticated) {
+        setWacliAuthState('done');
+        setSenderDisabled(false);
+        setWacliAuthMessage('✅ 已認證，可以設定發送號碼');
+      } else if (json.qrImage) {
+        setWacliQrImage(json.qrImage);
+        setWacliAuthState('loading');
+        setWacliAuthMessage('📱 請用 WhatsApp 掃描 QR Code');
+
+        // 開始輪詢認證狀態
+        authPollRef.current = setInterval(async () => {
+          try {
+            const stRes = await apiFetch('/api/whatsapp/auth-status');
+            const stJson = await stRes.json();
+            if (stJson.authenticated) {
+              setWacliAuthState('done');
+              setSenderDisabled(false);
+              setWacliQrImage(null);
+              setWacliAuthMessage('✅ 認證成功！可設定發送號碼');
+              if (authPollRef.current) clearInterval(authPollRef.current);
+              authPollRef.current = null;
+            }
+          } catch {}
+        }, 2000);
+      } else {
+        setWacliAuthMessage('❌ ' + (json.message || '獲取 QR Code 失敗'));
+      }
+    } catch (e: any) {
+      setWacliAuthMessage('❌ 網絡錯誤: ' + e.message);
+    } finally {
+      setWacliAuthing(false);
+    }
+  };
+
+  // 清除輪詢
+  useEffect(() => {
+    return () => {
+      if (authPollRef.current) clearInterval(authPollRef.current);
+    };
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -349,24 +405,83 @@ export default function SettingsPage() {
             <MessageSquare className="w-5 h-5 text-green-500" /> WhatsApp 通知設定
           </h2>
           <p className="text-sm text-gray-500 mb-4">
-            設定訂貨通知的發送號碼和接收號碼。員工提交訂貨請求時，系統會自動用發送號碼將通知發送到接收號碼。
+            設定訂貨通知的發送號碼和接收號碼。修改發送號碼前請先掃碼登入 WhatsApp。
           </p>
           <div className="space-y-4">
+            {/* 掃碼登入區塊 */}
+            <div className={`p-4 rounded-lg border ${wacliAuthState === 'done' ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium flex items-center gap-1.5">
+                  <QrCode className={`w-4 h-4 ${wacliAuthState === 'done' ? 'text-green-600' : 'text-blue-500'}`} />
+                  發送號碼 WhatsApp 認證
+                </span>
+                {wacliAuthState === 'done' ? (
+                  <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded-full font-medium">✅ 已認證</span>
+                ) : (
+                  <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full font-medium">未認證</span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mb-3">修改發送號碼前，請先用店舖 WhatsApp 掃碼登入</p>
+
+              {/* QR Code 顯示 */}
+              {wacliQrImage && (
+                <div className="flex flex-col items-center mb-3">
+                  <div className="bg-white p-3 rounded-lg shadow-sm border">
+                    <img src={wacliQrImage} alt="WhatsApp QR Code" className="w-48 h-48" />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">請打開 WhatsApp → 三點選單 → 連結裝置 → 掃描此 QR Code</p>
+                </div>
+              )}
+
+              {/* 狀態訊息 */}
+              {wacliAuthMessage && (
+                <p className={`text-xs mb-2 ${wacliAuthMessage.includes('✅') ? 'text-green-700' : wacliAuthMessage.includes('❌') ? 'text-red-600' : 'text-blue-600'}`}>
+                  {wacliAuthMessage}
+                </p>
+              )}
+
+              <button
+                onClick={handleAuthWhatsApp}
+                disabled={wacliAuthing || wacliAuthState === 'done'}
+                className={`w-full py-2 px-4 rounded-md text-sm font-medium border transition-colors disabled:opacity-50 flex items-center justify-center gap-2
+                  ${wacliAuthState === 'done'
+                    ? 'bg-green-100 text-green-700 border-green-300'
+                    : 'bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100'}`}
+              >
+                {wacliAuthing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : wacliAuthState === 'done' ? (
+                  <CheckCircle2 className="w-4 h-4" />
+                ) : (
+                  <Scan className="w-4 h-4" />
+                )}
+                {wacliAuthing ? '取得 QR Code 中...' : wacliAuthState === 'done' ? '已認證' : '掃碼登入 WhatsApp'}
+              </button>
+            </div>
+
+            {/* 發送號碼（需先認證） */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 <Smartphone className="w-4 h-4 inline mr-1 text-blue-500" />
                 發送號碼（店舖 WhatsApp）
               </label>
-              <input
-                type="text"
-                value={whatsappSender}
-                onChange={(e) => setWhatsappSender(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono"
-                placeholder="+85298765432"
-                disabled={saving}
-              />
-              <p className="text-xs text-gray-400 mt-1">用哪個 WhatsApp 帳號發送通知</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={whatsappSender}
+                  onChange={(e) => setWhatsappSender(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md font-mono"
+                  placeholder="+85298765432"
+                  disabled={senderDisabled || saving}
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                {senderDisabled
+                  ? '🔒 請先掃碼登入 WhatsApp 以啟用此欄位'
+                  : '用哪個 WhatsApp 帳號發送通知'}
+              </p>
             </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 <Smartphone className="w-4 h-4 inline mr-1 text-orange-500" />

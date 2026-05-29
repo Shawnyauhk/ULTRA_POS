@@ -69,6 +69,8 @@ export const PAYMENT_MAP: Record<string, string> = {
   '预付卡支付': 'prepaid_card',
   '八達通': 'octopus',
   'Foodpanda': 'foodpanda',
+  'Payme': 'payme',
+  'PayMe': 'payme',
   '支付寶香港': 'alipay_hk',
   '支付寶': 'alipay_hk',
   'WeChat 香港': 'wechat_hk',
