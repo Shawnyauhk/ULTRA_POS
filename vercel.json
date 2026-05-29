@@ -1,0 +1,18 @@
+{
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.js" },
+    { "source": "/", "destination": "/index.html" }
+  ],
+  "functions": {
+    "api/index.js": {
+      "runtime": "nodejs18.x",
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
+  "env": {
+    "VITE_SUPABASE_URL": "<YOUR_SUPABASE_URL>",
+    "SUPABASE_SERVICE_ROLE_KEY": "<YOUR_SERVICE_ROLE_KEY>",
+    "GOOGLE_APPLICATION_CREDENTIALS": "<BASE64_JSON_KEY>"
+  }
+}

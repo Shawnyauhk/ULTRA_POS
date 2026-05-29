@@ -41,6 +41,11 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Root route for quick health check (used by deployment platforms)
+app.get('/', (req, res) => {
+  res.json({ success: true, message: 'ULTRA POS server is running' });
+});
+
 // =========== 後端權限驗證中間件 ===========
 
 /**
@@ -235,14 +240,46 @@ app.post('/api/admin/batch-create-employees', requirePermission('employee.manage
 });
 
 // =========== WhatsApp 訂貨通知 (wacli) ===========
+
+/**
+ * 從 Supabase settings 或 .env 讀取 WhatsApp 號碼
+ */
+async function getWhatsAppSettings(restaurantId) {
+  let sender = process.env.WHATSAPP_SENDER || '';
+  let admin = process.env.ADMIN_WHATSAPP || '';
+
+  if (restaurantId) {
+    try {
+      const { data } = await supabaseAdmin
+        .from('settings')
+        .select('setting_key, setting_value')
+        .eq('restaurant_id', restaurantId)
+        .in('setting_key', ['whatsapp_sender', 'whatsapp_admin']);
+
+      if (data) {
+        const senderRow = data.find(s => s.setting_key === 'whatsapp_sender');
+        const adminRow = data.find(s => s.setting_key === 'whatsapp_admin');
+        if (senderRow?.setting_value) sender = senderRow.setting_value;
+        if (adminRow?.setting_value) admin = adminRow.setting_value;
+      }
+    } catch (err) {
+      console.warn('⚠️ 無法從 Supabase 讀取 WhatsApp 設定，使用 .env 備用:', err.message);
+    }
+  }
+
+  return { sender, admin };
+}
+
 app.post('/api/whatsapp/notify-order', async (req, res) => {
   try {
-    const { employeeName, items } = req.body;
-    const adminPhone = process.env.ADMIN_WHATSAPP;
+    const { employeeName, items, restaurant_id } = req.body;
+
+    // 從 Supabase settings 或 .env 讀取號碼
+    const { sender, admin } = await getWhatsAppSettings(restaurant_id);
     const wacliPath = process.env.WACLI_PATH || 'wacli';
 
-    if (!adminPhone) {
-      return res.json({ success: false, message: '未設定管理員 WhatsApp 號碼' });
+    if (!admin) {
+      return res.json({ success: false, message: '未設定管理員 WhatsApp 號碼，請在設定頁面配置' });
     }
 
     // 組裝訊息
@@ -252,16 +289,57 @@ app.post('/api/whatsapp/notify-order', async (req, res) => {
     // 限制訊息長度
     const truncatedMsg = message.length > 1000 ? message.slice(0, 997) + '...' : message;
 
-    const result = spawnSync(wacliPath, [
-      'send', 'text',
-      '--to', adminPhone,
-      '--message', truncatedMsg
-    ], { encoding: 'utf-8', timeout: 20000 });
+    // 如果設定了 sender (店舖號碼)，使用 --from 參數
+    const wacliArgs = ['send', 'text', '--to', admin, '--message', truncatedMsg];
+    if (sender) {
+      wacliArgs.splice(1, 0, '--from', sender);
+    }
+
+    const result = spawnSync(wacliPath, wacliArgs, { encoding: 'utf-8', timeout: 20000 });
+
+    if (result.status !== 0) {
+      console.error('❌ WhatsApp 發送失敗:', result.stderr || result.stdout);
+      return res.json({ success: false, message: '發送失敗: ' + (result.stderr || result.stdout || '未知錯誤') });
+    }
 
     console.log('✅ WhatsApp 通知發送成功');
-    res.json({ success: true });
+    res.json({ success: true, message: '通知已發送' });
   } catch (error) {
     console.error('❌ WhatsApp 發送失敗:', error.message);
+    res.json({ success: false, message: error.message });
+  }
+});
+
+// 測試 WhatsApp 發送
+app.post('/api/whatsapp/test-send', async (req, res) => {
+  try {
+    const { restaurant_id, sender, admin } = req.body;
+
+    if (!admin) {
+      return res.json({ success: false, message: '請先填寫接收號碼' });
+    }
+
+    const wacliPath = process.env.WACLI_PATH || 'wacli';
+
+    const message = '🧪 ULTRA POS WhatsApp 通知測試\n\n如果你收到這條訊息，表示 WhatsApp 通知設定正確！';
+
+    const wacliArgs = ['send', 'text', '--to', admin, '--message', message];
+    if (sender) {
+      wacliArgs.splice(1, 0, '--from', sender);
+    }
+
+    const result = spawnSync(wacliPath, wacliArgs, { encoding: 'utf-8', timeout: 20000 });
+
+    if (result.status !== 0) {
+      const errMsg = result.stderr || result.stdout || '未知錯誤';
+      console.error('❌ WhatsApp 測試發送失敗:', errMsg);
+      return res.json({ success: false, message: '發送失敗: ' + errMsg });
+    }
+
+    console.log('✅ WhatsApp 測試發送成功');
+    res.json({ success: true, message: '測試訊息已發送到 ' + admin });
+  } catch (error) {
+    console.error('❌ WhatsApp 測試發送失敗:', error.message);
     res.json({ success: false, message: error.message });
   }
 });
@@ -917,7 +995,7 @@ if (process.env.NODE_ENV === 'production' && existsSync(distPath)) {
   });
 }
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 8080;
 
 // =========== 商家註冊 API（SaaS 多租戶） ===========
 app.post('/api/register', async (req, res) => {

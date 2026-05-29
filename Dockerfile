@@ -15,7 +15,7 @@ COPY . .
 RUN npm run build
 
 # 暴露端口
-EXPOSE 3001
+EXPOSE 8080
 
 # 啟動服務
 CMD ["node", "server.js"]

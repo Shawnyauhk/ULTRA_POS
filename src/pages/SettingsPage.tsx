@@ -3,7 +3,7 @@ import { useSettings } from '@/hooks/useSupabaseData';
 import { usePermission } from '@/hooks/usePermission';
 import { useAuthStore } from '@/stores/auth';
 import { apiFetch } from '@/lib/supabase';
-import { Loader2, MapPin, Crosshair, Wifi, WifiOff, CheckCircle2, AlertCircle, Globe } from 'lucide-react';
+import { Loader2, MapPin, Crosshair, Wifi, WifiOff, CheckCircle2, AlertCircle, Globe, MessageSquare, Send, Smartphone } from 'lucide-react';
 
 export default function SettingsPage() {
   const { can } = usePermission();
@@ -27,6 +27,12 @@ export default function SettingsPage() {
   const [savingIp, setSavingIp] = useState(false);
   const [ipStatus, setIpStatus] = useState('');
 
+  // WhatsApp 設定
+  const [whatsappSender, setWhatsappSender] = useState('');
+  const [whatsappAdmin, setWhatsappAdmin] = useState('');
+  const [testSending, setTestSending] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
   // Load settings from Supabase
   useEffect(() => {
     if (!loading) {
@@ -43,6 +49,9 @@ export default function SettingsPage() {
           setStoreLng(String(loc.lng));
         } catch {}
       }
+      // 載入 WhatsApp 設定
+      setWhatsappSender(getSetting('whatsapp_sender', ''));
+      setWhatsappAdmin(getSetting('whatsapp_admin', ''));
     }
   }, [loading, settings]);
 
@@ -116,6 +125,32 @@ export default function SettingsPage() {
     }
   };
 
+  // 測試 WhatsApp 發送
+  const handleTestWhatsApp = async () => {
+    if (!whatsappSender || !whatsappAdmin) {
+      setTestResult({ success: false, message: '請先填寫發送號碼和接收號碼' });
+      return;
+    }
+    setTestSending(true);
+    setTestResult(null);
+    try {
+      const res = await apiFetch('/api/whatsapp/test-send', {
+        method: 'POST',
+        body: JSON.stringify({
+          restaurant_id: user?.restaurant_id,
+          sender: whatsappSender,
+          admin: whatsappAdmin,
+        }),
+      });
+      const json = await res.json();
+      setTestResult(json);
+    } catch (e: any) {
+      setTestResult({ success: false, message: e.message || '網絡錯誤' });
+    } finally {
+      setTestSending(false);
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -123,6 +158,9 @@ export default function SettingsPage() {
       await updateSetting('pospal_app_key', appKey);
       await updateSetting('ocr_model', ocrModel);
       await updateSetting('ocr_api_key', ocrApiKey);
+      // 儲存 WhatsApp 設定
+      await updateSetting('whatsapp_sender', whatsappSender);
+      await updateSetting('whatsapp_admin', whatsappAdmin);
       // 儲存店舖位置
       if (storeLat && storeLng) {
         await updateSetting('store_location', JSON.stringify({
@@ -302,6 +340,98 @@ export default function SettingsPage() {
               <p>• 如果 IP 有更新，系統會自動使用最新的記錄</p>
               <p>• 不知道公網 IP？可以打開 <a href="https://api.ipify.org" target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">api.ipify.org</a> 查看</p>
             </div>
+          </div>
+        </div>
+
+        {/* WhatsApp 通知設定 */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <h2 className="text-lg font-semibold mb-4 text-gray-800 flex items-center gap-2">
+            <MessageSquare className="w-5 h-5 text-green-500" /> WhatsApp 通知設定
+          </h2>
+          <p className="text-sm text-gray-500 mb-4">
+            設定訂貨通知的發送號碼和接收號碼。員工提交訂貨請求時，系統會自動用發送號碼將通知發送到接收號碼。
+          </p>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                <Smartphone className="w-4 h-4 inline mr-1 text-blue-500" />
+                發送號碼（店舖 WhatsApp）
+              </label>
+              <input
+                type="text"
+                value={whatsappSender}
+                onChange={(e) => setWhatsappSender(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono"
+                placeholder="+85298765432"
+                disabled={saving}
+              />
+              <p className="text-xs text-gray-400 mt-1">用哪個 WhatsApp 帳號發送通知</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                <Smartphone className="w-4 h-4 inline mr-1 text-orange-500" />
+                接收號碼（管理員 WhatsApp）
+              </label>
+              <input
+                type="text"
+                value={whatsappAdmin}
+                onChange={(e) => setWhatsappAdmin(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono"
+                placeholder="+85291234567"
+                disabled={saving}
+              />
+              <p className="text-xs text-gray-400 mt-1">通知發送到哪個號碼</p>
+            </div>
+
+            {/* 通知預覽 */}
+            {whatsappSender && whatsappAdmin && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm">
+                <p className="font-medium text-green-800 mb-2">📱 通知預覽</p>
+                <div className="space-y-1 text-green-700">
+                  <p className="flex items-center gap-2">
+                    <span className="text-xs bg-green-200 px-1.5 py-0.5 rounded">發送</span>
+                    <span className="font-mono">{whatsappSender}</span>
+                  </p>
+                  <p className="flex items-center gap-2">
+                    <span className="text-xs bg-orange-200 px-1.5 py-0.5 rounded">接收</span>
+                    <span className="font-mono">{whatsappAdmin}</span>
+                  </p>
+                  <div className="mt-2 pt-2 border-t border-green-200">
+                    <p className="text-xs text-green-600">🔔 新訂貨通知</p>
+                    <p className="text-xs text-green-600">員工：XXX</p>
+                    <p className="text-xs text-green-600">項目：貨物A × 3</p>
+                    <p className="text-xs text-green-600">請登入系統處理。</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 測試發送按鈕 */}
+            <button
+              onClick={handleTestWhatsApp}
+              disabled={testSending || !whatsappSender || !whatsappAdmin}
+              className="w-full py-2 px-4 border border-green-300 rounded-md text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {testSending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+              {testSending ? '發送中...' : '測試發送 WhatsApp 通知'}
+            </button>
+
+            {testResult && (
+              <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${
+                testResult.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'
+              }`}>
+                {testResult.success ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                )}
+                {testResult.message}
+              </div>
+            )}
           </div>
         </div>
 

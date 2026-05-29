@@ -277,11 +277,12 @@ export function OrderRequestsPage() {
 
       // 發送 WhatsApp 通知給管理員（不阻塞主流程）
       const empName = user?.name || '系統用戶';
-      fetch('http://localhost:3001/api/whatsapp/notify-order', {
+      fetch('/api/whatsapp/notify-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           employeeName: empName,
+          restaurant_id: getRestaurantId(),
           items: selectedItems.map(s => ({
             name: s.inventory.name,
             quantity: s.quantity
