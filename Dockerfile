@@ -3,10 +3,10 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# 安裝系統依賴（curl 用於下載 wacli）
+# 安裝系統依賴
 RUN apk add --no-cache curl ca-certificates
 
-# 下載並安裝 wacli（從 GitHub releases）
+# 下載並安裝 wacli
 RUN curl -fsSLo /tmp/wacli.tar.gz https://github.com/openclaw/wacli/releases/download/v0.11.0/wacli_0.11.0_linux_amd64.tar.gz \
   && tar xzf /tmp/wacli.tar.gz -C /usr/local/bin \
   && chmod +x /usr/local/bin/wacli \
@@ -20,6 +20,12 @@ RUN npm install
 
 # 複製源碼
 COPY . .
+
+# ===== 在建置時注入 VITE 環境變數（Render Dashboard 會提供）=====
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 
 # 構建前端
 RUN npm run build
