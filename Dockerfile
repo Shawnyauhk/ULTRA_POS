@@ -6,7 +6,10 @@ WORKDIR /app
 RUN apk add --no-cache curl ca-certificates
 
 # 下載並安裝 wacli（從 GitHub releases）
-RUN curl -fsSL https://github.com/openclaw/wacli/releases/latest/download/wacli_Linux_x86_64.tar.gz | tar xz -C /usr/local/bin && chmod +x /usr/local/bin/wacli
+RUN curl -fsSLo /tmp/wacli.tar.gz https://github.com/openclaw/wacli/releases/download/v0.11.0/wacli_0.11.0_linux_amd64.tar.gz \
+  && tar xzf /tmp/wacli.tar.gz -C /usr/local/bin \
+  && chmod +x /usr/local/bin/wacli \
+  && rm /tmp/wacli.tar.gz
 
 # 複製依賴文件
 COPY package.json package-lock.json ./
