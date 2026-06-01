@@ -1057,10 +1057,9 @@ if (process.env.NODE_ENV === 'production' && existsSync(distPath)) {
   app.use(express.static(distPath));
 
   // SPA fallback：所有非 API 請求都返回 index.html（包括根路徑）
-  app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api')) {
-      res.sendFile(resolve(distPath, 'index.html'));
-    }
+  // Express 5.x + path-to-regexp v8：用正則表達式匹配所有路徑
+  app.get(/^(?!\/api).*/, (req, res) => {
+    res.sendFile(resolve(distPath, 'index.html'));
   });
 }
 
