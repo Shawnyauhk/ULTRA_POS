@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+
 import { Upload, Users, FileText, CheckCircle, Loader2, Download, Plus, Pencil, Trash2 } from 'lucide-react';
 import { useEmployees, FALLBACK_RESTAURANT_ID } from '@/hooks/useSupabaseData';
 import { usePermission } from '@/hooks/usePermission';
@@ -56,8 +56,9 @@ export default function PayrollPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   // Employee CRUD state
-  const [showEmployeeModal, setShowEmployeeModal] = useState(false);
-  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+const [showEmployeeModal, setShowEmployeeModal] = useState(false);
+const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null);
   const [empForm, setEmpForm] = useState({
     name: '', phone: '', email: '', role: 'staff' as Employee['role'],
     payType: 'hourly' as 'hourly' | 'monthly',
@@ -308,79 +309,103 @@ export default function PayrollPage() {
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">員工與薪酬</h1>
           <p className="text-sm text-muted-foreground">員工資料管理與智能薪酬結算</p>
         </div>
-        <div className="flex gap-2 bg-gray-100 p-1 rounded-lg self-start md:self-auto">
-          <Button variant={activeTab === 'employees' ? 'default' : 'ghost'} onClick={() => setActiveTab('employees')}>
-            <Users className="w-4 h-4 mr-2" />員工資料
-          </Button>
-          <Button variant={activeTab === 'payroll' ? 'default' : 'ghost'} onClick={() => setActiveTab('payroll')}>
-            <FileText className="w-4 h-4 mr-2" />薪酬結算
-          </Button>
+        <div className="flex flex-wrap gap-2 self-start md:self-auto">
+          <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+            <Button variant={activeTab === 'employees' ? 'default' : 'ghost'} onClick={() => setActiveTab('employees')}
+              className="text-xs md:text-sm px-2 md:px-3">
+              <Users className="w-4 h-4 mr-1" />員工資料
+            </Button>
+            <Button variant={activeTab === 'payroll' ? 'default' : 'ghost'} onClick={() => setActiveTab('payroll')}
+              className="text-xs md:text-sm px-2 md:px-3">
+              <FileText className="w-4 h-4 mr-1" />薪酬結算
+            </Button>
+          </div>
+          {activeTab === 'employees' && can('payroll.manage') && (
+            <Button onClick={openAddEmployee} size="sm" className="text-xs md:text-sm">
+              <Plus className="w-4 h-4 mr-1" />新增員工
+            </Button>
+          )}
         </div>
       </div>
 
       {activeTab === 'employees' ? (
         /* ==================== 員工資料管理 ==================== */
-        <div className="space-y-6 animate-in fade-in">
-          <div className="flex justify-end">
-            {can('payroll.manage') && (
-              <Button onClick={openAddEmployee}>
-                <Plus className="h-4 w-4 mr-2" />新增員工
-              </Button>
-            )}
-          </div>
-
-          <Card>
-            <CardContent className="p-0">
-              {loading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : employees.length === 0 ? (
-                <div className="text-center py-12 text-gray-400">
-                  <Users className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                  <p>暫無員工資料，請點擊上方新增員工</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>姓名</TableHead>
-                      <TableHead>聯絡</TableHead>
-                      <TableHead>職位</TableHead>
-                      <TableHead>薪資</TableHead>
-                      <TableHead>入職</TableHead>
-                      <TableHead>狀態</TableHead>
-                      <TableHead className="text-right">操作</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {employees.map(emp => (
-                      <TableRow key={emp.id}>
-                        <TableCell className="font-medium">{emp.name}</TableCell>
-                        <TableCell>
-                          <div className="text-sm">{emp.phone && <div>{emp.phone}</div>}{emp.email && <div className="text-gray-500">{emp.email}</div>}</div>
-                        </TableCell>
-                        <TableCell><Badge variant={emp.role === 'owner' ? 'default' : 'secondary'}>{roleLabels[emp.role]}</Badge></TableCell>
-                        <TableCell>{emp.monthly_salary ? `$${emp.monthly_salary.toLocaleString()}/月` : `$${emp.hourly_rate}/小時`}</TableCell>
-                        <TableCell>{emp.hire_date}</TableCell>
-                        <TableCell><Badge variant={emp.is_active ? 'success' : 'destructive'}>{emp.is_active ? '在職' : '離職'}</Badge></TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            {can('payroll.manage') && (
-                              <>
-                                <Button variant="ghost" size="icon" onClick={() => openEditEmployee(emp)}><Pencil className="h-4 w-4" /></Button>
-                                <Button variant="ghost" size="icon" onClick={() => handleDeleteEmployee(emp.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
-                              </>
-                            )}
+        <div className="space-y-4 animate-in fade-in">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : employees.length === 0 ? (
+            <div className="text-center py-12 text-gray-400">
+              <Users className="w-12 h-12 mx-auto mb-4 opacity-20" />
+              <p>暫無員工資料，請點擊上方新增員工</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {employees.map(emp => {
+                const isExpanded = expandedEmployee === emp.id;
+                return (
+                  <Card key={emp.id} className={`overflow-hidden ${isExpanded ? 'border-primary/30' : ''}`}>
+                    <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition-colors"
+                      onClick={() => setExpandedEmployee(isExpanded ? null : emp.id)}>
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm shrink-0">
+                          {emp.name.charAt(0)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-900 truncate">{emp.name}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <Badge variant={emp.role === 'owner' ? 'default' : 'secondary'} className="text-[10px] h-4 px-1.5">{roleLabels[emp.role]}</Badge>
+                            <Badge variant={emp.is_active ? 'success' : 'destructive'} className="text-[10px] h-4 px-1.5">{emp.is_active ? '在職' : '離職'}</Badge>
                           </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-xs text-gray-500 font-medium">
+                          {emp.monthly_salary ? `$${emp.monthly_salary.toLocaleString()}/月` : `$${emp.hourly_rate}/小時`}
+                        </span>
+                        {can('payroll.manage') && (
+                          <Button variant="ghost" size="icon" className="h-7 w-7"
+                            onClick={(e) => { e.stopPropagation(); openEditEmployee(emp); }}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    {/* 展開詳情 */}
+                    {isExpanded && (
+                      <div className="px-3 pb-3 pt-0 space-y-2 text-sm">
+                        <div className="border-t pt-2 space-y-1.5">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">電話</span>
+                            <span>{emp.phone || '—'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">電郵</span>
+                            <span>{emp.email || '—'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">入職日期</span>
+                            <span>{emp.hire_date || '—'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">薪資</span>
+                            <span className="font-medium">{emp.monthly_salary ? `$${emp.monthly_salary.toLocaleString()}/月` : `$${emp.hourly_rate}/小時`}</span>
+                          </div>
+                        </div>
+                        {can('payroll.manage') && (
+                          <Button variant="outline" size="sm" className="w-full text-red-500 border-red-200 hover:bg-red-50"
+                            onClick={() => handleDeleteEmployee(emp.id)}>
+                            <Trash2 className="h-3.5 w-3.5 mr-1" />刪除員工
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </Card>
+                );
+              })}
+            </div>
+          )}
 
           {/* 新增/編輯員工 Modal */}
           {showEmployeeModal && (

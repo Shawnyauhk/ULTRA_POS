@@ -49,6 +49,7 @@ export function OrderRequestsPage() {
   const [editDate, setEditDate] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [completedExpanded, setCompletedExpanded] = useState(false);
+const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
 
   // 簽收 Modal state
   const [showSignModal, setShowSignModal] = useState(false);
@@ -397,7 +398,48 @@ export function OrderRequestsPage() {
     return `${date.getMonth() + 1}/${date.getDate()}`;
   };
 
-  // =========== 渲染 Kanban 欄 ===========
+  // =========== 展開的訂單詳情 ===========
+  const DetailContent = ({ order }: { order: OrderRequest }) => {
+    const items = order.items || [];
+    return (
+      <CardContent className="p-3 pt-2 border-t bg-gray-50 space-y-2">
+        {items.length > 0 && (
+          <div className="space-y-1 text-sm">
+            {items.map((item: any) => (
+              <div key={item.id} className="flex items-center justify-between">
+                <span className="text-gray-700">{item.inventory?.name || '未知貨物'}</span>
+                <span className="font-medium">×{item.requested_quantity}{item.inventory?.unit || ''}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-col text-xs text-gray-400 space-y-0.5 pt-1">
+          <div className="flex items-center gap-1">
+            <span className="w-8 text-right shrink-0">申請</span>
+            <span>{formatDate(order.created_at)}</span>
+            <span className="text-gray-500 ml-1">{order.employee?.name || '未知'}</span>
+          </div>
+          {order.ordered_at && (
+            <div className="flex items-center gap-1">
+              <span className="w-8 text-right shrink-0">訂貨</span>
+              <span>{formatDate(order.ordered_at)}</span>
+            </div>
+          )}
+          {order.received_at && (
+            <div className="flex items-center gap-1">
+              <span className="w-8 text-right shrink-0">送達</span>
+              <span>{formatDate(order.received_at)}</span>
+            </div>
+          )}
+        </div>
+        {isOverdue(order.created_at, order.status) && (
+          <p className="text-[10px] text-red-500 pt-1">已逾期 3 天以上</p>
+        )}
+      </CardContent>
+    );
+  };
+
+  // =========== 渲染三個直立區塊 ===========
   const renderColumn = (
     title: string,
     colType: ColumnType,
@@ -405,116 +447,68 @@ export function OrderRequestsPage() {
     bgColor: string,
   ) => {
     const columnOrders = orderRequests.filter(o => getOrderColumn(o) === colType);
-    // 只有 'request' 和 'pending' 的 drop 目標需要拖曳功能
-    const isDraggableColumn = colType === 'request' || colType === 'pending' || colType === 'received';
-    
     return (
-      <div 
-        className={`flex-1 flex flex-col min-h-[500px] rounded-xl p-4 transition-colors ${bgColor}`}
-        onDragOver={isDraggableColumn ? handleDragOver : undefined}
-        onDrop={isDraggableColumn ? (e) => {
-          if (colType === 'request') handleDrop(e, 'pending');
-          else if (colType === 'pending') handleDrop(e, 'ordered');
-          else if (colType === 'received') handleDrop(e, 'received');
-        } : undefined}
-      >
-        <div className="flex items-center justify-between mb-4 px-2">
-          <h2 className="font-bold text-lg flex items-center gap-2">{icon} {title}</h2>
-          <Badge variant="secondary">{columnOrders.length}</Badge>
+      <div className={`rounded-xl p-4 transition-colors ${bgColor}`}>
+        <div className="flex items-center justify-between mb-3 px-1">
+          <h2 className="font-semibold text-base flex items-center gap-2">{icon} {title}</h2>
+          <Badge variant="secondary" className="text-xs">{columnOrders.length}</Badge>
         </div>
-        <div className="flex-1 space-y-3">
+        <div className="space-y-2">
           {loading ? (
-            <div className="flex items-center justify-center h-32">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
             </div>
           ) : columnOrders.length > 0 ? (
             columnOrders.map(order => {
-              const overdue = isOverdue(order.created_at, order.status);
               const items = order.items || [];
-              const isReceivedColumn = colType === 'received';
-              const qtyInfo = items.length > 0
-                ? `×${items[0].requested_quantity} ${items[0].inventory?.unit || ''}`
-                : '';
+              const firstItem = items[0];
+              const isExpanded = expandedOrder === order.id;
               return (
-                <Card
-                  key={order.id}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, order)}
-                  className={`${isReceivedColumn ? '' : 'cursor-move'} hover:shadow-md transition-shadow ${isReceivedColumn ? '' : 'active:cursor-grabbing'} ${updating === order.id ? 'opacity-50' : ''} ${overdue ? 'border-red-500 border-2 bg-red-50' : ''}`}
-                >
-                  <CardContent className="p-3">
-                    {/* 第一行：名稱 + 數量(放大) + 編輯 */}
-                    <div className="flex items-start justify-between gap-2">
-                      <p className={`font-medium text-sm leading-tight truncate flex-1 ${overdue ? 'text-red-600' : 'text-gray-800'}`}>
-                        {order.notes || '無備註'}
-                      </p>
-                      <div className="flex items-center gap-1 shrink-0">
-                        {qtyInfo && (
-                          <span className="text-sm font-semibold text-gray-700 whitespace-nowrap">{qtyInfo}</span>
-                        )}
-                        {can('order.approve') && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5 -mr-1"
-                            onClick={() => handleEditRequest(order)}
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </Button>
+                <Card key={order.id} className={`overflow-hidden ${isExpanded ? 'border-primary/30' : ''}`}>
+                  {/* 卡片標題（可點擊展開） */}
+                  <div
+                    className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition-colors"
+                    onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <ChevronRight className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-gray-800 truncate">
+                          {order.employee?.name || '未知員工'}
+                        </p>
+                        {firstItem && (
+                          <p className="text-xs text-gray-500 truncate">
+                            {firstItem.inventory?.name || '未知貨物'} × {firstItem.requested_quantity}{firstItem.inventory?.unit || ''}
+                          </p>
                         )}
                       </div>
                     </div>
-
-                    {/* 第二行～N行：各狀態日期分行顯示（對齊） */}
-                    <div className="flex items-start justify-between mt-1.5">
-                      <div className="flex flex-col text-xs text-gray-400 min-w-0">
-                        {/* 日期行統一縮排對齊 */}
-                        <div className="flex items-center gap-1">
-                          <span className="w-8 text-right shrink-0">申請</span>
-                          <span>{formatDate(order.created_at)}</span>
-                          <span className="text-gray-500 ml-2 text-xs">{order.employee?.name || '未知'}</span>
-                        </div>
-                        {order.ordered_at && (
-                          <div className="flex items-center gap-1">
-                            <span className="w-8 text-right shrink-0">訂貨</span>
-                            <span>{formatDate(order.ordered_at)}</span>
-                          </div>
-                        )}
-                        {order.received_at && (
-                          <div className="flex items-center gap-1">
-                            <span className="w-8 text-right shrink-0">送達</span>
-                            <span>{formatDate(order.received_at)}</span>
-                          </div>
-                        )}
-                      </div>
-                      <Badge variant={overdue ? 'destructive' : 'outline'} className="text-[10px] h-4 px-1.5">
-                        {getStatusLabel(order.status)}
-                      </Badge>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs text-gray-400">{formatDate(order.created_at).slice(5)}</span>
+                      {colType === 'received' && (
+                        <Button size="sm" variant="default"
+                          className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white px-2"
+                          onClick={(e) => { e.stopPropagation(); handleOpenSignModal(order); }}
+                        >
+                          簽收
+                        </Button>
+                      )}
+                      {can('order.approve') && (
+                        <Button variant="ghost" size="icon" className="h-7 w-7"
+                          onClick={(e) => { e.stopPropagation(); handleEditRequest(order); }}>
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      )}
                     </div>
-
-                    {overdue && (
-                      <p className="text-[10px] text-red-500 mt-1">已逾期 3 天以上</p>
-                    )}
-
-                    {/* 已送到欄：簽收按鈕 */}
-                    {isReceivedColumn && (
-                      <Button
-                        variant="default"
-                        size="sm"
-                        className="w-full mt-2 h-7 text-xs bg-green-600 hover:bg-green-700 text-white"
-                        onClick={() => handleOpenSignModal(order)}
-                      >
-                        <PackageCheck className="h-3 w-3 mr-1" />
-                        簽收
-                      </Button>
-                    )}
-                  </CardContent>
+                  </div>
+                  {/* 展開後的詳情 */}
+                  {isExpanded && <DetailContent order={order} />}
                 </Card>
               );
             })
           ) : (
-            <div className="h-full flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 rounded-lg">
-              拖曳至此處
+            <div className="text-center py-6 text-sm text-gray-400">
+              暫無訂單
             </div>
           )}
         </div>
@@ -610,7 +604,7 @@ export function OrderRequestsPage() {
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">訂貨管理</h1>
-          <p className="text-sm text-muted-foreground">拖曳卡片以更改訂貨請求狀態</p>
+          <p className="text-sm text-muted-foreground">點擊卡片檢視詳細內容</p>
         </div>
         {can('order.create') && (
           <Button onClick={() => setShowRequestModal(true)}>
@@ -620,8 +614,8 @@ export function OrderRequestsPage() {
         )}
       </div>
 
-      {/* Kanban 三欄 */}
-      <div className="flex gap-6 overflow-x-auto pb-4">
+      {/* 三個直立區塊：員工請求、待處理、已送到 */}
+      <div className="space-y-4">
         {renderColumn('員工請求 (Request)', 'request', <AlertCircle className="w-5 h-5 text-red-500"/>, 'bg-red-50')}
         {renderColumn('待處理 (Pending)', 'pending', <Clock className="w-5 h-5 text-yellow-500"/>, 'bg-yellow-50')}
         {renderColumn('已送到 (Received)', 'received', <PackageCheck className="w-5 h-5 text-green-500"/>, 'bg-green-50')}

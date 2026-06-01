@@ -579,9 +579,11 @@ export default function ExpensesPage() {
       {activeTab === 'expenses' ? (
         <div className="space-y-6 animate-in fade-in">
           <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => setShowOCR(!showOCR)}><Sparkles className="w-4 h-4 mr-2" /> AI 掃描收據</Button>
-            {can('expense.manage') && (
+            {!showOCR && can('expense.manage') && (
               <Button onClick={() => setShowAddForm(true)}><Receipt className="w-4 h-4 mr-2" /> 手動記帳</Button>
+            )}
+            {!showAddForm && (
+              <Button variant="outline" onClick={() => setShowOCR(!showOCR)}><Sparkles className="w-4 h-4 mr-2" /> AI 掃描收據</Button>
             )}
           </div>
 
@@ -589,7 +591,7 @@ export default function ExpensesPage() {
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <CardTitle>NVIDIA AI 智能識別</CardTitle>
+                  <CardTitle>智能識別</CardTitle>
                   <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg">
                     <button
                       onClick={() => { setOcrMode('receipt'); setOcrResult(null); setOcrHandwrittenEntries([]); setEditingEntryIndex(-1); setExpandedEntryIndex(null); }}
