@@ -8,6 +8,9 @@ COPY package.json package-lock.json ./
 # 安裝依賴
 RUN npm install
 
+# 安裝 wacli（WhatsApp CLI）
+RUN npm install -g wacli
+
 # 複製源碼
 COPY . .
 

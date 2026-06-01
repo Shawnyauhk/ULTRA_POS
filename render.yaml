@@ -1,10 +1,9 @@
 services:
   - type: web
     name: ultra-pos
-    env: node
+    env: docker
     plan: free
-    buildCommand: npm install && npm run build
-    startCommand: npm install -g wacli && node server.js
+    dockerfilePath: ./Dockerfile
     envVars:
       - key: NODE_ENV
         value: production
