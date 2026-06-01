@@ -303,12 +303,12 @@ export default function PayrollPage() {
   return (
     <div className="p-6 space-y-6">
       {/* 頁面標題 + Tab切換 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">員工與薪酬</h1>
-          <p className="text-muted-foreground">員工資料管理與智能薪酬結算</p>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">員工與薪酬</h1>
+          <p className="text-sm text-muted-foreground">員工資料管理與智能薪酬結算</p>
         </div>
-        <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
+        <div className="flex gap-2 bg-gray-100 p-1 rounded-lg self-start md:self-auto">
           <Button variant={activeTab === 'employees' ? 'default' : 'ghost'} onClick={() => setActiveTab('employees')}>
             <Users className="w-4 h-4 mr-2" />員工資料
           </Button>

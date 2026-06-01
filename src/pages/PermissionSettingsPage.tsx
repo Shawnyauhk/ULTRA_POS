@@ -169,9 +169,9 @@ export default function PermissionSettingsPage() {
   return (
     <div className="max-w-5xl mx-auto">
       {/* 頁面標題 */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">權限設定</h1>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">權限設定</h1>
           <p className="text-sm text-gray-500 mt-1">
             自訂主管與員工角色可以使用的功能，只有店主可以修改
           </p>

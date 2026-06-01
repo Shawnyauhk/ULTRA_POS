@@ -607,10 +607,10 @@ export function OrderRequestsPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">訂貨管理</h1>
-          <p className="text-muted-foreground">拖曳卡片以更改訂貨請求狀態</p>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">訂貨管理</h1>
+          <p className="text-sm text-muted-foreground">拖曳卡片以更改訂貨請求狀態</p>
         </div>
         {can('order.create') && (
           <Button onClick={() => setShowRequestModal(true)}>

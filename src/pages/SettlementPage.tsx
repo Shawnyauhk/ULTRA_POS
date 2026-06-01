@@ -173,8 +173,8 @@ export default function SettlementPage() {
   return (
     <div className="space-y-6">
       <div>
-          <h1 className="text-2xl font-bold text-gray-900">營業額結算</h1>
-        <p className="text-muted-foreground">記錄各項收款來源，或與 POSPAL 系統同步</p>
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">營業額結算</h1>
+        <p className="text-sm text-muted-foreground">記錄各項收款來源，或與 POSPAL 系統同步</p>
       </div>
 
       <Card className="max-w-4xl">

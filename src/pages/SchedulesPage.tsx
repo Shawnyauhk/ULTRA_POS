@@ -67,10 +67,10 @@ export function SchedulesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">排班管理</h1>
-          <p className="text-gray-500 mt-1">管理員工每月排班</p>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-3xl font-bold text-gray-900">排班管理</h1>
+          <p className="text-sm text-gray-500 mt-1">管理員工每月排班</p>
         </div>
       </div>
 

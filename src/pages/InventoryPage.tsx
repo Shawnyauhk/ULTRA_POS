@@ -357,12 +357,12 @@ export function InventoryPage() {
   return (
     <div className="space-y-6">
       {/* 頂部導航 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">貨物表</h1>
-          <p className="text-gray-500 mt-1">管理貨物表</p>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-3xl font-bold text-gray-900">貨物表</h1>
+          <p className="text-sm text-gray-500 mt-1">管理貨物表</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <input
             type="file"
             ref={fileInputRef}

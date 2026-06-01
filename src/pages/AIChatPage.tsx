@@ -36,8 +36,8 @@ export function AIChatPage() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">AI 客服管理</h1>
-        <p className="text-muted-foreground">管理客服對話、知識庫與 AI 設定</p>
+        <h1 className="text-xl md:text-2xl font-bold text-gray-900">AI 客服管理</h1>
+        <p className="text-sm text-muted-foreground">管理客服對話、知識庫與 AI 設定</p>
       </div>
 
       {/* Tab Navigation */}
