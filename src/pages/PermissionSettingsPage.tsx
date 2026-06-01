@@ -238,19 +238,19 @@ export default function PermissionSettingsPage() {
                         {selectedCount}/{permissions.length}
                       </span>
                     </div>
-                    <div className="space-y-1.5">
+                    <div className="flex flex-wrap gap-x-4 gap-y-1.5">
                       {permissions.map((perm) => (
                         <label
                           key={perm}
-                          className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
                         >
                           <input
                             type="checkbox"
                             checked={rolePermissions[key].includes(perm)}
                             onChange={() => togglePermission(key, perm)}
-                            className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                            className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0"
                           />
-                          <span className="text-sm text-gray-600">
+                          <span className="text-sm text-gray-600 whitespace-nowrap">
                             {ALL_PERMISSIONS[perm]}
                           </span>
                         </label>

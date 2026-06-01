@@ -398,6 +398,15 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     return `${date.getMonth() + 1}/${date.getDate()}`;
   };
 
+  const formatShortDateTime = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    const h = String(date.getHours()).padStart(2, '0');
+    const min = String(date.getMinutes()).padStart(2, '0');
+    return `${m}/${d} ${h}:${min}`;
+  };
+
   // =========== 展開的訂單詳情 ===========
   const DetailContent = ({ order }: { order: OrderRequest }) => {
     const items = order.items || [];
@@ -439,7 +448,15 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     );
   };
 
-  // =========== 渲染三個直立區塊 ===========
+  // 拖放目標→狀態映射
+  const dropStatusMap: Record<ColumnType, OrderRequestStatus> = {
+    request: 'pending',
+    pending: 'ordered',
+    received: 'received',
+    completed: 'received',
+  };
+
+  // =========== 渲染三欄（可拖放） ===========
   const renderColumn = (
     title: string,
     colType: ColumnType,
@@ -447,13 +464,18 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     bgColor: string,
   ) => {
     const columnOrders = orderRequests.filter(o => getOrderColumn(o) === colType);
+    const borderColor = colType === 'request' ? 'border-red-200' : colType === 'pending' ? 'border-yellow-200' : 'border-green-200';
     return (
-      <div className={`rounded-xl p-4 transition-colors ${bgColor}`}>
-        <div className="flex items-center justify-between mb-3 px-1">
-          <h2 className="font-semibold text-base flex items-center gap-2">{icon} {title}</h2>
+      <div
+        className={`rounded-xl p-2 md:p-4 transition-colors min-w-[155px] flex-shrink-0 md:min-w-0 ${bgColor}`}
+        onDragOver={handleDragOver}
+        onDrop={(e) => handleDrop(e, dropStatusMap[colType])}
+      >
+        <div className="flex items-center justify-between mb-2 md:mb-3 px-1">
+          <h2 className="font-semibold text-sm md:text-base flex items-center gap-2">{icon} {title}</h2>
           <Badge variant="secondary" className="text-xs">{columnOrders.length}</Badge>
         </div>
-        <div className="space-y-2">
+        <div className="space-y-1.5 md:space-y-2">
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -463,46 +485,97 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
               const items = order.items || [];
               const firstItem = items[0];
               const isExpanded = expandedOrder === order.id;
+              const statusLabel = getStatusLabel(order.status);
               return (
-                <Card key={order.id} className={`overflow-hidden ${isExpanded ? 'border-primary/30' : ''}`}>
-                  {/* 卡片標題（可點擊展開） */}
+                <Card key={order.id} className={`overflow-hidden ${borderColor} ${isExpanded ? 'border-primary/50 ring-1 ring-primary/20' : ''}`} draggable onDragStart={(e) => handleDragStart(e, order)}>
                   <div
-                    className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition-colors"
+                    className="p-2.5 cursor-pointer hover:bg-gray-50/60 transition-colors"
                     onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
                   >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <ChevronRight className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-gray-800 truncate">
-                          {order.employee?.name || '未知員工'}
-                        </p>
-                        {firstItem && (
-                          <p className="text-xs text-gray-500 truncate">
-                            {firstItem.inventory?.name || '未知貨物'} × {firstItem.requested_quantity}{firstItem.inventory?.unit || ''}
-                          </p>
+                    {/* 預設只顯示貨物名（自動換行） */}
+                    <div className="text-sm font-medium text-gray-800 leading-snug">
+                      {firstItem?.inventory?.name || order.notes || '未知貨物'}
+                    </div>
+
+                    {/* 展開後的詳情（優化排版） */}
+                    {isExpanded && (
+                      <div className="mt-2 pt-2.5 border-t border-dashed border-gray-200 space-y-1.5">
+                        {/* 編輯按鈕 + 數量 */}
+                        <div className="flex items-center justify-between">
+                          {firstItem && (
+                            <span className="text-xs text-gray-900 font-medium">
+                              {firstItem.requested_quantity}{firstItem.inventory?.unit || '件'}
+                            </span>
+                          )}
+                          {can('order.approve') && (
+                            <button
+                              className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                              onClick={(e) => { e.stopPropagation(); handleEditRequest(order); }}
+                            >
+                              <Pencil className="h-3 w-3" />
+                              編輯
+                            </button>
+                          )}
+                        </div>
+
+                        {/* 時間 / 員工 以 grid 對齊 */}
+                        <div className="grid grid-cols-[3.5rem_1fr] gap-x-2 gap-y-1 text-[11px] text-gray-400">
+                          <span className="text-gray-500">申請</span>
+                          <span>{formatShortDateTime(order.created_at)}</span>
+                          <span className="text-gray-500">員工</span>
+                          <span>{order.employee?.name || '未知'}</span>
+                          {colType === 'pending' && order.ordered_at && (
+                            <><span className="text-gray-500">訂貨</span><span>{formatShortDateTime(order.ordered_at)}</span></>
+                          )}
+                          {colType === 'received' && order.received_at && (
+                            <><span className="text-gray-500">送達</span><span>{formatShortDateTime(order.received_at)}</span></>
+                          )}
+                        </div>
+
+                        {/* 貨物清單 */}
+                        {items.length > 0 && (
+                          <div className="pt-1">
+                            <div className="text-[10px] text-gray-400 mb-1 font-medium">貨物清單</div>
+                            {items.map((item: any, idx: number) => (
+                              <div key={item.id} className="flex items-center justify-between text-[11px] py-0.5">
+                                <span className="text-gray-700 truncate flex-1 mr-2">{item.inventory?.name || '未知貨物'}</span>
+                                <span className="text-gray-500 whitespace-nowrap">
+                                  x{item.requested_quantity}{item.inventory?.unit || ''}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* 狀態標籤 + 逾期 */}
+                        <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                            order.status === 'pending' ? 'bg-red-100 text-red-700' :
+                            order.status === 'approved' ? 'bg-blue-100 text-blue-700' :
+                            order.status === 'ordered' ? 'bg-yellow-100 text-yellow-700' :
+                            order.status === 'partial' ? 'bg-orange-100 text-orange-700' :
+                            order.status === 'received' ? 'bg-green-100 text-green-700' :
+                            'bg-gray-100 text-gray-600'
+                          }`}>
+                            {statusLabel}
+                          </span>
+                          {isOverdue(order.created_at, order.status) && (
+                            <span className="text-[10px] text-red-500">已逾期3天以上</span>
+                          )}
+                        </div>
+
+                        {/* 簽收按鈕 */}
+                        {colType === 'received' && (
+                          <button
+                            className="w-full py-1.5 text-xs bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors font-medium"
+                            onClick={(e) => { e.stopPropagation(); handleOpenSignModal(order); }}
+                          >
+                            簽收
+                          </button>
                         )}
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-xs text-gray-400">{formatDate(order.created_at).slice(5)}</span>
-                      {colType === 'received' && (
-                        <Button size="sm" variant="default"
-                          className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white px-2"
-                          onClick={(e) => { e.stopPropagation(); handleOpenSignModal(order); }}
-                        >
-                          簽收
-                        </Button>
-                      )}
-                      {can('order.approve') && (
-                        <Button variant="ghost" size="icon" className="h-7 w-7"
-                          onClick={(e) => { e.stopPropagation(); handleEditRequest(order); }}>
-                          <Pencil className="h-3 w-3" />
-                        </Button>
-                      )}
-                    </div>
+                    )}
                   </div>
-                  {/* 展開後的詳情 */}
-                  {isExpanded && <DetailContent order={order} />}
                 </Card>
               );
             })
@@ -614,11 +687,11 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
         )}
       </div>
 
-      {/* 三個直立區塊：員工請求、待處理、已送到 */}
-      <div className="space-y-4">
-        {renderColumn('員工請求 (Request)', 'request', <AlertCircle className="w-5 h-5 text-red-500"/>, 'bg-red-50')}
-        {renderColumn('待處理 (Pending)', 'pending', <Clock className="w-5 h-5 text-yellow-500"/>, 'bg-yellow-50')}
-        {renderColumn('已送到 (Received)', 'received', <PackageCheck className="w-5 h-5 text-green-500"/>, 'bg-green-50')}
+      {/* 三欄：手機橫向滾動，桌面並排 */}
+      <div className="flex overflow-x-auto gap-3 pb-3 md:grid md:grid-cols-3 md:overflow-visible md:gap-4">
+        {renderColumn('員工請求', 'request', <AlertCircle className="w-5 h-5 text-red-500"/>, 'bg-red-50')}
+        {renderColumn('待處理', 'pending', <Clock className="w-5 h-5 text-yellow-500"/>, 'bg-yellow-50')}
+        {renderColumn('已送到', 'received', <PackageCheck className="w-5 h-5 text-green-500"/>, 'bg-green-50')}
       </div>
 
       {/* 已完成區（可折疊） */}
