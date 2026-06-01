@@ -120,10 +120,10 @@ export function EmployeesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">員工管理</h1>
-          <p className="text-gray-500 mt-1">管理餐廳員工資料</p>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-3xl font-bold text-gray-900">員工管理</h1>
+          <p className="text-sm text-gray-500 mt-1">管理餐廳員工資料</p>
         </div>
         {can('employee.manage') && (
           <Button onClick={openAddModal}>

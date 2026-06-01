@@ -720,10 +720,10 @@ export default function ReviewGeneratorPage() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Google 好評生成器</h1>
-          <p className="text-muted-foreground">選擇產品，AI 自動生成擬真港式好評</p>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">Google 好評生成器</h1>
+          <p className="text-sm text-muted-foreground">選擇產品，AI 自動生成擬真港式好評</p>
         </div>
         {canManage && activeTab === 'generate' && (
           <Button variant="outline" onClick={() => setShowConfig(!showConfig)}>

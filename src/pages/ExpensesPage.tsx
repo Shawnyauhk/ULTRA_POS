@@ -565,12 +565,12 @@ export default function ExpensesPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">財務、支出與結算</h1>
-          <p className="text-muted-foreground">管理店鋪日常支出與每日營業額結算</p>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">財務、支出與結算</h1>
+          <p className="text-sm text-muted-foreground">管理店鋪日常支出與每日營業額結算</p>
         </div>
-        <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
+        <div className="flex gap-2 bg-gray-100 p-1 rounded-lg self-start md:self-auto">
           <Button variant={activeTab === 'expenses' ? 'default' : 'ghost'} onClick={() => setActiveTab('expenses')}>門店支出</Button>
           <Button variant={activeTab === 'settlement' ? 'default' : 'ghost'} onClick={() => setActiveTab('settlement')}>每日結算</Button>
         </div>

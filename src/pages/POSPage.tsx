@@ -206,10 +206,10 @@ ${products.map(p => `- ${p.name} ($${p.price})`).join('\n')}
   return (
     <div className="p-6 h-[calc(100vh-2rem)] flex flex-col space-y-4 relative overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between shrink-0">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{lang === 'zh' ? 'POS 點餐系統' : 'POS Ordering'}</h1>
-          <p className="text-muted-foreground">{lang === 'zh' ? '支援多模態點餐與快速客製化' : 'Multimodal Ordering & Customization'}</p>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between shrink-0">
+        <div className="min-w-0">
+          <h1 className="text-lg md:text-2xl font-bold text-gray-900">{lang === 'zh' ? 'POS 點餐系統' : 'POS Ordering'}</h1>
+          <p className="text-sm text-muted-foreground">{lang === 'zh' ? '支援多模態點餐與快速客製化' : 'Multimodal Ordering & Customization'}</p>
         </div>
         <div className="flex gap-4 items-center">
           <Button variant="outline" size="icon" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}>

@@ -272,10 +272,10 @@ export function ProductsPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">產品管理</h1>
-          <p className="text-muted-foreground">管理菜單產品與客製化選項</p>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">產品管理</h1>
+          <p className="text-sm text-muted-foreground">管理菜單產品與客製化選項</p>
         </div>
         <div className="flex gap-2">
           <input

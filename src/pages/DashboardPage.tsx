@@ -295,12 +295,12 @@ export function DashboardPage() {
         <ReportsContent />
       ) : (
         <>
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">控制面板與 AI 分析</h1>
-          <p className="text-gray-500 mt-1">歡迎回來，{user?.name || '管理員'}。檢視今日營收與 AI 財務分析報告。</p>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-3xl font-bold text-gray-900">控制面板與 AI 分析</h1>
+          <p className="text-sm text-gray-500 mt-1">歡迎回來，{user?.name || '管理員'}。檢視今日營收與 AI 財務分析報告。</p>
         </div>
-        <Button onClick={handleGenerateReport} disabled={generatingReport}>
+        <Button onClick={handleGenerateReport} disabled={generatingReport} className="self-start md:self-auto">
           {generatingReport ? (
             <span className="flex items-center"><Sparkles className="w-4 h-4 mr-2 animate-spin" /> 報告生成中...</span>
           ) : (
