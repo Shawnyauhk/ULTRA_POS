@@ -4,7 +4,7 @@ services:
     env: node
     plan: free
     buildCommand: npm install && npm run build
-    startCommand: node server.js
+    startCommand: npm install -g wacli && node server.js
     envVars:
       - key: NODE_ENV
         value: production
@@ -18,3 +18,9 @@ services:
         sync: false
       - key: VITE_NVIDIA_NIM_MODEL
         value: meta/llama-3.2-11b-vision-instruct
+      - key: POSPAL_USERNAME
+        sync: false
+      - key: POSPAL_PASSWORD
+        sync: false
+      - key: POSPAL_STORE_NAME
+        sync: false
