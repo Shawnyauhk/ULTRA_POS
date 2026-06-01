@@ -41,8 +41,9 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Root route for quick health check (used by deployment platforms)
-app.get('/', (req, res) => {
+// Root route for health check - 只在非 production 時回傳 JSON
+// production 模式下由 static file middleware 提供前端頁面
+app.get('/api/root-health', (req, res) => {
   res.json({ success: true, message: 'ULTRA POS server is running' });
 });
 
@@ -1055,8 +1056,8 @@ if (process.env.NODE_ENV === 'production' && existsSync(distPath)) {
   console.log('📁 提供靜態文件從:', distPath);
   app.use(express.static(distPath));
 
-  // SPA fallback：所有非 API 請求都返回 index.html
-  app.get('*splat', (req, res) => {
+  // SPA fallback：所有非 API 請求都返回 index.html（包括根路徑）
+  app.get('*', (req, res) => {
     if (!req.path.startsWith('/api')) {
       res.sendFile(resolve(distPath, 'index.html'));
     }
