@@ -355,7 +355,7 @@ export function InventoryPage() {
   const anomalyItems = predictions.filter(p => p.isAnomaly)
 
   return (
-    <div className="space-y-6">
+    <div className="p-3 md:p-6 space-y-6">
       {/* 頂部導航 */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">

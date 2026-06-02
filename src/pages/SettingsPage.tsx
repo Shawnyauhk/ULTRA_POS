@@ -3,12 +3,14 @@ import { useSettings } from '@/hooks/useSupabaseData';
 import { usePermission } from '@/hooks/usePermission';
 import { useAuthStore } from '@/stores/auth';
 import { apiFetch } from '@/lib/supabase';
-import { Loader2, MapPin, Crosshair, Wifi, WifiOff, CheckCircle2, AlertCircle, Globe, MessageSquare, Send, Smartphone, QrCode, Scan } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Loader2, MapPin, Crosshair, Wifi, WifiOff, CheckCircle2, AlertCircle, Globe, MessageSquare, Send, Smartphone, QrCode, Scan, ChevronDown, ChevronRight, Key } from 'lucide-react';
 
 export default function SettingsPage() {
   const { can } = usePermission();
   const { settings, loading, refetch, getSetting, updateSetting } = useSettings();
-  
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
+
   const [appId, setAppId] = useState('');
   const [appKey, setAppKey] = useState('');
   const [ocrModel, setOcrModel] = useState('gemini-1.5-pro');
@@ -17,11 +19,11 @@ export default function SettingsPage() {
   const [storeLng, setStoreLng] = useState('');
   const [saving, setSaving] = useState(false);
   const [locating, setLocating] = useState(false);
-  
+
   // 門店 IP 設定
   const { user } = useAuthStore();
-  const [storeIpAuto, setStoreIpAuto] = useState('');     // 裝置自動上報的 IP
-  const [storeIpManual, setStoreIpManual] = useState('');  // 手動填寫的 IP
+  const [storeIpAuto, setStoreIpAuto] = useState('');
+  const [storeIpManual, setStoreIpManual] = useState('');
   const [storeIpSource, setStoreIpSource] = useState<'auto' | 'manual' | 'none'>('none');
   const [storeIpLastUpdate, setStoreIpLastUpdate] = useState('');
   const [savingIp, setSavingIp] = useState(false);
@@ -32,7 +34,6 @@ export default function SettingsPage() {
   const [whatsappAdmin, setWhatsappAdmin] = useState('');
   const [testSending, setTestSending] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  // WhatsApp 認證狀態
   const [wacliAuthState, setWacliAuthState] = useState<'unknown' | 'loading' | 'done'>('unknown');
   const [wacliQrImage, setWacliQrImage] = useState<string | null>(null);
   const [wacliAuthing, setWacliAuthing] = useState(false);
@@ -47,7 +48,6 @@ export default function SettingsPage() {
       setAppKey(getSetting('pospal_app_key', ''));
       setOcrModel(getSetting('ocr_model', 'gemini-1.5-pro'));
       setOcrApiKey(getSetting('ocr_api_key', ''));
-      // 載入店舖位置
       const locStr = getSetting('store_location', '');
       if (locStr) {
         try {
@@ -56,13 +56,11 @@ export default function SettingsPage() {
           setStoreLng(String(loc.lng));
         } catch {}
       }
-      // 載入 WhatsApp 設定
       setWhatsappSender(getSetting('whatsapp_sender', ''));
       setWhatsappAdmin(getSetting('whatsapp_admin', ''));
     }
   }, [loading, settings]);
 
-  // 讀取門店 IP 狀態
   const fetchStoreIp = useCallback(async () => {
     if (!user?.restaurant_id) return;
     try {
@@ -81,7 +79,6 @@ export default function SettingsPage() {
     }
   }, [user?.restaurant_id]);
 
-  // 載入門店 IP 狀態
   useEffect(() => {
     fetchStoreIp();
   }, [fetchStoreIp]);
@@ -102,7 +99,6 @@ export default function SettingsPage() {
     );
   };
 
-  // 手動設定門店 IP
   const handleSaveManualIp = async () => {
     if (!user?.restaurant_id || !storeIpManual.trim()) return;
     setSavingIp(true);
@@ -132,7 +128,6 @@ export default function SettingsPage() {
     }
   };
 
-  // 測試 WhatsApp 發送
   const handleTestWhatsApp = async () => {
     if (!whatsappSender || !whatsappAdmin) {
       setTestResult({ success: false, message: '請先填寫發送號碼和接收號碼' });
@@ -158,7 +153,6 @@ export default function SettingsPage() {
     }
   };
 
-  // 掃碼登入 WhatsApp
   const handleAuthWhatsApp = async () => {
     setWacliAuthing(true);
     setWacliQrImage(null);
@@ -174,8 +168,6 @@ export default function SettingsPage() {
         setWacliQrImage(json.qrImage);
         setWacliAuthState('loading');
         setWacliAuthMessage('📱 請用 WhatsApp 掃描 QR Code');
-
-        // 開始輪詢認證狀態
         authPollRef.current = setInterval(async () => {
           try {
             const stRes = await apiFetch('/api/whatsapp/auth-status');
@@ -200,12 +192,41 @@ export default function SettingsPage() {
     }
   };
 
-  // 清除輪詢
   useEffect(() => {
     return () => {
       if (authPollRef.current) clearInterval(authPollRef.current);
     };
   }, []);
+
+  const toggleSection = (id: string) => {
+    setExpandedSection(prev => prev === id ? null : id);
+  };
+
+  const SectionCard = ({ id, icon, title, badge, children }: {
+    id: string; icon: React.ReactNode; title: string; badge: string; children: React.ReactNode;
+  }) => {
+    const isOpen = expandedSection === id;
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <button
+          onClick={() => toggleSection(id)}
+          className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            {icon}
+            <span className="font-medium text-gray-800">{title}</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 whitespace-nowrap">{badge}</span>
+          </div>
+          {isOpen ? (
+            <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
+          )}
+        </button>
+        {isOpen && <div className="px-5 pb-5">{children}</div>}
+      </div>
+    );
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -214,10 +235,8 @@ export default function SettingsPage() {
       await updateSetting('pospal_app_key', appKey);
       await updateSetting('ocr_model', ocrModel);
       await updateSetting('ocr_api_key', ocrApiKey);
-      // 儲存 WhatsApp 設定
       await updateSetting('whatsapp_sender', whatsappSender);
       await updateSetting('whatsapp_admin', whatsappAdmin);
-      // 儲存店舖位置
       if (storeLat && storeLng) {
         await updateSetting('store_location', JSON.stringify({
           lat: parseFloat(storeLat),
@@ -234,98 +253,54 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-xl md:text-2xl font-bold text-gray-900">系統設置 Settings</h1>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* POSPAL Settings */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h2 className="text-lg font-semibold mb-4 text-gray-800">POSPAL API 憑證設定</h2>
+    <div className="space-y-4">
+      <h1 className="text-xl md:text-2xl font-bold text-gray-900">系統設置</h1>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* POSPAL */}
+        <SectionCard id="pospal" icon={<Key className="w-5 h-5 text-blue-500" />} title="POSPAL API 憑證" badge="餐廳系統">
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">App ID</label>
-              <input 
-                type="text" 
-                value={appId}
-                onChange={(e) => setAppId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder="輸入 POSPAL App ID"
-                disabled={saving}
-              />
+              <input type="text" value={appId} onChange={(e) => setAppId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="輸入 POSPAL App ID" disabled={saving} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">App Key</label>
-              <input 
-                type="password" 
-                value={appKey}
-                onChange={(e) => setAppKey(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder="輸入 POSPAL App Key"
-                disabled={saving}
-              />
+              <input type="password" value={appKey} onChange={(e) => setAppKey(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="輸入 POSPAL App Key" disabled={saving} />
             </div>
           </div>
-        </div>
+        </SectionCard>
 
-        {/* Store Location Settings */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h2 className="text-lg font-semibold mb-4 text-gray-800 flex items-center gap-2">
-            <MapPin className="w-5 h-5 text-red-500" /> 店舖位置設定
-          </h2>
-          <p className="text-sm text-gray-500 mb-4">
-            設定店舖 GPS 座標，員工打卡時系統會自動檢查是否在店舖範圍內（200 公尺）。
-          </p>
+        {/* 店舖位置 */}
+        <SectionCard id="location" icon={<MapPin className="w-5 h-5 text-red-500" />} title="店舖位置" badge="GPS">
           <div className="space-y-4">
+            <p className="text-sm text-gray-500">設定店舖 GPS 座標，員工打卡時系統會自動檢查是否在店舖範圍內（200 公尺）。</p>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">緯度 (Latitude)</label>
-                <input
-                  type="text"
-                  value={storeLat}
-                  onChange={(e) => setStoreLat(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  placeholder="22.3193"
-                  disabled={saving}
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">緯度</label>
+                <input type="text" value={storeLat} onChange={(e) => setStoreLat(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="22.3193" disabled={saving} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">經度 (Longitude)</label>
-                <input
-                  type="text"
-                  value={storeLng}
-                  onChange={(e) => setStoreLng(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  placeholder="114.1694"
-                  disabled={saving}
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">經度</label>
+                <input type="text" value={storeLng} onChange={(e) => setStoreLng(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="114.1694" disabled={saving} />
               </div>
             </div>
-            <button
-              onClick={handleGetCurrentLocation}
-              disabled={locating || saving}
-              className="w-full py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {locating ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Crosshair className="w-4 h-4" />
-              )}
+            <button onClick={handleGetCurrentLocation} disabled={locating || saving}
+              className="w-full py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 flex items-center justify-center gap-2">
+              {locating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Crosshair className="w-4 h-4" />}
               {locating ? '偵測中...' : '使用目前位置作為店舖座標'}
             </button>
           </div>
-        </div>
+        </SectionCard>
 
-        {/* 門店 IP 設定 */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h2 className="text-lg font-semibold mb-4 text-gray-800 flex items-center gap-2">
-            <Wifi className="w-5 h-5 text-green-500" /> 門店網絡 IP 設定
-          </h2>
-          <p className="text-sm text-gray-500 mb-4">
-            設定門店的公網 IP，員工連上門店 WiFi 打卡時，系統會比對 IP 來確認是否在店內。
-            如果有打卡機裝置，會自動上報 IP；如果沒有，可以在這裡手動填寫。
-          </p>
+        {/* 門店 IP */}
+        <SectionCard id="storeIp" icon={<Wifi className="w-5 h-5 text-green-500" />} title="門店網絡 IP" badge="打卡">
           <div className="space-y-4">
-            {/* 當前 IP 狀態 */}
+            <p className="text-sm text-gray-500">設定門店的公網 IP，員工連上門店 WiFi 打卡時，系統會比對 IP 來確認是否在店內。</p>
             <div className={`p-4 rounded-lg text-sm ${
               storeIpSource !== 'none'
                 ? 'bg-green-50 text-green-700 border border-green-200'
@@ -354,32 +329,16 @@ export default function SettingsPage() {
                 </>
               )}
             </div>
-
-            {/* 手動設定 IP */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                <Globe className="w-4 h-4 inline mr-1" />
-                手動設定門店 IP（沒有打卡機時使用）
+                <Globe className="w-4 h-4 inline mr-1" />手動設定門店 IP
               </label>
               <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={storeIpManual}
-                  onChange={(e) => setStoreIpManual(e.target.value)}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md font-mono"
-                  placeholder="例如：123.123.123.123"
-                  disabled={savingIp}
-                />
-                <button
-                  onClick={handleSaveManualIp}
-                  disabled={savingIp || !storeIpManual.trim()}
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-green-400 text-sm font-medium flex items-center gap-1"
-                >
-                  {savingIp ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="w-4 h-4" />
-                  )}
+                <input type="text" value={storeIpManual} onChange={(e) => setStoreIpManual(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md font-mono" placeholder="例如：123.123.123.123" disabled={savingIp} />
+                <button onClick={handleSaveManualIp} disabled={savingIp || !storeIpManual.trim()}
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-green-400 text-sm font-medium flex items-center gap-1">
+                  {savingIp ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                   設定
                 </button>
               </div>
@@ -389,7 +348,6 @@ export default function SettingsPage() {
                 </p>
               )}
             </div>
-
             <div className="text-xs text-gray-400 space-y-1">
               <p>• 有打卡機裝置：放在店內並保持開機，會自動每 30 秒上報 IP</p>
               <p>• 無打卡機裝置：在這裡手動填入門店路由器的公網 IP</p>
@@ -397,18 +355,12 @@ export default function SettingsPage() {
               <p>• 不知道公網 IP？可以打開 <a href="https://api.ipify.org" target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">api.ipify.org</a> 查看</p>
             </div>
           </div>
-        </div>
+        </SectionCard>
 
-        {/* WhatsApp 通知設定 */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h2 className="text-lg font-semibold mb-4 text-gray-800 flex items-center gap-2">
-            <MessageSquare className="w-5 h-5 text-green-500" /> WhatsApp 通知設定
-          </h2>
-          <p className="text-sm text-gray-500 mb-4">
-            設定訂貨通知的發送號碼和接收號碼。修改發送號碼前請先掃碼登入 WhatsApp。
-          </p>
+        {/* WhatsApp */}
+        <SectionCard id="whatsapp" icon={<MessageSquare className="w-5 h-5 text-green-500" />} title="WhatsApp 通知" badge="訂貨">
           <div className="space-y-4">
-            {/* 掃碼登入區塊 */}
+            <p className="text-sm text-gray-500">設定訂貨通知的發送號碼和接收號碼。修改發送號碼前請先掃碼登入 WhatsApp。</p>
             <div className={`p-4 rounded-lg border ${wacliAuthState === 'done' ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium flex items-center gap-1.5">
@@ -422,8 +374,6 @@ export default function SettingsPage() {
                 )}
               </div>
               <p className="text-xs text-gray-500 mb-3">修改發送號碼前，請先用店舖 WhatsApp 掃碼登入</p>
-
-              {/* QR Code 顯示 */}
               {wacliQrImage && (
                 <div className="flex flex-col items-center mb-3">
                   <div className="bg-white p-3 rounded-lg shadow-sm border">
@@ -432,137 +382,73 @@ export default function SettingsPage() {
                   <p className="text-xs text-gray-500 mt-2">請打開 WhatsApp → 三點選單 → 連結裝置 → 掃描此 QR Code</p>
                 </div>
               )}
-
-              {/* 狀態訊息 */}
               {wacliAuthMessage && (
                 <p className={`text-xs mb-2 ${wacliAuthMessage.includes('✅') ? 'text-green-700' : wacliAuthMessage.includes('❌') ? 'text-red-600' : 'text-blue-600'}`}>
                   {wacliAuthMessage}
                 </p>
               )}
-
-              <button
-                onClick={handleAuthWhatsApp}
-                disabled={wacliAuthing || wacliAuthState === 'done'}
+              <button onClick={handleAuthWhatsApp} disabled={wacliAuthing || wacliAuthState === 'done'}
                 className={`w-full py-2 px-4 rounded-md text-sm font-medium border transition-colors disabled:opacity-50 flex items-center justify-center gap-2
                   ${wacliAuthState === 'done'
                     ? 'bg-green-100 text-green-700 border-green-300'
-                    : 'bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100'}`}
-              >
-                {wacliAuthing ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : wacliAuthState === 'done' ? (
-                  <CheckCircle2 className="w-4 h-4" />
-                ) : (
-                  <Scan className="w-4 h-4" />
-                )}
+                    : 'bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100'}`}>
+                {wacliAuthing ? <Loader2 className="w-4 h-4 animate-spin" /> : wacliAuthState === 'done' ? <CheckCircle2 className="w-4 h-4" /> : <Scan className="w-4 h-4" />}
                 {wacliAuthing ? '取得 QR Code 中...' : wacliAuthState === 'done' ? '已認證' : '掃碼登入 WhatsApp'}
               </button>
             </div>
-
-            {/* 發送號碼（需先認證） */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                <Smartphone className="w-4 h-4 inline mr-1 text-blue-500" />
-                發送號碼（店舖 WhatsApp）
+                <Smartphone className="w-4 h-4 inline mr-1 text-blue-500" />發送號碼（店舖 WhatsApp）
               </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={whatsappSender}
-                  onChange={(e) => setWhatsappSender(e.target.value)}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md font-mono"
-                  placeholder="+85298765432"
-                  disabled={senderDisabled || saving}
-                />
-              </div>
+              <input type="text" value={whatsappSender} onChange={(e) => setWhatsappSender(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono" placeholder="+85298765432"
+                disabled={senderDisabled || saving} />
               <p className="text-xs text-gray-400 mt-1">
-                {senderDisabled
-                  ? '🔒 請先掃碼登入 WhatsApp 以啟用此欄位'
-                  : '用哪個 WhatsApp 帳號發送通知'}
+                {senderDisabled ? '🔒 請先掃碼登入 WhatsApp 以啟用此欄位' : '用哪個 WhatsApp 帳號發送通知'}
               </p>
             </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                <Smartphone className="w-4 h-4 inline mr-1 text-orange-500" />
-                接收號碼（管理員 WhatsApp）
+                <Smartphone className="w-4 h-4 inline mr-1 text-orange-500" />接收號碼（管理員 WhatsApp）
               </label>
-              <input
-                type="text"
-                value={whatsappAdmin}
-                onChange={(e) => setWhatsappAdmin(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono"
-                placeholder="+85291234567"
-                disabled={saving}
-              />
+              <input type="text" value={whatsappAdmin} onChange={(e) => setWhatsappAdmin(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono" placeholder="+85291234567" disabled={saving} />
               <p className="text-xs text-gray-400 mt-1">通知發送到哪個號碼</p>
             </div>
-
-            {/* 通知預覽 */}
             {whatsappSender && whatsappAdmin && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm">
                 <p className="font-medium text-green-800 mb-2">📱 通知預覽</p>
                 <div className="space-y-1 text-green-700">
-                  <p className="flex items-center gap-2">
-                    <span className="text-xs bg-green-200 px-1.5 py-0.5 rounded">發送</span>
-                    <span className="font-mono">{whatsappSender}</span>
-                  </p>
-                  <p className="flex items-center gap-2">
-                    <span className="text-xs bg-orange-200 px-1.5 py-0.5 rounded">接收</span>
-                    <span className="font-mono">{whatsappAdmin}</span>
-                  </p>
+                  <p className="flex items-center gap-2"><span className="text-xs bg-green-200 px-1.5 py-0.5 rounded">發送</span><span className="font-mono">{whatsappSender}</span></p>
+                  <p className="flex items-center gap-2"><span className="text-xs bg-orange-200 px-1.5 py-0.5 rounded">接收</span><span className="font-mono">{whatsappAdmin}</span></p>
                   <div className="mt-2 pt-2 border-t border-green-200">
-                    <p className="text-xs text-green-600">🔔 新訂貨通知</p>
-                    <p className="text-xs text-green-600">員工：XXX</p>
-                    <p className="text-xs text-green-600">項目：貨物A × 3</p>
-                    <p className="text-xs text-green-600">請登入系統處理。</p>
+                    <p className="text-xs text-green-600">🔔 新訂貨通知 / 員工：XXX / 項目：貨物A × 3 / 請登入系統處理。</p>
                   </div>
                 </div>
               </div>
             )}
-
-            {/* 測試發送按鈕 */}
-            <button
-              onClick={handleTestWhatsApp}
-              disabled={testSending || !whatsappSender || !whatsappAdmin}
-              className="w-full py-2 px-4 border border-green-300 rounded-md text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {testSending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Send className="w-4 h-4" />
-              )}
+            <button onClick={handleTestWhatsApp} disabled={testSending || !whatsappSender || !whatsappAdmin}
+              className="w-full py-2 px-4 border border-green-300 rounded-md text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 disabled:opacity-50 flex items-center justify-center gap-2">
+              {testSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               {testSending ? '發送中...' : '測試發送 WhatsApp 通知'}
             </button>
-
             {testResult && (
-              <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${
-                testResult.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'
-              }`}>
-                {testResult.success ? (
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                )}
+              <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${testResult.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                {testResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
                 {testResult.message}
               </div>
             )}
           </div>
-        </div>
+        </SectionCard>
 
-        {/* OCR Model Settings */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h2 className="text-lg font-semibold mb-4 text-gray-800">AI OCR 模型設定</h2>
-          <p className="text-sm text-gray-500 mb-4">設定門店支出收據掃描所使用的 AI 模型，支援靈活切換。</p>
+        {/* OCR */}
+        <SectionCard id="ocr" icon={<Globe className="w-5 h-5 text-purple-500" />} title="AI OCR 模型" badge="掃描">
           <div className="space-y-4">
+            <p className="text-sm text-gray-500">設定門店支出收據掃描所使用的 AI 模型，支援靈活切換。</p>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">模型名稱 (Model Provider)</label>
-              <select 
-                value={ocrModel}
-                onChange={(e) => setOcrModel(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                disabled={saving}
-              >
+              <label className="block text-sm font-medium text-gray-700 mb-1">模型名稱</label>
+              <select value={ocrModel} onChange={(e) => setOcrModel(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md" disabled={saving}>
                 <option value="gemini-1.5-pro">Gemini 1.5 Pro (預設)</option>
                 <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
                 <option value="gpt-4o">OpenAI GPT-4o</option>
@@ -573,36 +459,22 @@ export default function SettingsPage() {
             {ocrModel === 'custom' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">自定義模型名稱</label>
-                <input 
-                  type="text" 
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  placeholder="例如：my-custom-ocr-model"
-                  disabled={saving}
-                />
+                <input type="text" className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="my-custom-model" disabled={saving} />
               </div>
             )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
-              <input 
-                type="password" 
-                value={ocrApiKey}
-                onChange={(e) => setOcrApiKey(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder="輸入 API 密鑰"
-                disabled={saving}
-              />
+              <input type="password" value={ocrApiKey} onChange={(e) => setOcrApiKey(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="輸入 API 密鑰" disabled={saving} />
             </div>
           </div>
-        </div>
+        </SectionCard>
       </div>
-      
+
       {can('setting.manage') && (
         <div className="flex justify-end">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="py-2 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 flex items-center gap-2"
-          >
+          <button onClick={handleSave} disabled={saving}
+            className="py-2 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 flex items-center gap-2">
             {saving && <Loader2 className="w-4 h-4 animate-spin" />}
             儲存所有設定
           </button>

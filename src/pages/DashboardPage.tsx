@@ -270,7 +270,7 @@ export function DashboardPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="p-3 md:p-6 space-y-6">
       {/* Tab Switcher */}
       <div className="flex items-center gap-2 border-b pb-3">
         <Button

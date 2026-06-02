@@ -66,7 +66,7 @@ export function SchedulesPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="p-3 md:p-6 space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <h1 className="text-xl md:text-3xl font-bold text-gray-900">排班管理</h1>

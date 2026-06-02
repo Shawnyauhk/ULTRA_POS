@@ -64,7 +64,7 @@ export function AttendancePage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="p-3 md:p-6 space-y-6">
       <div>
         <h1 className="text-xl md:text-3xl font-bold text-gray-900">打卡系統</h1>
         <p className="text-sm text-gray-500 mt-1">員工上下班安全打卡記錄</p>

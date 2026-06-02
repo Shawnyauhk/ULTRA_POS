@@ -167,7 +167,7 @@ export default function PermissionSettingsPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="max-w-5xl mx-auto p-3 md:p-6">
       {/* 頁面標題 */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
         <div className="min-w-0">
