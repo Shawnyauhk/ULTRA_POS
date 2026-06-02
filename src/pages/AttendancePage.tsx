@@ -1,15 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Clock, Loader2, Shield, Fingerprint, Key, MapPin, FileText, Inbox, ScanLine, Smartphone, Wifi, RefreshCw, CheckCircle2, AlertCircle, XCircle } from 'lucide-react'
+import { Clock, Loader2, Shield, ScanLine, Smartphone, Wifi, FileText, Inbox } from 'lucide-react'
 import { WiFiClockIn } from '@/components/attendance/WiFiClockIn'
 import { useAuthStore } from '@/stores/auth'
 import { useAttendance } from '@/hooks/useSupabaseData'
 import { supabase } from '@/lib/supabase'
-import type { Employee } from '@/types'
 import { SecureClockIn } from '@/components/attendance/SecureClockIn'
 import { QRCodeScanner } from '@/components/attendance/QRCodeScanner'
 import { CorrectionRequest } from '@/components/attendance/CorrectionRequest'
@@ -18,31 +15,20 @@ import { CorrectionReview } from '@/components/attendance/CorrectionReview'
 export function AttendancePage() {
   const navigate = useNavigate();
   const { user } = useAuthStore()
-  const { attendance, loading, refetch, addAttendance, updateAttendance, getTodayAttendance } = useAttendance()
-  const [todayAttendance, setTodayAttendance] = useState<any[]>([])
+  const { getTodayAttendance } = useAttendance()
   const [showSecureClockIn, setShowSecureClockIn] = useState(false)
   const [showQRClock, setShowQRClock] = useState(false)
   const [showWiFiClock, setShowWiFiClock] = useState(false)
   const [showCorrection, setShowCorrection] = useState(false)
   const [showReview, setShowReview] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
-  const [showDeviceModal, setShowDeviceModal] = useState(false)
-  const [deviceIp, setDeviceIp] = useState('')
-  const [deviceLastUpdate, setDeviceLastUpdate] = useState('')
-  const [deviceLoading, setDeviceLoading] = useState(false)
 
   const canManage = user?.role === 'owner' || user?.role === 'manager'
 
   const refreshToday = useCallback(async () => {
-    const today = await getTodayAttendance()
-    setTodayAttendance(today)
+    await getTodayAttendance()
   }, [getTodayAttendance])
 
-  useEffect(() => {
-    refreshToday()
-  }, [attendance, refreshToday])
-
-  // 加载待审核数量
   useEffect(() => {
     if (!user?.restaurant_id || !canManage) return
     supabase
@@ -53,42 +39,11 @@ export function AttendancePage() {
       .then(({ count }) => setPendingCount(count || 0))
   }, [user?.restaurant_id, canManage])
 
-  // 验证方式徽章
-  const getVerificationBadge = (method: string | undefined) => {
-    if (!method || method === 'manual') return null
-    const badges: Record<string, { icon: React.ReactNode; label: string }> = {
-      'webauthn': { icon: <Fingerprint className="h-3 w-3" />, label: '指紋' },
-      'qrcode+ip': { icon: <ScanLine className="h-3 w-3" />, label: 'QR碼' },
-      'ip': { icon: <Wifi className="h-3 w-3" />, label: 'WiFi' },
-    };
-    const b = badges[method] || { icon: <Key className="h-3 w-3" />, label: method };
-    return (
-      <span className="inline-flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
-        {b.icon} {b.label}
-      </span>
-    )
-  }
-
-  const fetchDeviceStatus = useCallback(async () => {
-    if (!user?.restaurant_id) return;
-    setDeviceLoading(true);
-    try {
-      const res = await fetch(`/api/attendance/store/ip?restaurant_id=${user.restaurant_id}`);
-      const json = await res.json();
-      if (json.success) { setDeviceIp(json.data.public_ip); setDeviceLastUpdate(json.data.last_update); }
-      else { setDeviceIp(''); }
-    } catch { setDeviceIp(''); }
-    finally { setDeviceLoading(false); }
-  }, [user?.restaurant_id]);
-
-  useEffect(() => { if (showDeviceModal) fetchDeviceStatus(); }, [showDeviceModal, fetchDeviceStatus]);
-
   return (
     <div className="p-3 md:p-6 space-y-6">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-xl md:text-3xl font-bold text-gray-900">打卡系統</h1>
-          <p className="text-sm text-gray-500 mt-1">員工上下班安全打卡記錄</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => navigate('/attendance-device')}>
           <Smartphone className="w-4 h-4 mr-1.5" />
@@ -96,275 +51,51 @@ export function AttendancePage() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* ====== 左栏 ====== */}
-        <div className="space-y-4">
-          {showQRClock ? (
-            <QRCodeScanner onSuccess={() => { setShowQRClock(false); refreshToday(); }} />
-          ) : showSecureClockIn ? (
-            <SecureClockIn onClockSuccess={() => { setShowSecureClockIn(false); refreshToday(); }} />
-          ) : showWiFiClock ? (
-            <WiFiClockIn onSuccess={() => { setShowWiFiClock(false); refreshToday(); }} />
-          ) : (
-            <>
-              {/* WiFi 打卡（最簡便） */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Wifi className="h-5 w-5 text-green-600" />
-                    WiFi 打卡
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="text-center space-y-3">
-                  <div className="text-sm text-gray-600 space-y-2">
-                    <p className="flex items-center justify-center gap-2">
-                      <Wifi className="h-4 w-4 text-green-500" />
-                      連上門店 WiFi，一鍵打卡
-                    </p>
-                    <p className="flex items-center justify-center gap-2">
-                      <Clock className="h-4 w-4 text-blue-500" />
-                      無需掃碼，最快最簡單
-                    </p>
-                  </div>
-                  <Button onClick={() => setShowWiFiClock(true)} size="lg" className="w-full bg-green-600 hover:bg-green-700">
-                    <Wifi className="h-5 w-5 mr-2" />
-                    WiFi 打卡
-                  </Button>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <ScanLine className="h-5 w-5 text-blue-600" />
-                    QR Code 打卡
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="text-center space-y-3">
-                  <div className="text-sm text-gray-600 space-y-2">
-                    <p className="flex items-center justify-center gap-2">
-                      <Smartphone className="h-4 w-4 text-blue-500" />
-                      掃描店內打卡機的 QR Code（IP 驗證）
-                    </p>
-                    <p className="flex items-center justify-center gap-2">
-                      <Wifi className="h-4 w-4 text-green-500" />
-                      自動驗證是否在店鋪 WiFi 網絡
-                    </p>
-                  </div>
-                  <Button onClick={() => setShowQRClock(true)} size="lg" className="w-full">
-                    <ScanLine className="h-5 w-5 mr-2" />
-                    掃碼打卡
-                  </Button>
-                </CardContent>
-              </Card>
-
-              {/* GPS+指紋打卡 */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Shield className="h-5 w-5 text-green-600" />
-                    安全打卡（備用）
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="text-center space-y-3">
-                  <div className="text-sm text-gray-600 space-y-2">
-                    <p className="flex items-center justify-center gap-2">
-                      <MapPin className="h-4 w-4 text-blue-500" />
-                      GPS 位置验证
-                    </p>
-                    <p className="flex items-center justify-center gap-2">
-                      <Fingerprint className="h-4 w-4 text-green-500" />
-                      指纹 / Face ID 验证
-                    </p>
-                  </div>
-                  <Button onClick={() => setShowSecureClockIn(true)} variant="outline" size="lg" className="w-full">
-                    <Shield className="h-5 w-5 mr-2" />
-                    備用打卡
-                  </Button>
-                </CardContent>
-              </Card>
-            </>
-          )}
-
-          {/* 我的打卡状态 */}
-          {user && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">我的打卡狀態</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {(() => {
-                  const myRecord = todayAttendance.find((a: any) => a.employee_id === user.id)
-                  if (!myRecord) {
-                    return <p className="text-gray-400 text-sm text-center py-2">今日尚未打卡</p>
-                  }
-                  return (
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">上班時間</span>
-                        <span className="font-medium">{myRecord.clock_in || '-'}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">下班時間</span>
-                        <span className="font-medium">{myRecord.clock_out || '-'}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">驗證方式</span>
-                        <span>{getVerificationBadge(myRecord.verification_method)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">狀態</span>
-                        <Badge variant={myRecord.clock_out ? 'success' : 'warning'}>
-                          {myRecord.clock_out ? '已完成' : '工作中'}
-                        </Badge>
-                      </div>
-                    </div>
-                  )
-                })()}
-              </CardContent>
-            </Card>
+      {showQRClock ? (
+        <QRCodeScanner onSuccess={() => { setShowQRClock(false); refreshToday(); }} />
+      ) : showSecureClockIn ? (
+        <SecureClockIn onClockSuccess={() => { setShowSecureClockIn(false); refreshToday(); }} />
+      ) : showWiFiClock ? (
+        <WiFiClockIn onSuccess={() => { setShowWiFiClock(false); refreshToday(); }} />
+      ) : showCorrection ? (
+        <div>
+          <Button variant="ghost" size="sm" className="mb-2" onClick={() => setShowCorrection(false)}>← 返回</Button>
+          <CorrectionRequest onRequestSubmitted={() => refreshToday()} />
+        </div>
+      ) : showReview ? (
+        <div>
+          <Button variant="ghost" size="sm" className="mb-2" onClick={() => setShowReview(false)}>← 返回</Button>
+          <CorrectionReview />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          <Button onClick={() => setShowWiFiClock(true)} className="h-24 flex flex-col gap-2 bg-green-600 hover:bg-green-700">
+            <Wifi className="h-6 w-6" />
+            <span className="text-sm">WiFi 打卡</span>
+          </Button>
+          <Button onClick={() => setShowQRClock(true)} className="h-24 flex flex-col gap-2">
+            <ScanLine className="h-6 w-6" />
+            <span className="text-sm">掃碼打卡</span>
+          </Button>
+          <Button onClick={() => setShowSecureClockIn(true)} variant="outline" className="h-24 flex flex-col gap-2">
+            <Shield className="h-6 w-6" />
+            <span className="text-sm">備用打卡</span>
+          </Button>
+          <Button onClick={() => setShowCorrection(true)} variant="outline" className="h-24 flex flex-col gap-2">
+            <FileText className="h-6 w-6" />
+            <span className="text-sm">補打卡</span>
+          </Button>
+          {canManage && (
+            <Button onClick={() => setShowReview(true)} className="h-24 flex flex-col gap-2 relative">
+              <Inbox className="h-6 w-6" />
+              <span className="text-sm">審批</span>
+              {pendingCount > 0 && (
+                <Badge className="absolute top-2 right-2 bg-red-500 text-white text-[10px] px-1.5 py-0">{pendingCount}</Badge>
+              )}
+            </Button>
           )}
         </div>
-
-        {/* ====== 右栏：补打卡系统 ====== */}
-        <div className="space-y-4">
-          {/* 补打卡入口 */}
-          {!showCorrection && !showReview && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <FileText className="h-5 w-5" />
-                  补打卡
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <p className="text-sm text-gray-500">
-                  忘记打卡或手机故障？通过补打卡申请来补录记录。
-                </p>
-
-                <Button
-                  onClick={() => setShowCorrection(true)}
-                  variant="outline"
-                  className="w-full justify-start"
-                >
-                  <FileText className="h-4 w-4 mr-2" />
-                  提交补打卡申请
-                </Button>
-
-                {canManage && (
-                  <Button
-                    onClick={() => setShowReview(true)}
-                    className="w-full justify-start"
-                  >
-                    <Inbox className="h-4 w-4 mr-2" />
-                    审核补打卡申请
-                    {pendingCount > 0 && (
-                      <span className="ml-auto bg-yellow-200 text-yellow-800 text-xs font-bold px-2 py-0.5 rounded-full">
-                        {pendingCount}
-                      </span>
-                    )}
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* 补打卡申请表单 + 记录 */}
-          {showCorrection && (
-            <div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="mb-2"
-                onClick={() => setShowCorrection(false)}
-              >
-                ← 返回
-              </Button>
-              <CorrectionRequest onRequestSubmitted={() => refreshToday()} />
-            </div>
-          )}
-
-          {/* 补打卡审核面板 */}
-          {showReview && (
-            <div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="mb-2"
-                onClick={() => setShowReview(false)}
-              >
-                ← 返回
-              </Button>
-              <CorrectionReview />
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 今日打卡記錄 */}
-      <Card>
-        <CardHeader>
-          <CardTitle>今日打卡記錄</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : todayAttendance.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">
-              <Clock className="w-12 h-12 mx-auto mb-4 opacity-20" />
-              <p>今日尚無打卡記錄</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>員工</TableHead>
-                    <TableHead>上班時間</TableHead>
-                    <TableHead>下班時間</TableHead>
-                    <TableHead>工時</TableHead>
-                    <TableHead>驗證</TableHead>
-                    <TableHead>位置</TableHead>
-                    <TableHead>狀態</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {todayAttendance.map((record: any) => (
-                    <TableRow key={record.id}>
-                      <TableCell className="font-medium">
-                        {record.employee?.name || '未知'}
-                      </TableCell>
-                      <TableCell>{record.clock_in || '-'}</TableCell>
-                      <TableCell>{record.clock_out || '-'}</TableCell>
-                      <TableCell>{record.work_hours ? `${record.work_hours} 小時` : '-'}</TableCell>
-                      <TableCell>
-                        {getVerificationBadge(record.verification_method) || '-'}
-                      </TableCell>
-                      <TableCell>
-                        {record.clock_in_latitude ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-green-600">
-                            <MapPin className="h-3 w-3" /> 已驗證
-                          </span>
-                        ) : record.clock_in_ip ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-gray-500">
-                            <Wifi className="h-3 w-3" /> IP
-                          </span>
-                        ) : '-'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={record.clock_out ? 'success' : 'warning'}>
-                          {record.clock_out ? '已完成' : '工作中'}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      )}
     </div>
   )
 }
