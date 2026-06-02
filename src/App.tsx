@@ -163,9 +163,9 @@ export default function App() {
                 {renderProtectedRoute('/payroll', <PayrollPage />)}
                 {renderProtectedRoute('/ai-marketing', <AIChatPage />)}
                 {renderProtectedRoute('/review-generator', <ReviewGeneratorPage />)}
-                {renderProtectedRoute('/permissions', <PermissionSettingsPage />)}
-                {renderProtectedRoute('/settings', <SettingsPage />)}
+                {renderProtectedRoute('/inventory', <InventoryPage />)}
                 {renderProtectedRoute('/attendance-device', <AttendanceDevicePage />)}
+                {renderProtectedRoute('/settings', <SettingsPage />)}
               </Routes>
             </AppLayout>
           </ProtectedRoute>

@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Clock, CheckCircle, AlertCircle, Loader2, Plus, Search, X, Pencil, Calendar, ChevronDown, ChevronRight, PackageCheck, FileCheck } from 'lucide-react';
+import { Clock, CheckCircle, AlertCircle, Loader2, Plus, Search, X, Pencil, Calendar, ChevronDown, ChevronRight, PackageCheck, FileCheck, Package } from 'lucide-react';
 import { useOrderRequests, useInventory } from '@/hooks/useSupabaseData';
 import { FALLBACK_RESTAURANT_ID } from '@/hooks/useSupabaseData';
 import { usePermission } from '@/hooks/usePermission';
@@ -31,6 +32,7 @@ function getRestaurantId(): string {
 type ColumnType = 'request' | 'pending' | 'received' | 'completed';
 
 export function OrderRequestsPage() {
+  const navigate = useNavigate();
   const { can } = usePermission();
   const { orderRequests, loading, refetch, updateOrderRequestStatus } = useOrderRequests();
   const { inventory, loading: inventoryLoading } = useInventory();
@@ -679,12 +681,18 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">訂貨管理</h1>
           <p className="text-sm text-muted-foreground">點擊卡片檢視詳細內容</p>
         </div>
-        {can('order.create') && (
-          <Button onClick={() => setShowRequestModal(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            訂貨請求
+        <div className="flex items-center gap-2">
+          {can('order.create') && (
+            <Button onClick={() => setShowRequestModal(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              訂貨請求
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => navigate("/inventory")}>
+            <Package className="h-4 w-4 mr-1.5" />
+            貨物表
           </Button>
-        )}
+        </div>
       </div>
 
       {/* 三欄：手機橫向滾動，桌面並排 */}

@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Clock, Loader2, Shield, Fingerprint, Key, MapPin, FileText, Inbox, ScanLine, Smartphone, Wifi } from 'lucide-react'
+import { Clock, Loader2, Shield, Fingerprint, Key, MapPin, FileText, Inbox, ScanLine, Smartphone, Wifi, RefreshCw, CheckCircle2, AlertCircle, XCircle } from 'lucide-react'
 import { WiFiClockIn } from '@/components/attendance/WiFiClockIn'
 import { useAuthStore } from '@/stores/auth'
 import { useAttendance } from '@/hooks/useSupabaseData'
@@ -15,6 +16,7 @@ import { CorrectionRequest } from '@/components/attendance/CorrectionRequest'
 import { CorrectionReview } from '@/components/attendance/CorrectionReview'
 
 export function AttendancePage() {
+  const navigate = useNavigate();
   const { user } = useAuthStore()
   const { attendance, loading, refetch, addAttendance, updateAttendance, getTodayAttendance } = useAttendance()
   const [todayAttendance, setTodayAttendance] = useState<any[]>([])
@@ -24,6 +26,10 @@ export function AttendancePage() {
   const [showCorrection, setShowCorrection] = useState(false)
   const [showReview, setShowReview] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
+  const [showDeviceModal, setShowDeviceModal] = useState(false)
+  const [deviceIp, setDeviceIp] = useState('')
+  const [deviceLastUpdate, setDeviceLastUpdate] = useState('')
+  const [deviceLoading, setDeviceLoading] = useState(false)
 
   const canManage = user?.role === 'owner' || user?.role === 'manager'
 
@@ -63,11 +69,31 @@ export function AttendancePage() {
     )
   }
 
+  const fetchDeviceStatus = useCallback(async () => {
+    if (!user?.restaurant_id) return;
+    setDeviceLoading(true);
+    try {
+      const res = await fetch(`/api/attendance/store/ip?restaurant_id=${user.restaurant_id}`);
+      const json = await res.json();
+      if (json.success) { setDeviceIp(json.data.public_ip); setDeviceLastUpdate(json.data.last_update); }
+      else { setDeviceIp(''); }
+    } catch { setDeviceIp(''); }
+    finally { setDeviceLoading(false); }
+  }, [user?.restaurant_id]);
+
+  useEffect(() => { if (showDeviceModal) fetchDeviceStatus(); }, [showDeviceModal, fetchDeviceStatus]);
+
   return (
     <div className="p-3 md:p-6 space-y-6">
-      <div>
-        <h1 className="text-xl md:text-3xl font-bold text-gray-900">打卡系統</h1>
-        <p className="text-sm text-gray-500 mt-1">員工上下班安全打卡記錄</p>
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-xl md:text-3xl font-bold text-gray-900">打卡系統</h1>
+          <p className="text-sm text-gray-500 mt-1">員工上下班安全打卡記錄</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => navigate('/attendance-device')}>
+          <Smartphone className="w-4 h-4 mr-1.5" />
+          打卡裝置
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
