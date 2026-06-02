@@ -425,6 +425,10 @@ export const ALL_PERMISSIONS = {
   // 系统设置
   'setting.view': '查看設定',
   'setting.manage': '管理設定',
+
+  // 收支管理（新增）
+  'safe.view': '查看保險箱',
+  'safe.manage': '管理保險箱（月度核對）',
 } as const
 
 export type PermissionKey = keyof typeof ALL_PERMISSIONS

@@ -50,8 +50,6 @@ export function HRPage() {
   const [pendingItems, setPendingItems] = useState<any[]>([])
   const [showPending, setShowPending] = useState(false)
 
-  const canManage = user?.role === 'owner' || user?.role === 'manager'
-
   // === Employee CRUD ===
   const [showEmpModal, setShowEmpModal] = useState(false)
   const [editingEmp, setEditingEmp] = useState<Employee | null>(null)
@@ -83,8 +81,8 @@ export function HRPage() {
   }, [user?.restaurant_id])
 
   useEffect(() => {
-    if (canManage) fetchPending()
-  }, [canManage, fetchPending])
+    if (can('attendance.manage') || can('schedule.manage')) fetchPending()
+  }, [activeTab, fetchPending])
 
   const handleApproveCorrection = async (id: string) => {
     await supabase.from('attendance_corrections').update({ status: 'approved', reviewed_by: user?.id, reviewed_at: new Date().toISOString() }).eq('id', id)
@@ -118,7 +116,7 @@ export function HRPage() {
   }
 
   const handleDateClick = (date: Date) => {
-    if (!canManage) return
+    if (!can('schedule.manage')) return
     const dateStr = format(date, 'yyyy-MM-dd')
     setSelectedDate(dateStr)
     // Build current selections for the date
@@ -248,7 +246,7 @@ export function HRPage() {
         </div>
         <div className="flex items-center gap-2">
           {/* Pending approvals */}
-          {canManage && (
+          {(can('attendance.manage') || can('schedule.manage')) && (
             <div className="relative">
               <Button variant="outline" size="sm" onClick={() => setShowPending(!showPending)}>
                 <FileCheck className="h-4 w-4 mr-1.5" />
@@ -282,7 +280,7 @@ export function HRPage() {
               )}
             </div>
           )}
-          {canManage && activeTab === 'employees' && (
+          {can('employee.manage') && activeTab === 'employees' && (
             <Button size="sm" onClick={handleOpenAddEmp}>
               <Plus className="h-4 w-4 mr-1.5" />新增員工
             </Button>
@@ -354,9 +352,9 @@ export function HRPage() {
                     return (
                       <div
                         key={day.toISOString()}
-                        className={`min-h-[80px] rounded-lg border p-1.5 ${today ? 'bg-blue-50 border-blue-200' : 'border-gray-100'} ${canManage ? 'cursor-pointer hover:bg-gray-50 hover:ring-1 hover:ring-gray-300' : ''}`}
+                        className={`min-h-[80px] rounded-lg border p-1.5 ${today ? 'bg-blue-50 border-blue-200' : 'border-gray-100'} ${can('schedule.manage') ? 'cursor-pointer hover:bg-gray-50 hover:ring-1 hover:ring-gray-300' : ''}`}
                         onClick={() => handleDateClick(day)}
-                        onContextMenu={(e) => { if (canManage) { e.preventDefault(); handleDateClick(day) } }}
+                        onContextMenu={(e) => { if (can('schedule.manage')) { e.preventDefault(); handleDateClick(day) } }}
                       >
                         <div className={`text-xs font-semibold mb-1 ${today ? 'text-blue-700' : 'text-gray-700'}`}>
                           {format(day, 'd')}
@@ -472,7 +470,7 @@ export function HRPage() {
                       <th className="text-left px-4 py-2.5 font-medium text-gray-600 text-xs">薪資類型</th>
                       <th className="text-left px-4 py-2.5 font-medium text-gray-600 text-xs">薪資</th>
                       <th className="text-left px-4 py-2.5 font-medium text-gray-600 text-xs">狀態</th>
-                      {canManage && <th className="text-right px-4 py-2.5 font-medium text-gray-600 text-xs">操作</th>}
+                      {can('employee.manage') && <th className="text-right px-4 py-2.5 font-medium text-gray-600 text-xs">操作</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -493,7 +491,7 @@ export function HRPage() {
                             {emp.is_active ? '在職' : '離職'}
                           </span>
                         </td>
-                        {canManage && (
+                        {can('employee.manage') && (
                           <td className="px-4 py-2.5 text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button onClick={() => handleOpenEditEmp(emp)} className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700">
@@ -511,7 +509,7 @@ export function HRPage() {
                     ))}
                     {employees.length === 0 && (
                       <tr>
-                        <td colSpan={canManage ? 6 : 5} className="text-center py-12 text-sm text-gray-400">暫無員工資料</td>
+                        <td colSpan={can('employee.manage') ? 6 : 5} className="text-center py-12 text-sm text-gray-400">暫無員工資料</td>
                       </tr>
                     )}
                   </tbody>

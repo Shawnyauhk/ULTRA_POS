@@ -818,12 +818,16 @@ export default function ExpensesPage() {
         <div className="flex gap-1 bg-gray-100 p-1 rounded-lg self-start md:self-auto flex-wrap">
           <Button variant={activeTab === 'expenses' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('expenses')}>門店支出</Button>
           <Button variant={activeTab === 'settlement' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('settlement')}>每日結算</Button>
-          <Button variant={activeTab === 'cash_settlement' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('cash_settlement')}>
-            <DollarSign className="w-3.5 h-3.5 mr-1" />現金日結
-          </Button>
-          <Button variant={activeTab === 'safe' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('safe')}>
-            <ShieldCheck className="w-3.5 h-3.5 mr-1" />保險箱
-          </Button>
+          {can('expense.manage') && (
+            <Button variant={activeTab === 'cash_settlement' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('cash_settlement')}>
+              <DollarSign className="w-3.5 h-3.5 mr-1" />現金日結
+            </Button>
+          )}
+          {can('safe.view') && (
+            <Button variant={activeTab === 'safe' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('safe')}>
+              <ShieldCheck className="w-3.5 h-3.5 mr-1" />保險箱
+            </Button>
+          )}
         </div>
       </div>
 
