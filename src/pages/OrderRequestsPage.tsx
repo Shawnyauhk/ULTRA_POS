@@ -52,13 +52,17 @@ export function OrderRequestsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [completedExpanded, setCompletedExpanded] = useState(false);
 const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
-  const [touchDragOrder, setTouchDragOrder] = useState<OrderRequest | null>(null);
-  const [touchDragPos, setTouchDragPos] = useState({ x: 0, y: 0 });
-  const [touchDragOverCol, setTouchDragOverCol] = useState<ColumnType | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragState, setDragState] = useState<{
+    order: OrderRequest;
+    x: number;
+    y: number;
+    overCol: ColumnType | null;
+    originCol: ColumnType;
+  } | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout>>();
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
-  const columnRects = useRef<Map<ColumnType, DOMRect>>(new Map());
 
   // 簽收 Modal state
   const [showSignModal, setShowSignModal] = useState(false);
@@ -124,25 +128,34 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   // =========== 手機觸控拖拽 ===========
   const LONG_PRESS_MS = 300;
   const handleTouchStart = (order: OrderRequest, e: React.TouchEvent) => {
+    e.preventDefault(); // 阻止文字選擇
     const touch = e.touches[0];
     longPressTimer.current = setTimeout(() => {
-      setTouchDragOrder(order);
-      setTouchDragPos({ x: touch.clientX, y: touch.clientY });
+      const originCol = getOrderColumn(order);
+      setDragState({ order, x: touch.clientX, y: touch.clientY, overCol: originCol, originCol });
+      setIsDragging(true);
+      setExpandedOrder(null);
       document.body.style.overflow = 'hidden';
+      document.body.style.userSelect = 'none';
     }, LONG_PRESS_MS);
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchDragOrder) {
-      if (longPressTimer.current) {
-        clearTimeout(longPressTimer.current);
-        longPressTimer.current = undefined;
-      }
-      return;
+    // 滑動時清除長按計時器（區分「滑動」與「長按後拖曳」）
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = undefined;
     }
-    e.preventDefault();
+
+    if (!dragState) return;
+
+    e.preventDefault(); // 阻止滾動
     const touch = e.touches[0];
-    setTouchDragPos({ x: touch.clientX, y: touch.clientY });
+
+    // 更新浮起卡片位置
+    setDragState(prev => prev ? { ...prev, x: touch.clientX, y: touch.clientY } : null);
+
+    // 偵測當前在哪一欄
     if (containerRef.current) {
       const colEls = containerRef.current.children;
       let found: ColumnType | null = null;
@@ -154,31 +167,30 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
           break;
         }
       }
-      setTouchDragOverCol(found);
+      setDragState(prev => prev ? { ...prev, overCol: found } : null);
     }
   };
 
   const handleTouchEnd = async () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = undefined;
-    }
+    clearTimeout(longPressTimer.current);
+    longPressTimer.current = undefined;
     document.body.style.overflow = '';
-    if (touchDragOrder && touchDragOverCol) {
-      const currentCol = getOrderColumn(touchDragOrder);
-      if (currentCol !== touchDragOverCol) {
-        setUpdating(touchDragOrder.id);
-        await updateOrderRequestStatus(touchDragOrder.id, dropStatusMap[touchDragOverCol]);
-        setUpdating(null);
-      }
+    document.body.style.userSelect = '';
+
+    if (dragState?.overCol && dragState.overCol !== dragState.originCol) {
+      setUpdating(dragState.order.id);
+      await updateOrderRequestStatus(dragState.order.id, dropStatusMap[dragState.overCol]);
+      setUpdating(null);
     }
-    setTouchDragOrder(null);
-    setTouchDragPos({ x: 0, y: 0 });
-    setTouchDragOverCol(null);
+    setDragState(null);
+    setIsDragging(false);
   };
 
   useEffect(() => {
-    return () => { document.body.style.overflow = ''; };
+    return () => {
+      document.body.style.overflow = '';
+      document.body.style.userSelect = '';
+    };
   }, []);
 
   const getStatusLabel = (status: OrderRequestStatus): string => {
@@ -536,7 +548,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     const borderColor = colType === 'request' ? 'border-red-200' : colType === 'pending' ? 'border-yellow-200' : 'border-green-200';
     return (
       <div
-        className={`rounded-xl p-2 md:p-3 transition-all duration-200 min-w-[155px] flex-shrink-0 md:min-w-0 ${bgColor} ${touchDragOrder && touchDragOverCol === colType ? 'ring-2 ring-indigo-400 bg-indigo-50/50 scale-[1.02]' : ''}`}
+        className={`rounded-xl p-2 md:p-3 transition-all duration-200 min-w-[155px] flex-shrink-0 md:min-w-0 ${bgColor} ${dragState?.overCol === colType ? 'ring-2 ring-indigo-400 bg-indigo-50/50 scale-[1.02]' : ''}`}
         onDragOver={handleDragOver}
         onDrop={(e) => handleDrop(e, dropStatusMap[colType])}
       >
@@ -556,7 +568,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
               const isExpanded = expandedOrder === order.id;
               const statusLabel = getStatusLabel(order.status);
               return (
-                <Card key={order.id} ref={el => { if (el) cardRefs.current.set(order.id, el); }} className={`overflow-hidden select-none transition-all duration-200 ${borderColor} ${isExpanded ? 'border-primary/50 ring-1 ring-primary/20' : ''} ${touchDragOrder?.id === order.id ? 'shadow-2xl scale-[1.03] ring-2 ring-indigo-400/40 z-50 relative' : 'hover:shadow-md active:scale-[1.01]'}`} draggable onDragStart={(e) => handleDragStart(e, order)} onTouchStart={(e) => handleTouchStart(order, e)} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+                <Card key={order.id} ref={el => { if (el) cardRefs.current.set(order.id, el); }} className={`overflow-hidden select-none transition-all duration-200 ${borderColor} ${isExpanded ? 'border-primary/50 ring-1 ring-primary/20' : ''} ${dragState?.order.id === order.id ? 'opacity-40 scale-95' : ''} ${isDragging && dragState?.order.id === order.id ? 'shadow-2xl scale-[1.03] ring-2 ring-indigo-400 z-50 relative' : 'hover:shadow-md active:scale-[1.01]'}`} onTouchStart={(e) => handleTouchStart(order, e)} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
                   <div
                     className="p-2.5 cursor-pointer hover:bg-gray-50/60 transition-colors"
                     onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
@@ -768,6 +780,24 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
         {renderColumn('待處理', 'pending', <Clock className="w-5 h-5 text-yellow-500"/>, 'bg-yellow-50')}
         {renderColumn('已送到', 'received', <PackageCheck className="w-5 h-5 text-green-500"/>, 'bg-green-50')}
       </div>
+
+      {/* 浮起的拖拽卡片克隆 */}
+      {dragState && (
+        <div
+          className="fixed pointer-events-none z-50 transition-all duration-150"
+          style={{
+            left: dragState.x - 100,
+            top: dragState.y - 30,
+            width: 200,
+          }}
+        >
+          <Card className="shadow-2xl scale-[1.03] ring-2 ring-indigo-400 rotate-1 opacity-95 bg-white">
+            <div className="p-2.5 text-sm font-medium text-gray-800 truncate">
+              {dragState.order.items?.[0]?.inventory?.name || dragState.order.notes || '未知貨物'}
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* 已完成區（可折疊） */}
       {renderCompletedSection()}
