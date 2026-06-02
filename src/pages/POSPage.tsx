@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Camera, ShoppingCart, MessageSquare, Plus, Minus, Globe, ChevronRight, X, Loader2, Package, CheckCircle2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';import { Camera, ShoppingCart, MessageSquare, Plus, Minus, Globe, ChevronRight, X, Loader2, Package, CheckCircle2, Coffee } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useProducts, useOrders, useInventory } from '@/hooks/useSupabaseData';
 import { useRealtimeInventory } from '@/hooks/useRealtime';
 import type { Product } from '@/types';
 
 export function POSPage() {
+  const navigate = useNavigate();
   const [lang, setLang] = useState<'zh' | 'en'>('zh');
   
   // Order State
@@ -212,6 +213,10 @@ ${products.map(p => `- ${p.name} ($${p.price})`).join('\n')}
           <p className="text-sm text-muted-foreground">{lang === 'zh' ? '支援多模態點餐與快速客製化' : 'Multimodal Ordering & Customization'}</p>
         </div>
         <div className="flex gap-4 items-center">
+          <Button variant="outline" size="sm" onClick={() => navigate('/products')}>
+            <Coffee className="w-4 h-4 mr-1.5" />
+            管理產品
+          </Button>
           <Button variant="outline" size="icon" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}>
             <Globe className="w-4 h-4" />
           </Button>
