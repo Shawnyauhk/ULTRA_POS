@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth';
 import { apiFetch } from '@/lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Wifi, WifiOff, RefreshCw, Users, Clock, Calendar, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Loader2, Wifi, WifiOff, RefreshCw, Users, Clock, Calendar, CheckCircle2, AlertCircle, ArrowLeft, Lock, Unlock } from 'lucide-react';
 
 export default function AttendanceDevicePage() {
+  const navigate = useNavigate();
   const { user } = useAuthStore();
   const [deviceIp, setDeviceIp] = useState('');
   const [lastReport, setLastReport] = useState<Date | null>(null);
@@ -15,6 +17,7 @@ export default function AttendanceDevicePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [now, setNow] = useState(new Date());
+  const [ipLocked, setIpLocked] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval>>();
 
   const restaurantId = user?.restaurant_id;
@@ -27,7 +30,7 @@ export default function AttendanceDevicePage() {
 
   // 上報門店 IP
   const reportStoreIp = useCallback(async () => {
-    if (!restaurantId) return;
+    if (!restaurantId || ipLocked) return;
     setReportStatus('reporting');
     try {
       const res = await apiFetch('/api/attendance/store/update-ip', {
@@ -45,7 +48,7 @@ export default function AttendanceDevicePage() {
     } catch {
       setReportStatus('error');
     }
-  }, [restaurantId]);
+  }, [restaurantId, ipLocked]);
 
   // 載入今日打卡記錄
   const loadToday = useCallback(async () => {
@@ -87,27 +90,35 @@ export default function AttendanceDevicePage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-50 flex flex-col">
       {/* 頂部時間條 */}
-      <header className="bg-white shadow-sm border-b px-6 py-3 flex items-center justify-between">
+      <header className="bg-white shadow-sm border-b px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
+          <button onClick={() => navigate(-1)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">
+            <ArrowLeft className="w-5 h-5" />
+          </button>
           <Clock className="w-5 h-5 text-blue-600" />
           <span className="text-lg font-semibold text-gray-800">{timeStr}</span>
-          <span className="text-sm text-gray-500">{dateStr}</span>
+          <span className="text-sm text-gray-500 hidden md:inline">{dateStr}</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIpLocked(!ipLocked)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              ipLocked ? 'bg-red-50 text-red-700 hover:bg-red-100' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {ipLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+            {ipLocked ? '已鎖定' : '未鎖定'}
+          </button>
           {reportStatus === 'success' ? (
-            <span className="flex items-center gap-1 text-sm text-green-600">
-              <CheckCircle2 className="w-4 h-4" /> 已上報 {lastReportStr}
+            <span className="hidden md:flex items-center gap-1 text-sm text-green-600">
+              <CheckCircle2 className="w-4 h-4" /> {lastReportStr}
             </span>
           ) : reportStatus === 'error' ? (
-            <span className="flex items-center gap-1 text-sm text-red-500">
-              <AlertCircle className="w-4 h-4" /> 上報失敗
-            </span>
-          ) : reportStatus === 'reporting' ? (
-            <span className="flex items-center gap-1 text-sm text-blue-500">
-              <Loader2 className="w-4 h-4 animate-spin" /> 上報中...
+            <span className="hidden md:flex items-center gap-1 text-sm text-red-500">
+              <AlertCircle className="w-4 h-4" /> 失敗
             </span>
           ) : null}
-          <Button variant="ghost" size="sm" onClick={reportStoreIp}>
+          <Button variant="ghost" size="sm" onClick={() => { if (!ipLocked) reportStoreIp(); }} disabled={ipLocked} title={ipLocked ? '解鎖後才能更新 IP' : '手動更新 IP'}>
             <RefreshCw className="w-4 h-4" />
           </Button>
         </div>
@@ -173,7 +184,7 @@ export default function AttendanceDevicePage() {
             </div>
 
             <p className="text-xs text-gray-400 text-center">
-              自動每 30 秒上報一次 IP · 員工無需掃碼，連 WiFi 即可打卡
+              {ipLocked ? '🔒 IP 已鎖定，不會被其他裝置篡改' : '每 30 秒自動上報 IP · 連 WiFi 即可打卡'}
             </p>
           </CardContent>
         </Card>
@@ -243,7 +254,7 @@ export default function AttendanceDevicePage() {
 
       {/* 底部操作提示 */}
       <footer className="bg-white border-t px-6 py-3 text-center text-sm text-gray-400">
-        將此裝置放在店鋪，保持開機並連上 WiFi · 員工用自己的手機打開打卡頁面即可一鍵打卡
+        {ipLocked ? '🔒 IP 已鎖定 · 僅此裝置可管理門店 IP' : '將此裝置放在店鋪連上 WiFi · 員工用手機即可打卡'}
       </footer>
     </div>
   );
