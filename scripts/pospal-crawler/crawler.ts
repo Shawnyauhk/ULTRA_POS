@@ -876,9 +876,9 @@ class PospalCrawler {
     if (!this.page) return null;
     try {
       const text = await this.page.evaluate(() => document.body?.innerText || '');
-      const keywords = ['密码错误', '账号不存在', '验证码', '驗證碼', '錯誤', 'error'];
+      const keywords = ['密码错误', '账号不存在', '验证码', '驗證碼', '錯誤', 'error', '未授權', '未授权', '無權限', '无权限'];
       for (const kw of keywords) {
-        if (text.includes(kw)) return kw;
+        if (text.includes(kw)) return `頁面顯示「${kw}」`;
       }
     } catch { }
     return null;

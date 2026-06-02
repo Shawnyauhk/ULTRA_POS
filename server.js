@@ -343,6 +343,7 @@ app.post('/api/whatsapp/test-send', async (req, res) => {
 
 // WhatsApp 認證（掃碼登入）
 const wacliPath = process.env.WACLI_PATH || 'wacli';
+let activeWacliAuth = null; // 保持 wacli 程序存活
 
 app.post('/api/whatsapp/auth-qr', async (req, res) => {
   try {
@@ -355,6 +356,7 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
       }
     }
 
+    // 先檢查是否已認證
     const statusResult = spawnSync(wacliPath, ['auth', 'status', '--json'], { encoding: 'utf-8', timeout: 10000 });
     if (statusResult.status === 0) {
       try {
@@ -369,10 +371,13 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
     const sessionDir = resolve('/tmp', 'wacli-session');
     try { mkdirSync(sessionDir, { recursive: true }); } catch {}
 
+    // detached: true 確保程序在 HTTP 回應後不會被殺掉
     const authProcess = spawn(wacliPath, ['auth', '--events', '--json', '--timeout', '120s', '--session-dir', sessionDir], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 125000,
+      detached: true,
     });
+    authProcess.unref(); // 不阻塞程序退出
+    activeWacliAuth = authProcess;
 
     let qrCode = '';
     let stderrBuf = '';
@@ -391,6 +396,14 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
       }
     });
 
+    authProcess.on('exit', (code) => {
+      console.log(`[wacli] 認證程序退出, code=${code}`);
+      if (code !== 0 && code !== null) {
+        stderrBuf += `\n[程序退出 code=${code}]`;
+      }
+      activeWacliAuth = null;
+    });
+
     let elapsed = 0;
     while (elapsed < 25000 && !qrCode) {
       await new Promise(r => setTimeout(r, 300));
@@ -399,10 +412,13 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
 
     if (!qrCode) {
       authProcess.kill();
+      activeWacliAuth = null;
       const hint = stderrBuf.includes('chromium') || stderrBuf.includes('browser') 
         ? 'wacli 需搭配瀏覽器環境，可能需要在 Render 安裝額外套件' 
+        : stderrBuf.includes('connect') || stderrBuf.includes('ECONNREFUSED')
+        ? '伺服器無法連接到 WhatsApp，請檢查 Render 網絡設定是否允許對外連接'
         : '請確認伺服器上的 wacli 版本正確 (v0.11.0) 且可使用';
-      return res.json({ success: false, message: `無法取得 QR Code (${hint})` });
+      return res.json({ success: false, message: `無法取得 QR Code (${hint})`, debug: stderrBuf.slice(0, 500) });
     }
 
     const qrUrl = `https://web.whatsapp.com/?code=${qrCode}`;
