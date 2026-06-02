@@ -1307,8 +1307,14 @@ app.post('/api/settlements/sync', requirePermission('expense.manage'), async (re
       cwd: crawlerPath,
       stdio: 'pipe',
       shell: true,
-      timeout: 120000, // 2分钟超时
+      timeout: 120000,
       encoding: 'utf-8',
+      env: {
+        ...process.env,
+        PUPPETEER_EXECUTABLE_PATH: '/usr/bin/chromium-browser',
+        CHROMIUM_PATH: '/usr/bin/chromium-browser',
+        CRAWLER_HEADLESS: 'true',
+      },
     });
 
     const output = (result.stdout || '') + (result.stderr || '');
@@ -2075,7 +2081,12 @@ async function runPospalCrawler(dateStr) {
       shell: true,
       timeout: 120000,
       encoding: 'utf-8',
-      env: { ...process.env, CHROMIUM_PATH: '/usr/bin/chromium-browser', PUPPETEER_EXECUTABLE_PATH: '/usr/bin/chromium-browser' },
+      env: {
+        ...process.env,
+        PUPPETEER_EXECUTABLE_PATH: '/usr/bin/chromium-browser',
+        CHROMIUM_PATH: '/usr/bin/chromium-browser',
+        CRAWLER_HEADLESS: 'true',
+      },
     });
 
     const jsonPath = resolve(CRAWLER_DIR, 'logs', `${dateStr}.json`);
