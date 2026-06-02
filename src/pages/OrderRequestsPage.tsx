@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -52,6 +52,13 @@ export function OrderRequestsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [completedExpanded, setCompletedExpanded] = useState(false);
 const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
+  const [touchDragOrder, setTouchDragOrder] = useState<OrderRequest | null>(null);
+  const [touchDragPos, setTouchDragPos] = useState({ x: 0, y: 0 });
+  const [touchDragOverCol, setTouchDragOverCol] = useState<ColumnType | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout>>();
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const containerRef = useRef<HTMLDivElement>(null);
+  const columnRects = useRef<Map<ColumnType, DOMRect>>(new Map());
 
   // 簽收 Modal state
   const [showSignModal, setShowSignModal] = useState(false);
@@ -113,6 +120,66 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     }
     setDraggedOrder(null);
   };
+
+  // =========== 手機觸控拖拽 ===========
+  const LONG_PRESS_MS = 300;
+  const handleTouchStart = (order: OrderRequest, e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    longPressTimer.current = setTimeout(() => {
+      setTouchDragOrder(order);
+      setTouchDragPos({ x: touch.clientX, y: touch.clientY });
+      document.body.style.overflow = 'hidden';
+    }, LONG_PRESS_MS);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchDragOrder) {
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = undefined;
+      }
+      return;
+    }
+    e.preventDefault();
+    const touch = e.touches[0];
+    setTouchDragPos({ x: touch.clientX, y: touch.clientY });
+    if (containerRef.current) {
+      const colEls = containerRef.current.children;
+      let found: ColumnType | null = null;
+      for (let i = 0; i < colEls.length; i++) {
+        const rect = colEls[i].getBoundingClientRect();
+        if (touch.clientX >= rect.left && touch.clientX <= rect.right) {
+          const colMap: ColumnType[] = ['request', 'pending', 'received'];
+          found = colMap[i] || null;
+          break;
+        }
+      }
+      setTouchDragOverCol(found);
+    }
+  };
+
+  const handleTouchEnd = async () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = undefined;
+    }
+    document.body.style.overflow = '';
+    if (touchDragOrder && touchDragOverCol) {
+      const currentCol = getOrderColumn(touchDragOrder);
+      if (currentCol !== touchDragOverCol) {
+        setUpdating(touchDragOrder.id);
+        await updateOrderRequestStatus(touchDragOrder.id, dropStatusMap[touchDragOverCol]);
+        setUpdating(null);
+      }
+    }
+    setTouchDragOrder(null);
+    setTouchDragPos({ x: 0, y: 0 });
+    setTouchDragOverCol(null);
+  };
+
+  useEffect(() => {
+    return () => { document.body.style.overflow = ''; };
+  }, []);
 
   const getStatusLabel = (status: OrderRequestStatus): string => {
     const labels: Record<OrderRequestStatus, string> = {
@@ -469,7 +536,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     const borderColor = colType === 'request' ? 'border-red-200' : colType === 'pending' ? 'border-yellow-200' : 'border-green-200';
     return (
       <div
-        className={`rounded-xl p-2 md:p-3 transition-colors min-w-[155px] flex-shrink-0 md:min-w-0 ${bgColor}`}
+        className={`rounded-xl p-2 md:p-3 transition-all duration-200 min-w-[155px] flex-shrink-0 md:min-w-0 ${bgColor} ${touchDragOrder && touchDragOverCol === colType ? 'ring-2 ring-indigo-400 bg-indigo-50/50 scale-[1.02]' : ''}`}
         onDragOver={handleDragOver}
         onDrop={(e) => handleDrop(e, dropStatusMap[colType])}
       >
@@ -489,7 +556,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
               const isExpanded = expandedOrder === order.id;
               const statusLabel = getStatusLabel(order.status);
               return (
-                <Card key={order.id} className={`overflow-hidden ${borderColor} ${isExpanded ? 'border-primary/50 ring-1 ring-primary/20' : ''}`} draggable onDragStart={(e) => handleDragStart(e, order)}>
+                <Card key={order.id} ref={el => { if (el) cardRefs.current.set(order.id, el); }} className={`overflow-hidden select-none transition-all duration-200 ${borderColor} ${isExpanded ? 'border-primary/50 ring-1 ring-primary/20' : ''} ${touchDragOrder?.id === order.id ? 'shadow-2xl scale-[1.03] ring-2 ring-indigo-400/40 z-50 relative' : 'hover:shadow-md active:scale-[1.01]'}`} draggable onDragStart={(e) => handleDragStart(e, order)} onTouchStart={(e) => handleTouchStart(order, e)} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
                   <div
                     className="p-2.5 cursor-pointer hover:bg-gray-50/60 transition-colors"
                     onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
@@ -696,7 +763,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
       </div>
 
       {/* 三欄：手機橫向滾動，桌面並排 */}
-      <div className="flex overflow-x-auto gap-2 pb-3 md:grid md:grid-cols-3 md:overflow-visible md:gap-3">
+      <div ref={containerRef} className="flex overflow-x-auto gap-2 pb-3 md:grid md:grid-cols-3 md:overflow-visible md:gap-3">
         {renderColumn('員工請求', 'request', <AlertCircle className="w-5 h-5 text-red-500"/>, 'bg-red-50')}
         {renderColumn('待處理', 'pending', <Clock className="w-5 h-5 text-yellow-500"/>, 'bg-yellow-50')}
         {renderColumn('已送到', 'received', <PackageCheck className="w-5 h-5 text-green-500"/>, 'bg-green-50')}
