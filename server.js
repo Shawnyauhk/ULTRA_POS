@@ -271,40 +271,42 @@ async function getWhatsAppSettings(restaurantId) {
   return { sender, admin };
 }
 
+/** 發送 WhatsApp 到單一號碼 */
+function sendWhatsApp(wacliPath, target, message, sender) {
+  const args = ['send', 'text', '--to', target, '--message', message];
+  if (sender) args.splice(1, 0, '--from', sender);
+  return spawnSync(wacliPath, args, { encoding: 'utf-8', timeout: 20000 });
+}
+
+/** 解析多行號碼（每行一個） */
+function parseNumbers(str) {
+  return (str || '').split('\n').map(s => s.trim()).filter(Boolean);
+}
+
 app.post('/api/whatsapp/notify-order', async (req, res) => {
   try {
     const { employeeName, items, restaurant_id } = req.body;
-
-    // 從 Supabase settings 或 .env 讀取號碼
     const { sender, admin } = await getWhatsAppSettings(restaurant_id);
     const wacliPath = process.env.WACLI_PATH || 'wacli';
+    const numbers = parseNumbers(admin);
 
-    if (!admin) {
+    if (numbers.length === 0) {
       return res.json({ success: false, message: '未設定管理員 WhatsApp 號碼，請在設定頁面配置' });
     }
 
-    // 組裝訊息
     const itemList = items.map(i => `• ${i.name} × ${i.quantity}`).join('\n');
     const message = `🔔 新訂貨通知\n\n員工：${employeeName}\n\n項目：\n${itemList}\n\n請登入系統處理。`;
-
-    // 限制訊息長度
     const truncatedMsg = message.length > 1000 ? message.slice(0, 997) + '...' : message;
 
-    // 如果設定了 sender (店舖號碼)，使用 --from 參數
-    const wacliArgs = ['send', 'text', '--to', admin, '--message', truncatedMsg];
-    if (sender) {
-      wacliArgs.splice(1, 0, '--from', sender);
+    let successCount = 0;
+    for (const num of numbers) {
+      const result = sendWhatsApp(wacliPath, num, truncatedMsg, sender);
+      if (result.status === 0) successCount++;
+      else console.error(`❌ 發送給 ${num} 失敗:`, result.stderr || result.stdout);
     }
 
-    const result = spawnSync(wacliPath, wacliArgs, { encoding: 'utf-8', timeout: 20000 });
-
-    if (result.status !== 0) {
-      console.error('❌ WhatsApp 發送失敗:', result.stderr || result.stdout);
-      return res.json({ success: false, message: '發送失敗: ' + (result.stderr || result.stdout || '未知錯誤') });
-    }
-
-    console.log('✅ WhatsApp 通知發送成功');
-    res.json({ success: true, message: '通知已發送' });
+    console.log(`✅ WhatsApp 通知已發送給 ${successCount}/${numbers.length} 人`);
+    res.json({ success: successCount > 0, message: `已發送給 ${successCount}/${numbers.length} 個管理員` });
   } catch (error) {
     console.error('❌ WhatsApp 發送失敗:', error.message);
     res.json({ success: false, message: error.message });
@@ -315,30 +317,24 @@ app.post('/api/whatsapp/notify-order', async (req, res) => {
 app.post('/api/whatsapp/test-send', async (req, res) => {
   try {
     const { restaurant_id, sender, admin } = req.body;
+    const wacliPath = process.env.WACLI_PATH || 'wacli';
+    const numbers = parseNumbers(admin);
 
-    if (!admin) {
+    if (numbers.length === 0) {
       return res.json({ success: false, message: '請先填寫接收號碼' });
     }
 
-    const wacliPath = process.env.WACLI_PATH || 'wacli';
-
     const message = '🧪 ULTRA POS WhatsApp 通知測試\n\n如果你收到這條訊息，表示 WhatsApp 通知設定正確！';
 
-    const wacliArgs = ['send', 'text', '--to', admin, '--message', message];
-    if (sender) {
-      wacliArgs.splice(1, 0, '--from', sender);
+    let successCount = 0;
+    for (const num of numbers) {
+      const result = sendWhatsApp(wacliPath, num, message, sender);
+      if (result.status === 0) successCount++;
+      else console.error(`❌ 測試發送給 ${num} 失敗:`, result.stderr || result.stdout);
     }
 
-    const result = spawnSync(wacliPath, wacliArgs, { encoding: 'utf-8', timeout: 20000 });
-
-    if (result.status !== 0) {
-      const errMsg = result.stderr || result.stdout || '未知錯誤';
-      console.error('❌ WhatsApp 測試發送失敗:', errMsg);
-      return res.json({ success: false, message: '發送失敗: ' + errMsg });
-    }
-
-    console.log('✅ WhatsApp 測試發送成功');
-    res.json({ success: true, message: '測試訊息已發送到 ' + admin });
+    console.log(`✅ WhatsApp 測試發送成功 (${successCount}/${numbers.length})`);
+    res.json({ success: successCount > 0, message: `測試訊息已發送給 ${successCount}/${numbers.length} 個號碼` });
   } catch (error) {
     console.error('❌ WhatsApp 測試發送失敗:', error.message);
     res.json({ success: false, message: error.message });

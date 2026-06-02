@@ -33,6 +33,25 @@ const PERMISSION_GROUPS: { group: string; permissions: PermissionKey[] }[] = [
   { group: '系統設置', permissions: ['setting.view', 'setting.manage'] },
 ];
 
+function SectionCard({ id, icon, title, badge, expandedSection, onToggle, children }: {
+  id: string; icon: React.ReactNode; title: string; badge: string;
+  expandedSection: string | null; onToggle: (id: string) => void; children: React.ReactNode;
+}) {
+  const isOpen = expandedSection === id;
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <button onClick={() => onToggle(id)} className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left">
+        <div className="flex items-center gap-3 min-w-0">
+          {icon}<span className="font-medium text-gray-800">{title}</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 whitespace-nowrap">{badge}</span>
+        </div>
+        {isOpen ? <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />}
+      </button>
+      {isOpen && <div className="px-5 pb-5">{children}</div>}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { can } = usePermission();
   const { settings, loading, refetch, getSetting, updateSetting } = useSettings();
@@ -213,22 +232,6 @@ export default function SettingsPage() {
 
   const toggleSection = (id: string) => setExpandedSection(prev => prev === id ? null : id);
 
-  const SectionCard = ({ id, icon, title, badge, children }: { id: string; icon: React.ReactNode; title: string; badge: string; children: React.ReactNode }) => {
-    const isOpen = expandedSection === id;
-    return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <button onClick={() => toggleSection(id)} className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left">
-          <div className="flex items-center gap-3 min-w-0">
-            {icon}<span className="font-medium text-gray-800">{title}</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 whitespace-nowrap">{badge}</span>
-          </div>
-          {isOpen ? <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />}
-        </button>
-        {isOpen && <div className="px-5 pb-5">{children}</div>}
-      </div>
-    );
-  };
-
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -249,7 +252,7 @@ export default function SettingsPage() {
       <h1 className="text-xl md:text-2xl font-bold text-gray-900">系統設置</h1>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-        <SectionCard id="pospal" icon={<Key className="w-5 h-5 text-blue-500" />} title="POSPAL API 憑證" badge="餐廳系統">
+        <SectionCard id="pospal" icon={<Key className="w-5 h-5 text-blue-500" />} title="POSPAL API 憑證" badge="餐廳系統" expandedSection={expandedSection} onToggle={toggleSection}>
           <div className="space-y-4">
             <div><label className="block text-sm font-medium text-gray-700 mb-1">App ID</label>
               <input type="text" value={appId} onChange={e => setAppId(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="輸入 POSPAL App ID" disabled={saving} /></div>
@@ -258,7 +261,7 @@ export default function SettingsPage() {
           </div>
         </SectionCard>
 
-        <SectionCard id="location" icon={<MapPin className="w-5 h-5 text-red-500" />} title="店舖位置" badge="GPS">
+        <SectionCard id="location" icon={<MapPin className="w-5 h-5 text-red-500" />} title="店舖位置" badge="GPS" expandedSection={expandedSection} onToggle={toggleSection}>
           <div className="space-y-4">
             <p className="text-sm text-gray-500">設定店舖 GPS 座標，員工打卡時系統會自動檢查是否在店舖範圍內（200 公尺）。</p>
             <div className="grid grid-cols-2 gap-3">
@@ -271,7 +274,7 @@ export default function SettingsPage() {
           </div>
         </SectionCard>
 
-        <SectionCard id="storeIp" icon={<Wifi className="w-5 h-5 text-green-500" />} title="門店網絡 IP" badge="打卡">
+        <SectionCard id="storeIp" icon={<Wifi className="w-5 h-5 text-green-500" />} title="門店網絡 IP" badge="打卡" expandedSection={expandedSection} onToggle={toggleSection}>
           <div className="space-y-4">
             <p className="text-sm text-gray-500">設定門店的公網 IP，員工連上門店 WiFi 打卡時，系統會比對 IP 來確認是否在店內。</p>
             <div className={`p-4 rounded-lg text-sm ${storeIpSource !== 'none' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-yellow-50 text-yellow-700 border border-yellow-200'}`}>
@@ -289,7 +292,7 @@ export default function SettingsPage() {
           </div>
         </SectionCard>
 
-        <SectionCard id="whatsapp" icon={<MessageSquare className="w-5 h-5 text-green-500" />} title="WhatsApp 通知" badge="訂貨">
+        <SectionCard id="whatsapp" icon={<MessageSquare className="w-5 h-5 text-green-500" />} title="WhatsApp 通知" badge="訂貨" expandedSection={expandedSection} onToggle={toggleSection}>
           <div className="space-y-4">
             <p className="text-sm text-gray-500">設定訂貨通知的發送號碼和接收號碼。修改發送號碼前請先掃碼登入 WhatsApp。</p>
             <div className={`p-4 rounded-lg border ${wacliAuthState === 'done' ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
@@ -308,8 +311,8 @@ export default function SettingsPage() {
               <input type="text" value={whatsappSender} onChange={e => setWhatsappSender(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono" placeholder="+85298765432" disabled={senderDisabled || saving} />
               <p className="text-xs text-gray-400 mt-1">{senderDisabled ? '🔒 請先掃碼登入 WhatsApp 以啟用此欄位' : '用哪個 WhatsApp 帳號發送通知'}</p></div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1"><Smartphone className="w-4 h-4 inline mr-1 text-orange-500" />接收號碼（管理員 WhatsApp）</label>
-              <input type="text" value={whatsappAdmin} onChange={e => setWhatsappAdmin(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono" placeholder="+85291234567" disabled={saving} />
-              <p className="text-xs text-gray-400 mt-1">通知發送到哪個號碼</p></div>
+              <textarea value={whatsappAdmin} onChange={e => setWhatsappAdmin(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm" rows={3} placeholder="+85291234567&#10;+85298765432" disabled={saving} />
+              <p className="text-xs text-gray-400 mt-1">每行一個號碼，系統會同時通知所有管理員</p></div>
             <button onClick={handleTestWhatsApp} disabled={testSending || !whatsappSender || !whatsappAdmin} className="w-full py-2 px-4 border border-green-300 rounded-md text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 disabled:opacity-50 flex items-center justify-center gap-2">
               {testSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}{testSending ? '發送中...' : '測試發送 WhatsApp 通知'}
             </button>
@@ -317,7 +320,7 @@ export default function SettingsPage() {
           </div>
         </SectionCard>
 
-        <SectionCard id="ocr" icon={<Globe className="w-5 h-5 text-purple-500" />} title="AI OCR 模型" badge="掃描">
+        <SectionCard id="ocr" icon={<Globe className="w-5 h-5 text-purple-500" />} title="AI OCR 模型" badge="掃描" expandedSection={expandedSection} onToggle={toggleSection}>
           <div className="space-y-4">
             <p className="text-sm text-gray-500">設定門店支出收據掃描所使用的 AI 模型。</p>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">模型名稱</label>
@@ -334,7 +337,7 @@ export default function SettingsPage() {
         </SectionCard>
 
         {/* 權限設定 */}
-        <SectionCard id="permissions" icon={<Shield className="w-5 h-5 text-indigo-500" />} title="權限設定" badge="角色">
+        <SectionCard id="permissions" icon={<Shield className="w-5 h-5 text-indigo-500" />} title="權限設定" badge="角色" expandedSection={expandedSection} onToggle={toggleSection}>
           {permLoading ? (
             <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
           ) : (
