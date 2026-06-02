@@ -467,11 +467,11 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     const borderColor = colType === 'request' ? 'border-red-200' : colType === 'pending' ? 'border-yellow-200' : 'border-green-200';
     return (
       <div
-        className={`rounded-xl p-2 md:p-4 transition-colors min-w-[155px] flex-shrink-0 md:min-w-0 ${bgColor}`}
+        className={`rounded-xl p-2 md:p-3 transition-colors min-w-[155px] flex-shrink-0 md:min-w-0 ${bgColor}`}
         onDragOver={handleDragOver}
         onDrop={(e) => handleDrop(e, dropStatusMap[colType])}
       >
-        <div className="flex items-center justify-between mb-2 md:mb-3 px-1">
+        <div className="flex items-center justify-between mb-2 px-1">
           <h2 className="font-semibold text-sm md:text-base flex items-center gap-2">{icon} {title}</h2>
           <Badge variant="secondary" className="text-xs">{columnOrders.length}</Badge>
         </div>
@@ -673,8 +673,8 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   );
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div className="p-3 md:p-4 space-y-2 md:space-y-4">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">訂貨管理</h1>
           <p className="text-sm text-muted-foreground">點擊卡片檢視詳細內容</p>
@@ -688,7 +688,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
       </div>
 
       {/* 三欄：手機橫向滾動，桌面並排 */}
-      <div className="flex overflow-x-auto gap-3 pb-3 md:grid md:grid-cols-3 md:overflow-visible md:gap-4">
+      <div className="flex overflow-x-auto gap-2 pb-3 md:grid md:grid-cols-3 md:overflow-visible md:gap-3">
         {renderColumn('員工請求', 'request', <AlertCircle className="w-5 h-5 text-red-500"/>, 'bg-red-50')}
         {renderColumn('待處理', 'pending', <Clock className="w-5 h-5 text-yellow-500"/>, 'bg-yellow-50')}
         {renderColumn('已送到', 'received', <PackageCheck className="w-5 h-5 text-green-500"/>, 'bg-green-50')}
