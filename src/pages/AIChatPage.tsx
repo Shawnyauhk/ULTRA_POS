@@ -41,7 +41,7 @@ export function AIChatPage() {
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex gap-2 border-b border-gray-200 pb-2">
+      <div className="flex flex-nowrap gap-0 border-b border-gray-200 pb-0 overflow-x-auto scrollbar-none">
         {[
           { id: 'chat' as TabType, label: '在線客服', icon: Headphones },
           { id: 'sessions' as TabType, label: '對話紀錄', icon: MessageSquare },
@@ -51,13 +51,13 @@ export function AIChatPage() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${
+            className={`flex items-center gap-1.5 px-3 md:px-5 py-2.5 rounded-t-lg text-xs md:text-sm font-medium whitespace-nowrap transition-colors flex-1 justify-center ${
               activeTab === tab.id
-                ? 'bg-white text-primary border border-b-white border-gray-200 -mb-[2px]'
+                ? 'bg-white text-primary border border-b-white border-gray-200'
                 : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
             }`}
           >
-            <tab.icon className="w-4 h-4" />
+            <tab.icon className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
             {tab.label}
           </button>
         ))}
