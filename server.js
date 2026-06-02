@@ -346,6 +346,15 @@ const wacliPath = process.env.WACLI_PATH || 'wacli';
 
 app.post('/api/whatsapp/auth-qr', async (req, res) => {
   try {
+    // 先檢查 wacli 是否可執行
+    const whichResult = spawnSync('which', [wacliPath], { encoding: 'utf-8', timeout: 5000 });
+    if (whichResult.status !== 0 && process.platform !== 'win32') {
+      const pathCheck = spawnSync('sh', ['-c', `command -v ${wacliPath}`], { encoding: 'utf-8', timeout: 5000 });
+      if (pathCheck.status !== 0) {
+        return res.json({ success: false, message: `wacli 未安裝或找不到 (路徑: ${wacliPath})，請確保 Docker 已正確安裝 wacli` });
+      }
+    }
+
     const statusResult = spawnSync(wacliPath, ['auth', 'status', '--json'], { encoding: 'utf-8', timeout: 10000 });
     if (statusResult.status === 0) {
       try {
@@ -356,15 +365,22 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
       } catch {}
     }
 
-    const authProcess = spawn(wacliPath, ['auth', '--events', '--json', '--timeout', '120s'], {
+    // 建立可寫入的 session 目錄
+    const sessionDir = resolve('/tmp', 'wacli-session');
+    try { mkdirSync(sessionDir, { recursive: true }); } catch {}
+
+    const authProcess = spawn(wacliPath, ['auth', '--events', '--json', '--timeout', '120s', '--session-dir', sessionDir], {
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 125000,
     });
 
     let qrCode = '';
+    let stderrBuf = '';
 
     authProcess.stderr?.on('data', (data) => {
-      const lines = data.toString().split('\n').filter(Boolean);
+      const chunk = data.toString();
+      stderrBuf += chunk;
+      const lines = chunk.split('\n').filter(Boolean);
       for (const line of lines) {
         try {
           const evt = JSON.parse(line);
@@ -376,23 +392,25 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
     });
 
     let elapsed = 0;
-    while (elapsed < 20000 && !qrCode) {
+    while (elapsed < 25000 && !qrCode) {
       await new Promise(r => setTimeout(r, 300));
       elapsed += 300;
     }
 
     if (!qrCode) {
       authProcess.kill();
-      return res.json({ success: false, message: '無法取得 QR code，請確認 wacli 已正確安裝' });
+      const hint = stderrBuf.includes('chromium') || stderrBuf.includes('browser') 
+        ? 'wacli 需搭配瀏覽器環境，可能需要在 Render 安裝額外套件' 
+        : '請確認伺服器上的 wacli 版本正確 (v0.11.0) 且可使用';
+      return res.json({ success: false, message: `無法取得 QR Code (${hint})` });
     }
 
-    // WhatsApp 配對 QR URL 格式
     const qrUrl = `https://web.whatsapp.com/?code=${qrCode}`;
     const qrPng = await QRCode.toDataURL(qrUrl, { width: 300, margin: 2 });
     res.json({ success: true, authenticated: false, qrImage: qrPng });
   } catch (error) {
     console.error('❌ WhatsApp 認證失敗:', error.message);
-    res.json({ success: false, message: error.message });
+    res.json({ success: false, message: 'WhatsApp 認證失敗: ' + error.message });
   }
 });
 
@@ -1280,7 +1298,12 @@ app.post('/api/settlements/sync', requirePermission('expense.manage'), async (re
     const output = (result.stdout || '') + (result.stderr || '');
 
     if (result.status !== 0) {
-      return res.json({ success: false, message: '爬蟲執行失敗', output });
+      // 解析 output 提取有用錯誤訊息
+      const errMsg = output.includes('登入失敗') ? output.split('登入失敗')[1]?.split('\n')[0]?.trim() || output :
+                     output.includes('密碼錯誤') ? 'POSPAL 密碼錯誤，請檢查 .env 中的 POSPAL_PASSWORD' :
+                     output.includes('未授權') ? 'POSPAL 未授權，請在 POSPAL 後台確認帳號密碼是否正確或需重新登入' :
+                     '爬蟲執行失敗: ' + output.slice(0, 500);
+      return res.json({ success: false, message: errMsg, output });
     }
 
     // 從 logs/ 讀取爬蟲結果 JSON
@@ -1292,11 +1315,11 @@ app.post('/api/settlements/sync', requirePermission('expense.manage'), async (re
       const jsonContent = readFileSync(jsonPath, 'utf-8');
       crawlData = JSON.parse(jsonContent);
     } catch {
-      return res.json({ success: false, message: '找不到爬蟲結果檔案', output });
+      return res.json({ success: false, message: '找不到爬蟲結果檔案，請確認 POSPAL 帳號密碼是否正確', output });
     }
 
     if (!crawlData.success) {
-      return res.json({ success: false, message: '爬蟲執行未成功: ' + (crawlData.error || ''), output });
+      return res.json({ success: false, message: '爬取失敗: ' + (crawlData.error || 'POSPAL 頁面可能已變更，需更新爬蟲規則'), output });
     }
 
     // 構建資料庫記錄
