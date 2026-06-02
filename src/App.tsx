@@ -23,6 +23,7 @@ import { EmployeesPage } from '@/pages/EmployeesPage'
 import { AttendancePage } from '@/pages/AttendancePage'
 import AttendanceDevicePage from '@/pages/AttendanceDevicePage'
 import { SchedulesPage } from '@/pages/SchedulesPage'
+import { HRPage } from '@/pages/HRPage'
 import ReportsPage from '@/pages/ReportsPage'
 import { useState, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
@@ -70,6 +71,7 @@ const routePermissions: Record<string, PermissionKey> = {
   '/products': 'product.view',
   '/inventory': 'inventory.view',
   '/orders': 'order.view',
+  '/hr': 'employee.view',
   '/employees': 'employee.view',
   '/attendance': 'attendance.view',
   '/schedules': 'schedule.view',
@@ -164,6 +166,7 @@ export default function App() {
                 {renderProtectedRoute('/ai-marketing', <AIChatPage />)}
                 {renderProtectedRoute('/review-generator', <ReviewGeneratorPage />)}
                 {renderProtectedRoute('/inventory', <InventoryPage />)}
+                {renderProtectedRoute('/hr', <HRPage />)}
                 {renderProtectedRoute('/attendance-device', <AttendanceDevicePage />)}
                 {renderProtectedRoute('/settings', <SettingsPage />)}
               </Routes>

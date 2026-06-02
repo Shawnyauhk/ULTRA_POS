@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Calculator, ShoppingBag, Package, Coffee,
   Receipt, Users, MessageSquare, Star, Settings, Shield,
-  BarChart3, Clock, CalendarDays, DollarSign, Store, Smartphone, X
+  BarChart3, Clock, CalendarDays, DollarSign, Store, Smartphone, X, UserCog
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 import { useRestaurant } from '@/hooks/useSupabaseData'
@@ -23,9 +23,8 @@ const menuItems: MenuItem[] = [
   { path: '/pos-order', label: 'POS 點餐系統', icon: ShoppingBag, permission: 'pos.create_order' },
   { path: '/products', label: '產品管理', icon: Coffee, permission: 'product.view' },
   { path: '/orders', label: '訂貨管理', icon: Receipt, permission: 'order.view' },
+  { path: '/hr', label: '員工與排班', icon: UserCog, permission: 'employee.view' },
   { path: '/attendance', label: '打卡系統', icon: Clock, permission: 'attendance.view' },
-  { path: '/schedules', label: '排班管理', icon: CalendarDays, permission: 'schedule.view' },
-  { path: '/payroll', label: '員工與薪酬', icon: Users, permission: 'payroll.view' },
   { path: '/expenses', label: '門店支出', icon: Calculator, permission: 'expense.view' },
   { path: '/settlement', label: '營業額結算', icon: DollarSign, permission: 'expense.view' },
   { path: '/ai-marketing', label: 'AI 客服管理', icon: MessageSquare, permission: 'ai.customer_service' },
