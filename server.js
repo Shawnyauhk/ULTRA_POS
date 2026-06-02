@@ -2027,6 +2027,67 @@ app.post('/api/attendance/wifi-clock', async (req, res) => {
   }
 });
 
+// =========== POSPAL 每日排程爬蟲 ===========
+const POSPAL_RESTAURANT_ID = process.env.RESTAURANT_ID || '00000000-0000-0000-0000-000000000001';
+const CRAWLER_DIR = resolve(__dirname, 'scripts/pospal-crawler');
+
+async function runPospalCrawler(dateStr) {
+  console.log(`[Crawler] 🔄 開始爬取 ${dateStr}...`);
+  try {
+    const result = spawnSync('npx', ['tsx', 'crawler.ts', `--date=${dateStr}`, '--url=business-summary'], {
+      cwd: CRAWLER_DIR,
+      stdio: 'pipe',
+      shell: true,
+      timeout: 120000,
+      encoding: 'utf-8',
+      env: { ...process.env, CHROMIUM_PATH: '/usr/bin/chromium-browser', PUPPETEER_EXECUTABLE_PATH: '/usr/bin/chromium-browser' },
+    });
+
+    const jsonPath = resolve(CRAWLER_DIR, 'logs', `${dateStr}.json`);
+    if (existsSync(jsonPath)) {
+      const jsonData = JSON.parse(readFileSync(jsonPath, 'utf-8'));
+      const { data, error } = await supabaseAdmin
+        .from('daily_settlements')
+        .upsert({
+          restaurant_id: POSPAL_RESTAURANT_ID,
+          settlement_date: dateStr,
+          source: 'pospal_crawler',
+          total_amount: jsonData.totalAmount || 0,
+          actual_revenue: jsonData.actualRevenue || 0,
+          total_transactions: jsonData.totalTransactions || 0,
+          raw_json: JSON.stringify(jsonData),
+          synced_at: new Date().toISOString(),
+          ...(jsonData.payments || []).reduce((acc, p) => ({ ...acc, [p.code]: p.amount }), {}),
+        }, { onConflict: 'restaurant_id,settlement_date' });
+      if (error) throw error;
+      console.log(`[Crawler] ✅ ${dateStr} 爬取完成並寫入資料庫`);
+    }
+  } catch (err) {
+    console.error(`[Crawler] ❌ ${dateStr} 爬取失敗:`, err.message);
+  }
+}
+
+// 啟動後立即補爬最近 3 天
+(async () => {
+  for (let i = 1; i <= 3; i++) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    await runPospalCrawler(dateStr);
+  }
+})();
+
+// 每日 23:50 自動爬取
+try {
+  const { default: cron } = await import('node-cron');
+  cron.schedule('50 23 * * *', () => {
+    const today = new Date().toISOString().split('T')[0];
+    runPospalCrawler(today);
+  });
+  console.log('   🤖 POSPAL 每日爬蟲排程已啟動 (23:50)');
+} catch (err) {
+  console.warn('   ⚠️ node-cron 未安裝，POSPAL 自動爬蟲已跳過');
+}
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ ULTRA POS 服務器啟動成功，端口: ${PORT}`);
   console.log(`   🔗 健康檢查: http://localhost:${PORT}/api/health`);

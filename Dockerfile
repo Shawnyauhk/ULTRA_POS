@@ -1,12 +1,12 @@
-# Render build cache refresh 2026-06-01
+# Render build cache refresh 2026-06-02
 FROM node:22-alpine
 
 WORKDIR /app
 
-# 安裝系統依賴
-RUN apk add --no-cache curl ca-certificates
+# 安裝系統依賴（含 Chromium for Puppeteer）
+RUN apk add --no-cache curl ca-certificates chromium nss freetype freetype-dev harfbuzz ca-certificates libpng-dev
 
-# 下載並安裝 wacli
+# 下載並安裝 wacli（WhatsApp CLI）
 RUN curl -fsSLo /tmp/wacli.tar.gz https://github.com/openclaw/wacli/releases/download/v0.11.0/wacli_0.11.0_linux_amd64.tar.gz \
   && tar xzf /tmp/wacli.tar.gz -C /usr/local/bin \
   && chmod +x /usr/local/bin/wacli \
@@ -14,9 +14,15 @@ RUN curl -fsSLo /tmp/wacli.tar.gz https://github.com/openclaw/wacli/releases/dow
 
 # 複製依賴文件
 COPY package.json package-lock.json ./
+COPY scripts/pospal-crawler/package.json ./scripts/pospal-crawler/
 
-# 安裝 Node 依賴
+# 安裝 Node 依賴（含 puppeteer + pospal-crawler）
 RUN npm install
+RUN cd scripts/pospal-crawler && npm install
+
+# Puppeteer 使用系統 Chromium 而非自行下載
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV CHROMIUM_PATH=/usr/bin/chromium-browser
 
 # 複製源碼
 COPY . .
