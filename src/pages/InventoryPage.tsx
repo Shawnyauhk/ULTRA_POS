@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Plus, Pencil, Search, ShoppingCart, Loader2, RefreshCw, ChevronRight, ChevronDown, FolderOpen, FileSpreadsheet, ImageIcon, Upload, Trash2, CheckSquare, Square, Bell, AlertCircle, Info } from 'lucide-react'
+import { Plus, Pencil, Search, Loader2, RefreshCw, ChevronRight, ChevronDown, FolderOpen, FileSpreadsheet, ImageIcon, Upload, Trash2, CheckSquare, Square, Bell, AlertCircle, Info } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useInventory } from '@/hooks/useSupabaseData'
 import { FALLBACK_RESTAURANT_ID } from '@/hooks/useSupabaseData'
@@ -359,6 +359,13 @@ export function InventoryPage() {
       {/* 頂部導航 */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
+          <button
+            onClick={() => navigate('/orders')}
+            className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors mb-1"
+          >
+            <ChevronDown className="h-3.5 w-3.5 rotate-90" />
+            返回訂貨管理
+          </button>
           <h1 className="text-xl md:text-3xl font-bold text-gray-900">貨物表</h1>
           <p className="text-sm text-gray-500 mt-1">管理貨物表</p>
         </div>
@@ -380,10 +387,6 @@ export function InventoryPage() {
               {importing ? '導入中...' : '導入貨物'}
             </Button>
           )}
-          <Button variant="outline" onClick={() => navigate('/orders')}>
-            <ShoppingCart className="h-4 w-4 mr-2" />
-            訂貨管理
-          </Button>
           <Button variant="ghost" size="icon" onClick={refetch} title="即時刷新">
             <RefreshCw className="h-4 w-4" />
           </Button>

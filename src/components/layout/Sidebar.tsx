@@ -22,7 +22,6 @@ const menuItems: MenuItem[] = [
   { path: '/', label: '控制面板與AI分析', icon: LayoutDashboard, permission: 'dashboard.view' },
   { path: '/pos-order', label: 'POS 點餐系統', icon: ShoppingBag, permission: 'pos.create_order' },
   { path: '/products', label: '產品管理', icon: Coffee, permission: 'product.view' },
-  { path: '/inventory', label: '貨物表', icon: Package, permission: 'inventory.view' },
   { path: '/orders', label: '訂貨管理', icon: Receipt, permission: 'order.view' },
   { path: '/attendance', label: '打卡系統', icon: Clock, permission: 'attendance.view' },
   { path: '/schedules', label: '排班管理', icon: CalendarDays, permission: 'schedule.view' },
