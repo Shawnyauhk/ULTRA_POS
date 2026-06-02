@@ -55,11 +55,12 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragState, setDragState] = useState<{
     order: OrderRequest;
-    x: number;
-    y: number;
     overCol: ColumnType | null;
     originCol: ColumnType;
   } | null>(null);
+  // 实时位置走 ref，直写 DOM，零延迟
+  const dragPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const floatCloneRef = useRef<HTMLDivElement>(null); // 浮起卡片 DOM ref
   const longPressTimer = useRef<ReturnType<typeof setTimeout>>();
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
@@ -130,32 +131,38 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const handleTouchStart = (order: OrderRequest, e: React.TouchEvent) => {
     e.preventDefault(); // 阻止文字選擇
     const touch = e.touches[0];
+    // 先記錄初始位置（即使未觸發浮起也存，供浮起時立即使用）
+    dragPosRef.current = { x: touch.clientX, y: touch.clientY };
     longPressTimer.current = setTimeout(() => {
       const originCol = getOrderColumn(order);
-      setDragState({ order, x: touch.clientX, y: touch.clientY, overCol: originCol, originCol });
+      setDragState({ order, overCol: originCol, originCol });
       setIsDragging(true);
       setExpandedOrder(null);
-      document.body.style.overflow = 'hidden';
-      document.body.style.userSelect = 'none';
     }, LONG_PRESS_MS);
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+
     // 滑動時清除長按計時器（區分「滑動」與「長按後拖曳」）
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = undefined;
+      return;
     }
 
     if (!dragState) return;
 
     e.preventDefault(); // 阻止滾動
-    const touch = e.touches[0];
 
-    // 更新浮起卡片位置
-    setDragState(prev => prev ? { ...prev, x: touch.clientX, y: touch.clientY } : null);
+    // ★ 直接操作 DOM 更新位置，繞過 React 渲染，完全消除延遲
+    dragPosRef.current = { x: touch.clientX, y: touch.clientY };
+    if (floatCloneRef.current) {
+      floatCloneRef.current.style.left = `${touch.clientX - 100}px`;
+      floatCloneRef.current.style.top = `${touch.clientY - 30}px`;
+    }
 
-    // 偵測當前在哪一欄
+    // 偵測當前在哪一欄（setState 更新高亮）
     if (containerRef.current) {
       const colEls = containerRef.current.children;
       let found: ColumnType | null = null;
@@ -174,8 +181,6 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const handleTouchEnd = async () => {
     clearTimeout(longPressTimer.current);
     longPressTimer.current = undefined;
-    document.body.style.overflow = '';
-    document.body.style.userSelect = '';
 
     if (dragState?.overCol && dragState.overCol !== dragState.originCol) {
       setUpdating(dragState.order.id);
@@ -775,19 +780,23 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
       </div>
 
       {/* 三欄：手機橫向滾動，桌面並排 */}
-      <div ref={containerRef} className="flex overflow-x-auto gap-2 pb-3 md:grid md:grid-cols-3 md:overflow-visible md:gap-3">
+      <div
+        ref={containerRef}
+        className={`flex gap-2 pb-3 md:grid md:grid-cols-3 md:gap-3 md:overflow-visible ${isDragging ? 'overflow-x-hidden touch-none' : 'overflow-x-auto'}`}
+      >
         {renderColumn('員工請求', 'request', <AlertCircle className="w-5 h-5 text-red-500"/>, 'bg-red-50')}
         {renderColumn('待處理', 'pending', <Clock className="w-5 h-5 text-yellow-500"/>, 'bg-yellow-50')}
         {renderColumn('已送到', 'received', <PackageCheck className="w-5 h-5 text-green-500"/>, 'bg-green-50')}
       </div>
 
-      {/* 浮起的拖拽卡片克隆 */}
+      {/* 浮起的拖拽卡片克隆 — 位置由 ref 直寫 DOM，無過渡延遲 */}
       {dragState && (
         <div
-          className="fixed pointer-events-none z-50 transition-all duration-150"
+          ref={floatCloneRef}
+          className="fixed pointer-events-none z-50"
           style={{
-            left: dragState.x - 100,
-            top: dragState.y - 30,
+            left: dragPosRef.current.x - 100,
+            top: dragPosRef.current.y - 30,
             width: 200,
           }}
         >
