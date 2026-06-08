@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import multer from 'multer';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { readFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync, accessSync, constants } from 'fs';
 import { spawnSync, spawn } from 'child_process';
 import { createClient } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
@@ -353,26 +353,31 @@ app.post('/api/whatsapp/test-send', async (req, res) => {
 const wacliPath = process.env.WACLI_PATH || 'wacli';
 let activeWacliAuth = null; // 保持 wacli 程序存活
 
-/** 檢查 wacli 是否可執行（相容 Alpine，which 可能不存在） */
+/** 檢查 wacli 是否可執行（使用 fs 而非 shell，避免 Alpine 相容問題） */
 function checkWacliExists() {
-  try {
-    // 方法1: command -v
-    const r1 = spawnSync('sh', ['-c', `command -v ${wacliPath}`], { encoding: 'utf-8', timeout: 5000 });
-    if (r1.status === 0 && r1.stdout.trim()) return r1.stdout.trim();
-  } catch {}
-  try {
-    // 方法2: 直接檢查常見安裝路徑
-    const commonPaths = ['/usr/local/bin/wacli', '/usr/bin/wacli', '/app/wacli'];
-    for (const p of commonPaths) {
-      const r = spawnSync('test', ['-f', p], { timeout: 2000 });
-      if (r.status === 0) return p;
-    }
-  } catch {}
-  // 最後假設 wacli 在 PATH 中
+  const commonPaths = ['/usr/local/bin/wacli', '/usr/bin/wacli', '/app/wacli', wacliPath];
+  for (const p of commonPaths) {
+    try {
+      if (existsSync(p)) {
+        accessSync(p, constants.X_OK);
+        return p;
+      }
+    } catch {}
+  }
   return wacliPath;
 }
 
 app.post('/api/whatsapp/auth-qr', async (req, res) => {
+  // 設定請求超時，防止掛死
+  const timeout = setTimeout(() => {
+    if (!res.headersSent) {
+      res.json({ success: false, message: '請求超時（12 秒），wacli 無響應' });
+    }
+  }, 12000);
+
+  // 確保超時後清理
+  const cleanup = () => clearTimeout(timeout);
+
   try {
     // 先檢查 wacli 是否存在
     const wacliActualPath = checkWacliExists();
