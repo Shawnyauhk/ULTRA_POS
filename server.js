@@ -345,39 +345,65 @@ app.post('/api/whatsapp/test-send', async (req, res) => {
 const wacliPath = process.env.WACLI_PATH || 'wacli';
 let activeWacliAuth = null; // 保持 wacli 程序存活
 
+/** 檢查 wacli 是否可執行（相容 Alpine，which 可能不存在） */
+function checkWacliExists() {
+  try {
+    // 方法1: command -v
+    const r1 = spawnSync('sh', ['-c', `command -v ${wacliPath}`], { encoding: 'utf-8', timeout: 5000 });
+    if (r1.status === 0 && r1.stdout.trim()) return r1.stdout.trim();
+  } catch {}
+  try {
+    // 方法2: 直接檢查常見安裝路徑
+    const commonPaths = ['/usr/local/bin/wacli', '/usr/bin/wacli', '/app/wacli'];
+    for (const p of commonPaths) {
+      const r = spawnSync('test', ['-f', p], { timeout: 2000 });
+      if (r.status === 0) return p;
+    }
+  } catch {}
+  // 最後假設 wacli 在 PATH 中
+  return wacliPath;
+}
+
 app.post('/api/whatsapp/auth-qr', async (req, res) => {
   try {
-    // 先檢查 wacli 是否可執行
-    const whichResult = spawnSync('which', [wacliPath], { encoding: 'utf-8', timeout: 5000 });
-    if (whichResult.status !== 0 && process.platform !== 'win32') {
-      const pathCheck = spawnSync('sh', ['-c', `command -v ${wacliPath}`], { encoding: 'utf-8', timeout: 5000 });
-      if (pathCheck.status !== 0) {
-        return res.json({ success: false, message: `wacli 未安裝或找不到 (路徑: ${wacliPath})，請確保 Docker 已正確安裝 wacli` });
-      }
-    }
+    // 先檢查 wacli 是否存在
+    const wacliActualPath = checkWacliExists();
+    console.log('[wacli] 使用路徑:', wacliActualPath);
 
-    // 先檢查是否已認證
-    const statusResult = spawnSync(wacliPath, ['auth', 'status', '--json'], { encoding: 'utf-8', timeout: 10000 });
-    if (statusResult.status === 0) {
-      try {
-        const status = JSON.parse(statusResult.stdout);
-        if (status.success && status.data?.authenticated) {
-          return res.json({ success: true, authenticated: true, message: '已認證，無需重新掃碼' });
-        }
-      } catch {}
+    // 檢查是否已認證（如果 wacli 無法執行，這裡會報錯但被 catch）
+    try {
+      const statusResult = spawnSync(wacliActualPath, ['auth', 'status', '--json'], { encoding: 'utf-8', timeout: 10000 });
+      if (statusResult.status === 0 && statusResult.stdout) {
+        try {
+          const status = JSON.parse(statusResult.stdout);
+          if (status.success && status.data?.authenticated) {
+            return res.json({ success: true, authenticated: true, message: '已認證，無需重新掃碼' });
+          }
+        } catch {}
+      }
+    } catch (e) {
+      console.warn('[wacli] 認證狀態檢查失敗:', e.message);
     }
 
     // 建立可寫入的 session 目錄
     const sessionDir = resolve('/tmp', 'wacli-session');
     try { mkdirSync(sessionDir, { recursive: true }); } catch {}
 
-    // detached: true 確保程序在 HTTP 回應後不會被殺掉
-    const authProcess = spawn(wacliPath, ['auth', '--events', '--json', '--timeout', '120s', '--session-dir', sessionDir], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: true,
-    });
-    authProcess.unref(); // 不阻塞程序退出
-    activeWacliAuth = authProcess;
+    let authProcess;
+    try {
+      authProcess = spawn(wacliActualPath, ['auth', '--events', '--json', '--timeout', '120s', '--session-dir', sessionDir], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: true,
+      });
+      authProcess.unref();
+      activeWacliAuth = authProcess;
+    } catch (spawnErr) {
+      console.error('[wacli] 啟動失敗:', spawnErr.message);
+      const hint = spawnErr.message.includes('ENOENT')
+        ? 'wacli 二進位檔不存在，請確認 Docker 建置時是否成功下載 wacli'
+        : 'wacli 啟動失敗: ' + spawnErr.message;
+      return res.json({ success: false, message: `無法啟動 wacli (${hint})`, debug: spawnErr.message });
+    }
 
     let qrCode = '';
     let stderrBuf = '';
@@ -396,14 +422,15 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
       }
     });
 
-    authProcess.on('exit', (code) => {
-      console.log(`[wacli] 認證程序退出, code=${code}`);
+    authProcess.on('exit', (code, signal) => {
+      console.log(`[wacli] 認證程序退出, code=${code}, signal=${signal}`);
       if (code !== 0 && code !== null) {
         stderrBuf += `\n[程序退出 code=${code}]`;
       }
       activeWacliAuth = null;
     });
 
+    // 等待 QR Code（最多 25 秒）
     let elapsed = 0;
     while (elapsed < 25000 && !qrCode) {
       await new Promise(r => setTimeout(r, 300));
@@ -411,14 +438,16 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
     }
 
     if (!qrCode) {
-      authProcess.kill();
+      try { authProcess.kill(); } catch {}
       activeWacliAuth = null;
-      const hint = stderrBuf.includes('chromium') || stderrBuf.includes('browser') 
-        ? 'wacli 需搭配瀏覽器環境，可能需要在 Render 安裝額外套件' 
+      const hint = stderrBuf.includes('chromium') || stderrBuf.includes('browser')
+        ? 'wacli 需搭配瀏覽器環境，可能需要在 Render 安裝額外套件'
         : stderrBuf.includes('connect') || stderrBuf.includes('ECONNREFUSED')
         ? '伺服器無法連接到 WhatsApp，請檢查 Render 網絡設定是否允許對外連接'
-        : '請確認伺服器上的 wacli 版本正確 (v0.11.0) 且可使用';
-      return res.json({ success: false, message: `無法取得 QR Code (${hint})`, debug: stderrBuf.slice(0, 500) });
+        : stderrBuf || 'wacli 未輸出 QR Code，可能是版本問題或網絡限制';
+      const msg = `無法取得 QR Code (${hint})`;
+      console.error('[wacli]', msg);
+      return res.json({ success: false, message: msg, debug: stderrBuf.slice(0, 500) });
     }
 
     const qrUrl = `https://web.whatsapp.com/?code=${qrCode}`;
@@ -432,9 +461,10 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
 
 app.get('/api/whatsapp/auth-status', async (req, res) => {
   try {
-    const result = spawnSync(wacliPath, ['auth', 'status', '--json'], { encoding: 'utf-8', timeout: 10000 });
-    if (result.status !== 0) {
-      return res.json({ success: false, authenticated: false, message: '無法檢查認證狀態' });
+    const actualPath = checkWacliExists();
+    const result = spawnSync(actualPath, ['auth', 'status', '--json'], { encoding: 'utf-8', timeout: 10000 });
+    if (result.status !== 0 || !result.stdout) {
+      return res.json({ success: false, authenticated: false, message: 'wacli 未就緒' });
     }
     const status = JSON.parse(result.stdout);
     res.json({ success: true, authenticated: !!(status.success && status.data?.authenticated) });
