@@ -1832,16 +1832,25 @@ app.all('/api/ai/suggestions', async (req, res) => {
   }
 });
 
-// =========== 生產環境：提供前端靜態文件 ===========
+// =========== 生產環境：提供前端靜態文件（不使用 express.static） ===========
 const distPath = resolve(__dirname, 'dist');
-console.log('📁 靜態文件路徑:', distPath, '存在:', existsSync(distPath));
+const MIME_MAP = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2' };
 if (process.env.NODE_ENV === 'production' && existsSync(distPath)) {
   console.log('📁 提供靜態文件從:', distPath);
-  app.use('/', express.static(distPath));
-
-  // SPA fallback
+  // 靜態檔案服務（先於 SPA fallback）
   app.use((req, res, next) => {
-    console.log('🔄 SPA fallback 收到請求:', req.method, req.path);
+    if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+    const filePath = resolve(distPath, req.path.replace(/^\//, ''));
+    if (!filePath.startsWith(distPath)) return next(); // 防止路徑穿越
+    if (existsSync(filePath)) {
+      const ext = filePath.substring(filePath.lastIndexOf('.'));
+      res.type(MIME_MAP[ext] || 'application/octet-stream');
+      return res.sendFile(filePath);
+    }
+    next();
+  });
+  // SPA fallback（非 API 的 GET 請求全部回傳 index.html）
+  app.use((req, res, next) => {
     if (req.method === 'GET' && !req.path.startsWith('/api')) {
       return res.sendFile(resolve(distPath, 'index.html'));
     }
