@@ -1840,10 +1840,12 @@ if (process.env.NODE_ENV === 'production' && existsSync(distPath)) {
   console.log('📁 提供靜態文件從:', distPath);
   app.use(express.static(distPath));
 
-  // SPA fallback：所有非 API 請求都返回 index.html（包括根路徑）
-  // Express 5.x + path-to-regexp v8：用正則表達式匹配所有路徑
-  app.get(/^(?!\/api).*/, (req, res) => {
-    res.sendFile(resolve(distPath, 'index.html'));
+  // SPA fallback：所有非 API 的 GET 請求都返回 index.html
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api')) {
+      return res.sendFile(resolve(distPath, 'index.html'));
+    }
+    next();
   });
 }
 
