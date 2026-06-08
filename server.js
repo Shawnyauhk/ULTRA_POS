@@ -2195,14 +2195,20 @@ async function runPospalCrawler(dateStr) {
   }
 }
 
-// 啟動後立即補爬最近 3 天
-(async () => {
-  for (let i = 1; i <= 3; i++) {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
-    await runPospalCrawler(dateStr);
-  }
-})();
+// 啟動後延遲 30 秒再補爬最近 3 天（避免啟動時 Chromium 導致 OOM）
+setTimeout(() => {
+  (async () => {
+    for (let i = 1; i <= 3; i++) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      try {
+        await runPospalCrawler(dateStr);
+      } catch (err) {
+        console.error(`[Crawler] ⏭️ 補爬 ${dateStr} 跳過:`, err.message);
+      }
+    }
+  })();
+}, 30000);
 
 // 每日 23:50 自動爬取
 try {
