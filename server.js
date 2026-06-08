@@ -367,6 +367,30 @@ function checkWacliExists() {
   return wacliPath;
 }
 
+/** 確保 wacli 默認帳戶存在（創建 if missing） */
+function ensureWacliAccount() {
+  try {
+    const result = spawnSync(wacliPath, ['accounts', 'add', 'default'], {
+      encoding: 'utf-8', timeout: 10000, stdio: 'pipe',
+    });
+    // 如果返回 0 或輸出包含 "already exists" 都視為成功
+    if (result.status === 0) {
+      console.log('[wacli] ✅ 默認帳戶就緒');
+      return true;
+    }
+    // 如果已經存在但返回非零
+    if (result.stderr?.includes('already exists') || result.stdout?.includes('already exists')) {
+      console.log('[wacli] ✅ 默認帳戶已存在');
+      return true;
+    }
+    console.warn('[wacli] ⚠️ 帳戶初始化返回非零:', result.stderr?.slice(0, 100));
+    return false;
+  } catch (e) {
+    console.warn('[wacli] ⚠️ 帳戶初始化跳過:', e.message);
+    return false;
+  }
+}
+
 app.post('/api/whatsapp/auth-qr', async (req, res) => {
   // 設定請求超時，防止掛死
   const timeout = setTimeout(() => {
@@ -526,6 +550,9 @@ app.post('/api/whatsapp/auth-phone', async (req, res) => {
       message: '手機號格式錯誤，請使用國際格式例如：+85298765432'
     });
   }
+
+  // 1.5 確保 wacli 默認帳戶存在（Render 重新部署時可能丟失）
+  ensureWacliAccount();
 
   // 2. 设置 15 秒超时
   const timeout = setTimeout(() => {
@@ -724,6 +751,8 @@ app.post('/api/whatsapp/auth-cancel', async (req, res) => {
 
 app.get('/api/whatsapp/auth-status', async (req, res) => {
   try {
+    // 確保帳戶存在
+    ensureWacliAccount();
     const actualPath = checkWacliExists();
     const diag = {
       wacliPath: actualPath,
