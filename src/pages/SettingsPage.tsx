@@ -284,6 +284,8 @@ export default function SettingsPage() {
     } catch (e: any) {
       if (e.name === 'AbortError') {
         setWacliAuthMessage('⏱️ 請求超時（60秒），wacli 在 Render 上啟動較慢，請重試或查看 Render 日誌');
+      } else if (e?.isColdStart) {
+        setWacliAuthMessage('⏳ 後端服務正在冷啟動中（Render 免費版休眠後首次訪問），請稍候 30-60 秒再試');
       } else {
         setWacliAuthMessage('❌ 網絡錯誤: ' + e.message);
       }
@@ -314,9 +316,12 @@ export default function SettingsPage() {
   /** 輪詢認證狀態（每 3 秒）- 持續運行直到認證成功或用戶取消 */
   const startPairingPoll = () => {
     if (pairingPollRef.current) clearInterval(pairingPollRef.current);
+    let coldStartRetries = 0;
     pairingPollRef.current = setInterval(async () => {
       try {
-        const st = await (await apiFetch('/api/whatsapp/auth-status')).json();
+        const res = await apiFetch('/api/whatsapp/auth-status');
+        const st = await res.json();
+        coldStartRetries = 0;
         if (st.authenticated) {
           setWacliAuthState('done');
           setSenderDisabled(false);
@@ -328,7 +333,22 @@ export default function SettingsPage() {
           if (countdownRef.current) clearInterval(countdownRef.current);
           countdownRef.current = null;
         }
-      } catch {}
+      } catch (e: any) {
+        // 冷啟動期間輪詢失敗：靜默重試最多 5 次（~15 秒），
+        // 超過後停止輪詢並提示用戶，避免日誌噪音。
+        if (e?.isColdStart) {
+          coldStartRetries++;
+          if (coldStartRetries === 1) {
+            setWacliAuthMessage('⏳ 後端服務正在冷啟動中，請稍候...');
+          }
+          if (coldStartRetries > 5) {
+            if (pairingPollRef.current) clearInterval(pairingPollRef.current);
+            pairingPollRef.current = null;
+            setWacliAuthMessage('⏳ 冷啟動超時，請稍後手動點擊「刷新狀態」');
+          }
+        }
+        // 其他錯誤靜默忽略，等待下一次輪詢
+      }
     }, 3000);
   };
 
@@ -353,7 +373,11 @@ export default function SettingsPage() {
         setWacliAuthMessage(`❌ ${msg}`);
       }
     } catch (e: any) {
-      setWacliAuthMessage('❌ 網絡錯誤: ' + e.message);
+      if (e?.isColdStart) {
+        setWacliAuthMessage('⏳ 後端服務正在冷啟動中（Render 免費版休眠後首次訪問），請稍候 30-60 秒再試');
+      } else {
+        setWacliAuthMessage('❌ 網絡錯誤: ' + e.message);
+      }
     }
   };
   const handleCopyCode = async () => {

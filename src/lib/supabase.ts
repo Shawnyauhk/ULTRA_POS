@@ -46,6 +46,7 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'Accept': 'application/json',
     ...(options.headers as Record<string, string> || {}),
   }
 
@@ -54,8 +55,30 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  return fetch(url, {
+  const res = await fetch(url, {
     ...options,
     headers,
   })
+
+  // Render 免費版容器閒置 15 分鐘後會休眠，冷啟動時第一個請求可能
+  // 返回 HTML 錯誤頁（<!DOCTYPE ...）。預先檢測 content-type，
+  // 讓上游能給出可讀訊息，避免 "Unexpected token '<'" 之類的 JSON 解析錯誤。
+  const ct = res.headers.get('content-type') || ''
+  if (!ct.includes('application/json')) {
+    // 拋出一個帶有友好訊息的錯誤
+    const text = await res.clone().text().catch(() => '')
+    const preview = text ? text.substring(0, 120) : ''
+    const err: any = new Error(
+      res.status === 502 || res.status === 503 || res.status === 504
+        ? `後端服務正在冷啟動中 (HTTP ${res.status})，請稍候再試`
+        : `後端返回非 JSON 響應 (HTTP ${res.status}, ${ct || 'no content-type'})`
+    )
+    err.status = res.status
+    err.contentType = ct
+    err.body = preview
+    err.isColdStart = res.status === 502 || res.status === 503 || res.status === 504
+    throw err
+  }
+
+  return res
 }
