@@ -480,6 +480,248 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
   }
 });
 
+// =========== WhatsApp 手機配對碼認證（無需瀏覽器） ===========
+
+/** 验证手机号格式：必须 + 开头，8-15 位数字 */
+function validatePhoneNumber(phone) {
+  if (!phone || typeof phone !== 'string') return false;
+  // 去掉空格
+  const clean = phone.replace(/\s+/g, '');
+  // 必须 + 开头，后面 8-15 位数字
+  return /^\+[1-9]\d{7,14}$/.test(clean);
+}
+
+/** 清理已存在的 wacli 认证进程（防止进程冲突） */
+function killExistingAuthProcess() {
+  if (activeWacliAuth) {
+    try {
+      activeWacliAuth.kill('SIGTERM');
+      // 1秒后强杀
+      setTimeout(() => {
+        try { activeWacliAuth?.kill('SIGKILL'); } catch {}
+      }, 1000);
+    } catch {}
+    activeWacliAuth = null;
+  }
+}
+
+/**
+ * 手机配对码认证端点
+ * Body: { phone: "+85298765432" }
+ * 工作流程：
+ * 1. 验证手机号格式
+ * 2. 检查是否已认证
+ * 3. 启动 wacli auth --phone 进程
+ * 4. 监听 --events 输出，捕获 pair_code 事件
+ * 5. 保留进程运行（用户需在手机输入配对码）
+ * 6. 监听 authenticated 事件，自动清理
+ */
+app.post('/api/whatsapp/auth-phone', async (req, res) => {
+  const { phone } = req.body;
+
+  // 1. 验证手机号
+  if (!validatePhoneNumber(phone)) {
+    return res.json({
+      success: false,
+      message: '手機號格式錯誤，請使用國際格式例如：+85298765432'
+    });
+  }
+
+  // 2. 设置 15 秒超时
+  const timeout = setTimeout(() => {
+    if (!res.headersSent) {
+      killExistingAuthProcess();
+      res.json({ success: false, message: '請求超時（15 秒），wacli 無響應' });
+    }
+  }, 15000);
+
+  try {
+    const wacliActualPath = checkWacliExists();
+    console.log('[wacli-pairing] 使用路徑:', wacliActualPath, '手機:', phone);
+
+    // 3. 先清理可能存在的旧进程
+    killExistingAuthProcess();
+
+    // 4. 检查是否已认证
+    try {
+      const statusResult = spawnSync(wacliActualPath, ['auth', 'status', '--json'], {
+        encoding: 'utf-8',
+        timeout: 10000,
+      });
+      if (statusResult.status === 0 && statusResult.stdout) {
+        try {
+          const status = JSON.parse(statusResult.stdout);
+          if (status.success && status.data?.authenticated) {
+            clearTimeout(timeout);
+            return res.json({
+              success: true,
+              authenticated: true,
+              message: '已認證，無需重新配對'
+            });
+          }
+        } catch {}
+      }
+    } catch (e) {
+      console.warn('[wacli-pairing] 認證狀態檢查失敗:', e.message);
+    }
+
+    // 5. 启动 wacli 配对码进程
+    let authProcess;
+    try {
+      // 参数说明：
+      // --events: 启用事件流
+      // --phone: 绑定手机号
+      // --follow: 持续运行直到认证完成
+      // --account: 账号名
+      authProcess = spawn(
+        wacliActualPath,
+        ['auth', '--events', '--phone', phone, '--follow', '--account', 'default'],
+        {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          detached: false,  // 不脱离父进程，确保被杀时一起死
+        }
+      );
+      activeWacliAuth = authProcess;
+    } catch (spawnErr) {
+      clearTimeout(timeout);
+      console.error('[wacli-pairing] 啟動失敗:', spawnErr.message);
+      const hint = spawnErr.message.includes('ENOENT')
+        ? 'wacli 二進位檔不存在，請確認 Docker 建置時是否成功下載 wacli'
+        : 'wacli 啟動失敗: ' + spawnErr.message;
+      return res.json({
+        success: false,
+        message: `無法啟動 wacli (${hint})`,
+        debug: spawnErr.message,
+      });
+    }
+
+    // 6. 监听事件流
+    let pairingCode = null;
+    let stderrBuf = '';
+    let stdoutBuf = '';
+    let authenticated = false;
+    let errorMessage = '';
+
+    const handleEvent = (line) => {
+      try {
+        const evt = JSON.parse(line);
+        // 实际输出示例来自 wacli v0.8.1 / v0.11.0：
+        // {"event":"auth_starting","ts":1780906609217}
+        // {"event":"warning","data":{"code":"sync_storage_uncapped",...},"ts":...}
+        // {"event":"pair_code","data":{"code":"XXAD-FLEH","phone":"85298765432"},"ts":..."}
+        if (evt.event === 'pair_code' && evt.data && evt.data.code) {
+          pairingCode = evt.data.code;
+          console.log('[wacli-pairing] 收到配對碼:', pairingCode);
+        } else if (evt.event === 'authenticated') {
+          authenticated = true;
+          console.log('[wacli-pairing] ✅ 認證成功');
+        } else if (evt.event === 'error' || evt.event === 'auth_error') {
+          errorMessage = evt.data?.message || (typeof evt.data === 'string' ? evt.data : '') || '未知錯誤';
+          console.error('[wacli-pairing] 認證錯誤:', errorMessage);
+        }
+      } catch (e) {
+        // 非 JSON 行，忽略
+      }
+    };
+
+    // wacli --events 默认从 stderr 输出 JSON
+    authProcess.stderr?.on('data', (data) => {
+      const chunk = data.toString();
+      stderrBuf += chunk;
+      const lines = chunk.split('\n').filter(Boolean);
+      for (const line of lines) handleEvent(line);
+    });
+
+    // 部分版本可能从 stdout 输出
+    authProcess.stdout?.on('data', (data) => {
+      const chunk = data.toString();
+      stdoutBuf += chunk;
+      const lines = chunk.split('\n').filter(Boolean);
+      for (const line of lines) handleEvent(line);
+    });
+
+    authProcess.on('exit', (code, signal) => {
+      console.log(`[wacli-pairing] 進程退出, code=${code}, signal=${signal}`);
+      activeWacliAuth = null;
+    });
+
+    // 7. 等待配对码（最多 12 秒）
+    let elapsed = 0;
+    const pollInterval = 200;
+    const maxWait = 12000;
+    while (elapsed < maxWait && !pairingCode && !authenticated && !errorMessage) {
+      await new Promise(r => setTimeout(r, pollInterval));
+      elapsed += pollInterval;
+    }
+
+    clearTimeout(timeout);
+
+    // 8. 处理结果
+    if (authenticated) {
+      return res.json({
+        success: true,
+        authenticated: true,
+        message: '認證成功！可設定發送號碼',
+      });
+    }
+
+    if (errorMessage) {
+      killExistingAuthProcess();
+      return res.json({
+        success: false,
+        message: `配對失敗: ${errorMessage}`,
+      });
+    }
+
+    if (!pairingCode) {
+      killExistingAuthProcess();
+      const fullDebug = `stderr: ${stderrBuf.slice(0, 300)} | stdout: ${stdoutBuf.slice(0, 300)}`;
+      let hint = '';
+      if (stderrBuf.includes('chromium') || stderrBuf.includes('browser')) {
+        hint = 'wacli 底層仍依賴瀏覽器環境，建議改用 WhatsApp Cloud API';
+      } else if (stderrBuf.includes('phone') && stderrBuf.includes('invalid')) {
+        hint = '手機號無效，請確認格式正確（含國際區號）';
+      } else if (stderrBuf.includes('connect') || stderrBuf.includes('ECONNREFUSED')) {
+        hint = '伺服器無法連接到 WhatsApp 服務';
+      } else if (stderrBuf.includes('unsupported') || stderrBuf.includes('--phone')) {
+        hint = '您的 wacli 版本不支持 --phone 參數，請升級到 v0.6.0+';
+      } else {
+        hint = stderrBuf || stdoutBuf || 'wacli 未輸出配對碼';
+      }
+      return res.json({
+        success: false,
+        message: `無法取得配對碼 (${hint})`,
+        debug: fullDebug,
+      });
+    }
+
+    // 9. 成功：保留进程运行，进程会在用户完成配对后自动退出
+    console.log('[wacli-pairing] ✅ 配對碼已返回，進程保持運行等待用戶輸入');
+    res.json({
+      success: true,
+      authenticated: false,
+      pairingCode,
+      message: '請在 WhatsApp 手機版輸入配對碼',
+    });
+
+  } catch (error) {
+    clearTimeout();
+    killExistingAuthProcess();
+    console.error('❌ WhatsApp 配對碼認證失敗:', error.message);
+    res.json({ success: false, message: 'WhatsApp 配對碼認證失敗: ' + error.message });
+  }
+});
+
+/** 取消正在进行的配对码认证（清理进程） */
+app.post('/api/whatsapp/auth-cancel', async (req, res) => {
+  try {
+    killExistingAuthProcess();
+    res.json({ success: true, message: '已取消認證' });
+  } catch (error) {
+    res.json({ success: false, message: error.message });
+  }
+});
+
 app.get('/api/whatsapp/auth-status', async (req, res) => {
   try {
     const actualPath = checkWacliExists();

@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { Badge } from '@/components/ui/badge';
 import { ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from '@/types';
 import type { PermissionKey, RestaurantRole } from '@/types';
-import { Loader2, MapPin, Crosshair, Wifi, WifiOff, CheckCircle2, AlertCircle, Globe, MessageSquare, Send, Smartphone, QrCode, Scan, ChevronDown, ChevronRight, Key, Shield, Save } from 'lucide-react';
+import { Loader2, MapPin, Crosshair, Wifi, WifiOff, CheckCircle2, AlertCircle, Globe, MessageSquare, Send, Smartphone, QrCode, Scan, ChevronDown, ChevronRight, Key, Shield, Save, Copy } from 'lucide-react';
 
 type RoleName = 'manager' | 'staff';
 
@@ -86,6 +86,15 @@ export default function SettingsPage() {
   const [wacliAuthMessage, setWacliAuthMessage] = useState('');
   const [senderDisabled, setSenderDisabled] = useState(true);
   const authPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // WhatsApp 手機配對碼
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [pairingLoading, setPairingLoading] = useState(false);
+  const [pairingCountdown, setPairingCountdown] = useState(0); // 配對碼倒計時（秒）
+  const [copying, setCopying] = useState(false);
+  const pairingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 權限設定
   const [rolePermissions, setRolePermissions] = useState<Record<RoleName, PermissionKey[]>>({ manager: [], staff: [] });
@@ -212,6 +221,136 @@ export default function SettingsPage() {
     finally { setTestSending(false); }
   };
 
+  // ====== 手機配對碼認證 ======
+
+  /** 驗證手機號格式（前端預檢） */
+  const validatePhoneFormat = (phone: string) => {
+    const clean = (phone || '').replace(/\s+/g, '');
+    return /^\+[1-9]\d{7,14}$/.test(clean);
+  };
+
+  /** 獲取手機配對碼 */
+  const handleRequestPairingCode = async () => {
+    if (!phoneNumber.trim()) {
+      setWacliAuthMessage('❌ 請先輸入手機號');
+      return;
+    }
+    if (!validatePhoneFormat(phoneNumber)) {
+      setWacliAuthMessage('❌ 手機號格式錯誤，請使用國際格式例如：+85298765432');
+      return;
+    }
+
+    setPairingLoading(true);
+    setWacliAuthMessage('正在獲取配對碼...');
+    setPairingCode(null);
+
+    // 清理舊的計時器和輪詢
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    if (pairingPollRef.current) clearInterval(pairingPollRef.current);
+
+    try {
+      const res = await apiFetch('/api/whatsapp/auth-phone', {
+        method: 'POST',
+        body: JSON.stringify({ phone: phoneNumber.trim() }),
+      });
+      const json = await res.json();
+
+      if (json.authenticated) {
+        setWacliAuthState('done');
+        setSenderDisabled(false);
+        setWacliAuthMessage('✅ 已認證，無需重新配對');
+        setPairingCode(null);
+        return;
+      }
+
+      if (json.success && json.pairingCode) {
+        setPairingCode(json.pairingCode);
+        setWacliAuthMessage('✅ 配對碼已生成，請在手機 WhatsApp 中輸入');
+        // wacli 配對碼有效期約 3 分鐘（180 秒）
+        setPairingCountdown(180);
+        startCountdown();
+        startPairingPoll();
+      } else {
+        setWacliAuthMessage('❌ ' + (json.message || '獲取配對碼失敗'));
+        if (json.debug) console.error('[配對碼調試]', json.debug);
+      }
+    } catch (e: any) {
+      setWacliAuthMessage('❌ 網絡錯誤: ' + e.message);
+    } finally {
+      setPairingLoading(false);
+    }
+  };
+
+  /** 倒計時器 */
+  const startCountdown = () => {
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    countdownRef.current = setInterval(() => {
+      setPairingCountdown(prev => {
+        if (prev <= 1) {
+          if (countdownRef.current) clearInterval(countdownRef.current);
+          countdownRef.current = null;
+          // 配對碼過期，自動清理
+          setPairingCode(null);
+          setWacliAuthMessage('❌ 配對碼已過期，請重新獲取');
+          if (pairingPollRef.current) clearInterval(pairingPollRef.current);
+          pairingPollRef.current = null;
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  /** 輪詢認證狀態（每 3 秒） */
+  const startPairingPoll = () => {
+    if (pairingPollRef.current) clearInterval(pairingPollRef.current);
+    pairingPollRef.current = setInterval(async () => {
+      try {
+        const st = await (await apiFetch('/api/whatsapp/auth-status')).json();
+        if (st.authenticated) {
+          setWacliAuthState('done');
+          setSenderDisabled(false);
+          setWacliAuthMessage('✅ 認證成功！可設定發送號碼');
+          setPairingCode(null);
+          setPhoneNumber('');
+          if (pairingPollRef.current) clearInterval(pairingPollRef.current);
+          pairingPollRef.current = null;
+          if (countdownRef.current) clearInterval(countdownRef.current);
+          countdownRef.current = null;
+        }
+      } catch {}
+    }, 3000);
+  };
+
+  /** 複製配對碼到剪貼簿 */
+  const handleCopyCode = async () => {
+    if (!pairingCode) return;
+    setCopying(true);
+    try {
+      await navigator.clipboard.writeText(pairingCode);
+      setWacliAuthMessage('✅ 配對碼已複製到剪貼簿');
+      setTimeout(() => setWacliAuthMessage('✅ 配對碼已生成，請在手機 WhatsApp 中輸入'), 2000);
+    } catch (e: any) {
+      setWacliAuthMessage('❌ 複製失敗: ' + e.message);
+    } finally {
+      setCopying(false);
+    }
+  };
+
+  /** 取消配對碼流程 */
+  const handleCancelPairing = async () => {
+    if (pairingPollRef.current) clearInterval(pairingPollRef.current);
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    pairingPollRef.current = null;
+    countdownRef.current = null;
+    setPairingCode(null);
+    setPairingCountdown(0);
+    setWacliAuthMessage('已取消配對');
+    try {
+      await apiFetch('/api/whatsapp/auth-cancel', { method: 'POST' });
+    } catch {}
+  };
+
   const handleAuthWhatsApp = async () => {
     setWacliAuthing(true); setWacliQrImage(null); setWacliAuthMessage('正在獲取 QR Code...');
     try {
@@ -228,7 +367,7 @@ export default function SettingsPage() {
     finally { setWacliAuthing(false); }
   };
 
-  useEffect(() => { return () => { if (authPollRef.current) clearInterval(authPollRef.current); }; }, []);
+  useEffect(() => { return () => { if (authPollRef.current) clearInterval(authPollRef.current); if (pairingPollRef.current) clearInterval(pairingPollRef.current); if (countdownRef.current) clearInterval(countdownRef.current); }; }, []);
 
   const toggleSection = (id: string) => setExpandedSection(prev => prev === id ? null : id);
 
@@ -294,18 +433,91 @@ export default function SettingsPage() {
 
         <SectionCard id="whatsapp" icon={<MessageSquare className="w-5 h-5 text-green-500" />} title="WhatsApp 通知" badge="訂貨" expandedSection={expandedSection} onToggle={toggleSection}>
           <div className="space-y-4">
-            <p className="text-sm text-gray-500">設定訂貨通知的發送號碼和接收號碼。修改發送號碼前請先掃碼登入 WhatsApp。</p>
+            <p className="text-sm text-gray-500">設定訂貨通知的發送號碼和接收號碼。使用<b>手機配對碼</b>登入 WhatsApp，無需掃描 QR Code。</p>
             <div className={`p-4 rounded-lg border ${wacliAuthState === 'done' ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium flex items-center gap-1.5"><QrCode className={`w-4 h-4 ${wacliAuthState === 'done' ? 'text-green-600' : 'text-blue-500'}`} />發送號碼 WhatsApp 認證</span>
+                <span className="text-sm font-medium flex items-center gap-1.5"><Smartphone className={`w-4 h-4 ${wacliAuthState === 'done' ? 'text-green-600' : 'text-blue-500'}`} />發送號碼 WhatsApp 認證</span>
                 {wacliAuthState === 'done' ? <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded-full font-medium">✅ 已認證</span> : <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full font-medium">未認證</span>}
               </div>
-              {wacliQrImage && <div className="flex flex-col items-center mb-3"><div className="bg-white p-3 rounded-lg shadow-sm border"><img src={wacliQrImage} alt="WhatsApp QR Code" className="w-48 h-48" /></div><p className="text-xs text-gray-500 mt-2">請打開 WhatsApp → 三點選單 → 連結裝置 → 掃描此 QR Code</p></div>}
-              {wacliAuthMessage && <p className={`text-xs mb-2 ${wacliAuthMessage.includes('✅') ? 'text-green-700' : wacliAuthMessage.includes('❌') ? 'text-red-600' : 'text-blue-600'}`}>{wacliAuthMessage}</p>}
-              <button onClick={handleAuthWhatsApp} disabled={wacliAuthing || wacliAuthState === 'done'} className={`w-full py-2 px-4 rounded-md text-sm font-medium border transition-colors disabled:opacity-50 flex items-center justify-center gap-2 ${wacliAuthState === 'done' ? 'bg-green-100 text-green-700 border-green-300' : 'bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100'}`}>
-                {wacliAuthing ? <Loader2 className="w-4 h-4 animate-spin" /> : wacliAuthState === 'done' ? <CheckCircle2 className="w-4 h-4" /> : <Scan className="w-4 h-4" />}
-                {wacliAuthing ? '取得 QR Code 中...' : wacliAuthState === 'done' ? '已認證' : '掃碼登入 WhatsApp'}
-              </button>
+
+              {wacliAuthState !== 'done' && (
+                <>
+                  {!pairingCode && (
+                    <div className="mb-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <Smartphone className="w-4 h-4 inline mr-1 text-blue-500" />
+                        WhatsApp 綁定手機號
+                      </label>
+                      <input
+                        type="text"
+                        value={phoneNumber}
+                        onChange={e => setPhoneNumber(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm"
+                        placeholder="+85298765432"
+                        disabled={pairingLoading}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">輸入您的 WhatsApp 帳號綁定的手機號（含國際區號）</p>
+                    </div>
+                  )}
+
+                  {pairingCode && (
+                    <div className="bg-white p-4 rounded-lg border-2 border-blue-300 mb-3 text-center shadow-sm">
+                      <p className="text-xs text-gray-600 mb-2">📱 請在 WhatsApp 中輸入以下配對碼：</p>
+                      <div className="flex items-center justify-center gap-2 mb-2">
+                        <div className="text-3xl font-bold font-mono text-blue-600 tracking-widest select-all">{pairingCode}</div>
+                        <button
+                          onClick={handleCopyCode}
+                          disabled={copying}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                          title="複製配對碼"
+                        >
+                          {copying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      <div className="bg-blue-50 rounded-md p-2 mb-2 text-left">
+                        <p className="text-xs text-gray-700 font-medium mb-1">操作步驟：</p>
+                        <ol className="text-xs text-gray-600 space-y-0.5 list-decimal list-inside">
+                          <li>打開 WhatsApp 手機版</li>
+                          <li>點右上角「⋮」三點選單</li>
+                          <li>選擇「已連結的裝置」</li>
+                          <li>點擊「連結裝置」</li>
+                          <li>選擇「<b>用手機號碼連結</b>」</li>
+                          <li>輸入上方配對碼</li>
+                        </ol>
+                      </div>
+                      {pairingCountdown > 0 && (
+                        <p className={`text-xs ${pairingCountdown < 30 ? 'text-red-500' : 'text-orange-500'}`}>
+                          ⏱️ 配對碼剩餘有效期：{Math.floor(pairingCountdown / 60)}:{(pairingCountdown % 60).toString().padStart(2, '0')}
+                        </p>
+                      )}
+                      <button
+                        onClick={handleCancelPairing}
+                        className="mt-2 text-xs text-gray-500 hover:text-gray-700 underline"
+                      >
+                        取消配對
+                      </button>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleRequestPairingCode}
+                    disabled={pairingLoading || !phoneNumber.trim() || !validatePhoneFormat(phoneNumber) || !!pairingCode}
+                    className="w-full py-2 px-4 rounded-md text-sm font-medium border transition-colors disabled:opacity-50 flex items-center justify-center gap-2 bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100"
+                  >
+                    {pairingLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Smartphone className="w-4 h-4" />}
+                    {pairingLoading ? '獲取配對碼中...' : pairingCode ? '等待手機輸入配對碼...' : '獲取配對碼'}
+                  </button>
+                </>
+              )}
+
+              {wacliAuthMessage && <p className={`text-xs mt-2 ${wacliAuthMessage.includes('✅') ? 'text-green-700' : wacliAuthMessage.includes('❌') ? 'text-red-600' : 'text-blue-600'}`}>{wacliAuthMessage}</p>}
+
+              {wacliAuthState === 'done' && (
+                <div className="flex items-center gap-2 text-sm text-green-700 mt-2">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>WhatsApp 已認證，可以設定發送號碼</span>
+                </div>
+              )}
             </div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1"><Smartphone className="w-4 h-4 inline mr-1 text-blue-500" />發送號碼（店舖 WhatsApp）</label>
               <input type="text" value={whatsappSender} onChange={e => setWhatsappSender(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono" placeholder="+85298765432" disabled={senderDisabled || saving} />
