@@ -390,52 +390,77 @@ async function sendEmailViaSendGrid(apiKey, from, to, subject, text) {
  * - 'expense'   → 支出/結算通知
  * - 'cash_diff' → 現金差異通知
  * 接收人可設：admin1 / admin2 / all
+ *
+ * ⚠️ 為了相容 Resend 免費版（每個呼叫只能送給一個收件人），
+ *    此函數會對每個管理員信箱分別呼叫一次 API。
  */
 async function sendEmailNotification(adminEmails, subject, body, restaurantId, type = '') {
   const config = await getEmailSettings(restaurantId);
   if (!config.apiKey) {
-    throw new Error('請先設定 SENDGRID_API_KEY（在 sendgrid.com 免費註冊取得）');
+    throw new Error('請先設定 API Key（Resend 或 SendGrid）');
   }
 
-  // 如有指定收件人則直接使用
-  if (adminEmails) {
-    const emails = adminEmails.split(/[,;]/).map(s => s.trim()).filter(Boolean);
-    if (emails.length === 0) throw new Error('請先設定管理員信箱');
-    return await sendEmailViaSendGrid(config.apiKey, config.from, emails, subject, body);
-  }
+  // 取得收件人陣列（去重複）
+  const getRecipients = async () => {
+    // 如有指定收件人則直接使用
+    if (adminEmails) {
+      return [...new Set(adminEmails.split(/[,;]/).map(s => s.trim()).filter(Boolean))];
+    }
 
-  // 從 DB 讀取通知規則
-  let rule = 'all';
-  if (restaurantId && type) {
+    // 從 DB 讀取通知規則
+    let rule = 'all';
+    if (restaurantId && type) {
+      try {
+        const { data } = await supabaseAdmin
+          .from('settings')
+          .select('setting_value')
+          .eq('restaurant_id', restaurantId)
+          .eq('setting_key', `notify_rule_${type}_recipient`)
+          .single();
+        if (data) rule = data.setting_value;
+      } catch { /* 使用預設值 */ }
+    }
+
+    // 根據規則決定收件信箱
+    let targetEmail = '';
+    if (rule === 'admin1' && config.adminEmail1) {
+      targetEmail = config.adminEmail1;
+    } else if (rule === 'admin2' && config.adminEmail2) {
+      targetEmail = config.adminEmail2;
+    } else {
+      targetEmail = [config.adminEmail1, config.adminEmail2].filter(Boolean).join(',');
+    }
+
+    let emails = targetEmail.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+    // 如果 adminEmail1/adminEmail2 都空的，改用 adminEmail（ADMIN_EMAIL .env 備用）
+    if (emails.length === 0 && config.adminEmail) {
+      emails = config.adminEmail.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+    }
+    return [...new Set(emails)];
+  };
+
+  const recipients = await getRecipients();
+  if (recipients.length === 0) throw new Error('請先設定管理員信箱 (ADMIN_EMAIL 或 admin_email_1 / admin_email_2)');
+
+  // 對每個收件人個別發送（Resend 免費版限制一次只能送一個收件人）
+  const results = [];
+  let lastError = null;
+  for (const email of recipients) {
     try {
-      const { data } = await supabaseAdmin
-        .from('settings')
-        .select('setting_value')
-        .eq('restaurant_id', restaurantId)
-        .eq('setting_key', `notify_rule_${type}_recipient`)
-        .single();
-      if (data) rule = data.setting_value;
-    } catch { /* 使用預設值 */ }
+      const result = await sendEmailViaSendGrid(config.apiKey, config.from, [email], subject, body);
+      results.push({ email, success: true, id: result.id });
+      console.log(`✅ Email 發送成功 → ${email}`);
+    } catch (err) {
+      lastError = err;
+      results.push({ email, success: false, error: err.message });
+      console.error(`❌ Email 發送失敗 → ${email}: ${err.message}`);
+    }
   }
 
-  // 根據規則決定收件信箱
-  let targetEmail = '';
-  if (rule === 'admin1' && config.adminEmail1) {
-    targetEmail = config.adminEmail1;
-  } else if (rule === 'admin2' && config.adminEmail2) {
-    targetEmail = config.adminEmail2;
-  } else {
-    targetEmail = [config.adminEmail1, config.adminEmail2].filter(Boolean).join(',');
-  }
-
-  let emails = targetEmail.split(/[,;]/).map(s => s.trim()).filter(Boolean);
-  // 如果 adminEmail1/adminEmail2 都空的，改用 adminEmail（ADMIN_EMAIL .env 備用）
-  if (emails.length === 0 && config.adminEmail) {
-    emails = config.adminEmail.split(/[,;]/).map(s => s.trim()).filter(Boolean);
-  }
-  if (emails.length === 0) throw new Error('請先設定管理員信箱 (ADMIN_EMAIL 或 admin_email_1 / admin_email_2)');
-
-  return await sendEmailViaSendGrid(config.apiKey, config.from, emails, subject, body);
+  // 如果全部失敗則拋錯，部分成功則回傳結果
+  const successCount = results.filter(r => r.success).length;
+  if (successCount === 0 && lastError) throw lastError;
+  return { results, successCount, totalCount: recipients.length };
 }
 
 app.post('/api/whatsapp/notify-order', async (req, res) => {

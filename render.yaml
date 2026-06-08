@@ -17,10 +17,10 @@ services:
         sync: false
       - key: VITE_NVIDIA_NIM_MODEL
         value: meta/llama-3.2-11b-vision-instruct
-      - key: SENDGRID_API_KEY
+      - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM
-        value: handmadetarohk813@gmail.com
+        value: onboarding@resend.dev
       - key: ADMIN_EMAIL
         value: Berryenna@yahoo.com.hk,shawnyauws@gmail.com
       - key: POSPAL_USERNAME
