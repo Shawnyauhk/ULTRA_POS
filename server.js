@@ -398,13 +398,11 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
       console.warn('[wacli] 認證狀態檢查失敗:', e.message);
     }
 
-    // 建立可寫入的 session 目錄
-    const sessionDir = resolve('/tmp', 'wacli-session');
-    try { mkdirSync(sessionDir, { recursive: true }); } catch {}
-
+    // 建立可寫入的 session 目錄（wacli 預設存在 ~/.wacli/accounts/）
+    // 注意：wacli 沒有 --session-dir 參數，只能透過 --account 控制 storage 路徑
     let authProcess;
     try {
-      authProcess = spawn(wacliActualPath, ['auth', '--events', '--json', '--timeout', '120s', '--session-dir', sessionDir], {
+      authProcess = spawn(wacliActualPath, ['auth', '--events', '--qr-format', 'text', '--account', 'default'], {
         stdio: ['pipe', 'pipe', 'pipe'], // 同時捕獲 stdout 和 stderr
         detached: true,
       });
@@ -420,8 +418,9 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
 
     let qrCode = '';
     let stderrBuf = '';
+    let stdoutBuf = '';
 
-    // wacli 透過 stderr 輸出 --events JSON，事件名為 "qr"（不是 "qr_code"）
+    // wacli 透過 stderr 輸出 --events JSON，事件名為 "qr"
     authProcess.stderr?.on('data', (data) => {
       const chunk = data.toString();
       stderrBuf += chunk;
@@ -436,6 +435,12 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
       }
     });
 
+    // 部分版本會從 stdout 輸出 QR
+    authProcess.stdout?.on('data', (data) => {
+      const chunk = data.toString();
+      stdoutBuf += chunk;
+    });
+
     authProcess.on('exit', (code, signal) => {
       console.log(`[wacli] 認證程序退出, code=${code}, signal=${signal}`);
       if (code !== 0 && code !== null) {
@@ -444,9 +449,9 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
       activeWacliAuth = null;
     });
 
-    // 等待 QR Code（最多 8 秒）
+    // 等待 QR Code（最多 10 秒）
     let elapsed = 0;
-    while (elapsed < 8000 && !qrCode) {
+    while (elapsed < 10000 && !qrCode) {
       await new Promise(r => setTimeout(r, 200));
       elapsed += 200;
     }
@@ -455,14 +460,15 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
       try { authProcess.kill('SIGKILL'); } catch {}
       try { authProcess.kill(); } catch {}
       setTimeout(() => { activeWacliAuth = null; }, 100);
+      const fullDebug = `stderr: ${stderrBuf.slice(0, 300)} | stdout: ${stdoutBuf.slice(0, 300)}`;
       const hint = stderrBuf.includes('chromium') || stderrBuf.includes('browser')
         ? 'wacli 需搭配瀏覽器環境，可能需要在 Render 安裝額外套件'
         : stderrBuf.includes('connect') || stderrBuf.includes('ECONNREFUSED')
         ? '伺服器無法連接到 WhatsApp，請檢查 Render 網絡設定是否允許對外連接'
-        : (stderrBuf || 'wacli 未輸出 QR Code，可能是版本問題或網絡限制');
+        : (stderrBuf || stdoutBuf || 'wacli 未輸出 QR Code，可能是版本問題或網絡限制');
       const msg = `無法取得 QR Code (${hint})`;
-      console.error('[wacli]', msg, 'stderr:', stderrBuf.slice(0, 300));
-      return res.json({ success: false, message: msg, debug: stderrBuf.slice(0, 500) });
+      console.error('[wacli]', msg, fullDebug);
+      return res.json({ success: false, message: msg, debug: fullDebug });
     }
 
     const qrUrl = `https://web.whatsapp.com/?code=${qrCode}`;
