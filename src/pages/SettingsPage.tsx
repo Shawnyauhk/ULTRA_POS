@@ -117,6 +117,12 @@ export default function SettingsPage() {
   const [testEmailSending, setTestEmailSending] = useState(false);
   const [testEmailResult, setTestEmailResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // 權限設定
+  const [rolePermissions, setRolePermissions] = useState<Record<RoleName, PermissionKey[]>>({ manager: [], staff: [] });
+  const [permLoading, setPermLoading] = useState(true);
+  const [permSaving, setPermSaving] = useState(false);
+  const [permSaved, setPermSaved] = useState(false);
+
   useEffect(() => {
     if (!loading) {
       setAppId(getSetting('pospal_app_id', ''));
