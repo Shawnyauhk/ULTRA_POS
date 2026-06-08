@@ -41,25 +41,27 @@ const supabaseAdmin = createClient(
  * 此端點用來被外部定時任務（如 cron-job.org）每 5 分鐘呼叫一次，保持服務甦醒。
  */
 app.all('/api/health', (req, res) => {
-  console.log('🔥 /api/health 被調用, method:', req.method);
   const body = JSON.stringify({
     success: true,
     status: 'alive',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
   });
-  res.setHeader('Content-Type', 'application/json');
-  res.setHeader('Content-Length', Buffer.byteLength(body));
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
   res.end(body);
 });
 
-// Root route for health check - 只在非 production 時回傳 JSON
-// production 模式下由 static file middleware 提供前端頁面
+// Root route for health check
 app.all('/api/root-health', (req, res) => {
   const body = JSON.stringify({ success: true, message: 'ULTRA POS server is running' });
-  res.setHeader('Content-Type', 'application/json');
-  res.setHeader('Content-Length', Buffer.byteLength(body));
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
   res.end(body);
+});
+
+// 最簡單的路由測試（先於任何 middleware）
+app.all('/api/ping', (req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain', 'Content-Length': '4' });
+  res.end('pong');
 });
 
 // =========== 後端權限驗證中間件 ===========
@@ -1843,12 +1845,14 @@ app.all('/api/ai/suggestions', async (req, res) => {
 
 // =========== 生產環境：提供前端靜態文件 ===========
 const distPath = resolve(__dirname, 'dist');
+console.log('📁 靜態文件路徑:', distPath, '存在:', existsSync(distPath));
 if (process.env.NODE_ENV === 'production' && existsSync(distPath)) {
   console.log('📁 提供靜態文件從:', distPath);
-  app.use(express.static(distPath));
+  app.use('/', express.static(distPath));
 
-  // SPA fallback：所有非 API 的 GET 請求都返回 index.html
+  // SPA fallback
   app.use((req, res, next) => {
+    console.log('🔄 SPA fallback 收到請求:', req.method, req.path);
     if (req.method === 'GET' && !req.path.startsWith('/api')) {
       return res.sendFile(resolve(distPath, 'index.html'));
     }
