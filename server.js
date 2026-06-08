@@ -340,9 +340,10 @@ function getEmailTransporter(config) {
     port: config.port,
     secure: config.secure,
     auth: { user: config.user, pass: config.pass },
-    connectionTimeout: 15000,
-    greetingTimeout: 15000,
+    connectionTimeout: 20000,
+    greetingTimeout: 20000,
     socketTimeout: 30000,
+    tls: { rejectUnauthorized: false, minVersion: 'TLSv1' },
   });
   return _emailTransporter;
 }
@@ -418,8 +419,60 @@ app.post('/api/whatsapp/notify-order', async (req, res) => {
   }
 });
 
+// 診斷 Email 連線（不實際發送）
+app.get('/api/email/diagnose', async (req, res) => {
+  const config = await getEmailSettings(req.query.restaurant_id);
+  const diag = {
+    config: {
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
+      user: config.user ? config.user.substring(0, 4) + '****' : '(empty)',
+      passSet: !!config.pass,
+      passLength: config.pass ? config.pass.length : 0,
+      adminEmail: config.adminEmail,
+    },
+    env: {
+      EMAIL_USER: process.env.EMAIL_USER ? 'set' : 'missing',
+      EMAIL_PASS: process.env.EMAIL_PASS ? 'set' : 'missing',
+      ADMIN_EMAIL: process.env.ADMIN_EMAIL ? 'set' : 'missing',
+      EMAIL_HOST: process.env.EMAIL_HOST || '(default)',
+      EMAIL_PORT: process.env.EMAIL_PORT || '(default)',
+      EMAIL_SECURE: process.env.EMAIL_SECURE || '(default)',
+    },
+    tests: {},
+  };
+  if (!config.user || !config.pass) {
+    diag.tests.skipped = '缺少帳號或密碼，跳過連線測試';
+    return res.json(diag);
+  }
+  const net = await import('net');
+  // 1) TCP 連通性
+  await new Promise((resolve) => {
+    const sock = net.createConnection({ host: config.host, port: config.port, timeout: 10000 });
+    const t = setTimeout(() => { sock.destroy(); diag.tests.tcp = '⏱ 10s timeout'; resolve(); }, 11000);
+    sock.on('connect', () => { clearTimeout(t); diag.tests.tcp = '✅ TCP 連線成功'; sock.end(); resolve(); });
+    sock.on('error', (e) => { clearTimeout(t); diag.tests.tcp = '❌ ' + e.code + ' - ' + e.message; resolve(); });
+    sock.on('timeout', () => { clearTimeout(t); diag.tests.tcp = '⏱ 連線超時'; sock.destroy(); resolve(); });
+  });
+  // 2) SMTP 握手驗證
+  try {
+    const transporter = nodemailer.createTransport({
+      host: config.host, port: config.port, secure: config.secure,
+      auth: { user: config.user, pass: config.pass },
+      connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 20000,
+    });
+    await transporter.verify();
+    diag.tests.smtp = '✅ SMTP 認證成功（帳號密碼正確）';
+  } catch (e) {
+    diag.tests.smtp = '❌ ' + (e.code || '') + ' - ' + e.message;
+  }
+  res.json(diag);
+});
+
 // 測試 Email 發送
 app.post('/api/email/test-send', async (req, res) => {
+  const diag = { steps: [] };
   try {
     const { restaurant_id, email_user, email_pass, admin_email } = req.body;
 
@@ -428,31 +481,48 @@ app.post('/api/email/test-send', async (req, res) => {
     const user = email_user || config.user;
     const pass = email_pass || config.pass;
     const to = admin_email || config.adminEmail;
+    diag.steps.push(`config: host=${config.host} port=${config.port} secure=${config.secure}`);
+    diag.steps.push(`user: ${user ? user.substring(0,4)+'****' : '(empty)'}, pass: ${pass ? pass.length+'ch' : '(empty)'}, to: ${to}`);
 
     if (!user || !pass) {
-      return res.json({ success: false, message: '請先設定 Email 帳號和密碼' });
+      return res.json({ success: false, message: '請先設定 Email 帳號和密碼', diag });
     }
     if (!to) {
-      return res.json({ success: false, message: '請先設定管理員信箱' });
+      return res.json({ success: false, message: '請先設定管理員信箱', diag });
     }
 
+    diag.steps.push('建立 transporter...');
     const transporter = nodemailer.createTransport({
       host: config.host, port: config.port, secure: config.secure,
       auth: { user, pass },
+      connectionTimeout: 20000, greetingTimeout: 20000, socketTimeout: 30000,
+      tls: { rejectUnauthorized: false, minVersion: 'TLSv1' },
     });
 
-    await transporter.sendMail({
+    diag.steps.push('驗證 SMTP 連線...');
+    try {
+      await transporter.verify();
+      diag.steps.push('✅ SMTP 驗證成功');
+    } catch (e) {
+      diag.steps.push('❌ SMTP 驗證失敗: ' + e.message);
+      return res.json({ success: false, message: 'SMTP 連線失敗: ' + e.message, diag });
+    }
+
+    diag.steps.push('發送郵件...');
+    const info = await transporter.sendMail({
       from: `"${config.from || 'ULTRA POS'}" <${user}>`,
       to,
       subject: '🧪 ULTRA POS Email 通知測試',
-      text: '如果你收到這封郵件，表示 Email 通知設定正確！\n\nULTRA POS 系統',
+      text: `測試時間: ${new Date().toISOString()}\n\n如果你收到這封郵件，表示 Email 通知設定正確！\n\nULTRA POS 系統`,
     });
 
-    console.log(`✅ Email 測試發送成功 → ${to}`);
-    res.json({ success: true, message: `測試郵件已成功發送到 ${to}，請檢查信箱` });
+    diag.steps.push('✅ 發送成功 messageId=' + info.messageId);
+    console.log(`✅ Email 測試發送成功 → ${to} (${info.messageId})`);
+    res.json({ success: true, message: `測試郵件已成功發送到 ${to}，請檢查信箱`, diag, messageId: info.messageId });
   } catch (error) {
+    diag.steps.push('❌ 拋出異常: ' + (error.code || '') + ' - ' + error.message);
     console.error('❌ Email 測試發送失敗:', error.message);
-    res.json({ success: false, message: '發送失敗: ' + error.message });
+    res.json({ success: false, message: '發送失敗: ' + error.message, diag });
   }
 });
 
