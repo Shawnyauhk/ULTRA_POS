@@ -36,32 +36,21 @@ const supabaseAdmin = createClient(
 );
 
 // =========== 健康檢查 + 保活端點 ===========
-/**
- * Render 免費版 15 分鐘無訪問會休眠。
- * 此端點用來被外部定時任務（如 cron-job.org）每 5 分鐘呼叫一次，保持服務甦醒。
- */
-app.all('/api/health', (req, res) => {
-  const body = JSON.stringify({
+app.all('/api/health', (req, res, next) => {
+  res.json({
     success: true,
     status: 'alive',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
   });
-  res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
-  res.end(body);
 });
 
-// Root route for health check
-app.all('/api/root-health', (req, res) => {
-  const body = JSON.stringify({ success: true, message: 'ULTRA POS server is running' });
-  res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
-  res.end(body);
+app.all('/api/root-health', (req, res, next) => {
+  res.json({ success: true, message: 'ULTRA POS server is running' });
 });
 
-// 最簡單的路由測試（先於任何 middleware）
-app.all('/api/ping', (req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain', 'Content-Length': '4' });
-  res.end('pong');
+app.all('/api/ping', (req, res, next) => {
+  res.send('pong');
 });
 
 // =========== 後端權限驗證中間件 ===========
