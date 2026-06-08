@@ -438,23 +438,24 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
       activeWacliAuth = null;
     });
 
-    // 等待 QR Code（最多 25 秒）
+    // 等待 QR Code（最多 8 秒）
     let elapsed = 0;
-    while (elapsed < 25000 && !qrCode) {
-      await new Promise(r => setTimeout(r, 300));
-      elapsed += 300;
+    while (elapsed < 8000 && !qrCode) {
+      await new Promise(r => setTimeout(r, 200));
+      elapsed += 200;
     }
 
     if (!qrCode) {
+      try { authProcess.kill('SIGKILL'); } catch {}
       try { authProcess.kill(); } catch {}
-      activeWacliAuth = null;
+      setTimeout(() => { activeWacliAuth = null; }, 100);
       const hint = stderrBuf.includes('chromium') || stderrBuf.includes('browser')
         ? 'wacli 需搭配瀏覽器環境，可能需要在 Render 安裝額外套件'
         : stderrBuf.includes('connect') || stderrBuf.includes('ECONNREFUSED')
         ? '伺服器無法連接到 WhatsApp，請檢查 Render 網絡設定是否允許對外連接'
-        : stderrBuf || 'wacli 未輸出 QR Code，可能是版本問題或網絡限制';
+        : (stderrBuf || 'wacli 未輸出 QR Code，可能是版本問題或網絡限制');
       const msg = `無法取得 QR Code (${hint})`;
-      console.error('[wacli]', msg);
+      console.error('[wacli]', msg, 'stderr:', stderrBuf.slice(0, 300));
       return res.json({ success: false, message: msg, debug: stderrBuf.slice(0, 500) });
     }
 
