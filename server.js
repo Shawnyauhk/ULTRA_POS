@@ -291,21 +291,23 @@ function parseNumbers(str) {
   return (str || '').split('\n').map(s => s.trim()).filter(Boolean);
 }
 
-// =========== Email 通知設定（使用 Resend HTTP API）===========
+// =========== Email 通知設定（使用 SendGrid HTTP API）===========
 /**
- * 為什麼用 Resend 而不是 SMTP？
+ * 為什麼用 SendGrid 而不是 SMTP？
  * Render 免費版自 2025-09-26 起永久阻擋 SMTP 端口（25/465/587）
  * 唯一可行方案：用 HTTP API 發送
- * Resend：https://resend.com（免費 3000 封/月，3 行程式碼）
+ * SendGrid：https://sendgrid.com（免費 100 封/天，無需域名）
  */
 
 /** 從 Supabase settings 或 .env 讀取 Email 設定 */
 async function getEmailSettings(restaurantId) {
-  let apiKey = process.env.RESEND_API_KEY || process.env.EMAIL_API_KEY || '';
-  let from = process.env.EMAIL_FROM || 'ULTRA POS <onboarding@resend.dev>';
+  let apiKey = process.env.SENDGRID_API_KEY || process.env.RESEND_API_KEY || process.env.EMAIL_API_KEY || '';
+  let from = process.env.EMAIL_FROM || 'handmadetarohk813@gmail.com';
   let user = process.env.EMAIL_USER || '';
   let pass = process.env.EMAIL_PASS || '';
   let adminEmail = process.env.ADMIN_EMAIL || '';
+  let adminEmail1 = '';
+  let adminEmail2 = '';
 
   if (restaurantId) {
     try {
@@ -313,15 +315,18 @@ async function getEmailSettings(restaurantId) {
         .from('settings')
         .select('setting_key, setting_value')
         .eq('restaurant_id', restaurantId)
-        .in('setting_key', ['resend_api_key', 'email_api_key', 'email_user', 'email_pass', 'admin_email', 'email_from']);
+        .in('setting_key', ['sendgrid_api_key', 'resend_api_key', 'email_api_key', 'email_user', 'email_pass', 'admin_email', 'admin_email_1', 'admin_email_2', 'email_from']);
 
       if (data) {
         const getVal = (key) => data.find(s => s.setting_key === key)?.setting_value;
-        if (getVal('resend_api_key')) apiKey = getVal('resend_api_key');
-        if (getVal('email_api_key')) apiKey = getVal('email_api_key');
+        if (getVal('sendgrid_api_key')) apiKey = getVal('sendgrid_api_key');
+        if (getVal('resend_api_key') && !apiKey) apiKey = getVal('resend_api_key');
+        if (getVal('email_api_key') && !apiKey) apiKey = getVal('email_api_key');
         if (getVal('email_user')) user = getVal('email_user');
         if (getVal('email_pass')) pass = getVal('email_pass');
         if (getVal('admin_email')) adminEmail = getVal('admin_email');
+        if (getVal('admin_email_1')) adminEmail1 = getVal('admin_email_1');
+        if (getVal('admin_email_2')) adminEmail2 = getVal('admin_email_2');
         if (getVal('email_from')) from = getVal('email_from');
       }
     } catch (err) {
@@ -329,45 +334,110 @@ async function getEmailSettings(restaurantId) {
     }
   }
 
-  return { apiKey, from, user, pass, adminEmail };
+  return { apiKey, from, user, pass, adminEmail, adminEmail1, adminEmail2 };
 }
 
-/** 通過 Resend HTTP API 發送郵件 */
-async function sendEmailViaResend(apiKey, from, to, subject, text) {
-  const res = await fetch('https://api.resend.com/emails', {
+/** 通過 SendGrid 或 Resend HTTP API 發送郵件 */
+async function sendEmailViaSendGrid(apiKey, from, to, subject, text) {
+  const isResend = apiKey.startsWith('re_');
+  const toList = Array.isArray(to) ? to : [to];
+
+  if (isResend) {
+    // Resend API: https://resend.com/docs/api-reference/emails/send-email
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: from.includes('<') ? from : `ULTRA POS <${from}>`,
+        to: toList,
+        subject,
+        text,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.text();
+      throw new Error(`Resend API 錯誤 [${res.status}]: ${data}`);
+    }
+    const data = await res.json();
+    return { id: data.id || 'resend-' + Date.now() };
+  }
+
+  // SendGrid API: https://docs.sendgrid.com/api-reference
+  const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from,
-      to: Array.isArray(to) ? to : [to],
-      subject,
-      text,
+      personalizations: [{ to: toList.map(email => ({ email })), subject }],
+      from: { email: from },
+      content: [{ type: 'text/plain', value: text }],
     }),
   });
-  const data = await res.json();
   if (!res.ok) {
-    throw new Error(`Resend API 錯誤 [${res.status}]: ${data.message || JSON.stringify(data)}`);
+    const data = await res.text();
+    throw new Error(`SendGrid API 錯誤 [${res.status}]: ${data}`);
   }
-  return data;
+  return { id: 'sendgrid-' + Date.now() };
 }
 
 /** 發送 Email 通知到一個或多個管理員 */
-async function sendEmailNotification(adminEmails, subject, body, restaurantId) {
+/**
+ * 通知類型對應 notify_rule_{type}_recipient 設定：
+ * - 'order'     → 訂貨通知
+ * - 'expense'   → 支出/結算通知
+ * - 'cash_diff' → 現金差異通知
+ * 接收人可設：admin1 / admin2 / all
+ */
+async function sendEmailNotification(adminEmails, subject, body, restaurantId, type = '') {
   const config = await getEmailSettings(restaurantId);
   if (!config.apiKey) {
-    // 備用：若無 Resend API Key，嘗試用 Gmail SMTP（本地可運行，Render 無法）
-    if (config.user && config.pass) {
-      throw new Error('Render 免費版阻擋 SMTP 端口，請設定 Resend API Key。SMTP 方案僅在付費 Render 計劃或本地可運作。');
-    }
-    throw new Error('請先設定 RESEND_API_KEY（在 resend.com 免費註冊取得）');
+    throw new Error('請先設定 SENDGRID_API_KEY（在 sendgrid.com 免費註冊取得）');
   }
-  const emails = (adminEmails || config.adminEmail).split(/[,;]/).map(s => s.trim()).filter(Boolean);
-  if (emails.length === 0) throw new Error('請先設定管理員信箱 (ADMIN_EMAIL)');
 
-  return await sendEmailViaResend(config.apiKey, config.from, emails, subject, body);
+  // 如有指定收件人則直接使用
+  if (adminEmails) {
+    const emails = adminEmails.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+    if (emails.length === 0) throw new Error('請先設定管理員信箱');
+    return await sendEmailViaSendGrid(config.apiKey, config.from, emails, subject, body);
+  }
+
+  // 從 DB 讀取通知規則
+  let rule = 'all';
+  if (restaurantId && type) {
+    try {
+      const { data } = await supabaseAdmin
+        .from('settings')
+        .select('setting_value')
+        .eq('restaurant_id', restaurantId)
+        .eq('setting_key', `notify_rule_${type}_recipient`)
+        .single();
+      if (data) rule = data.setting_value;
+    } catch { /* 使用預設值 */ }
+  }
+
+  // 根據規則決定收件信箱
+  let targetEmail = '';
+  if (rule === 'admin1' && config.adminEmail1) {
+    targetEmail = config.adminEmail1;
+  } else if (rule === 'admin2' && config.adminEmail2) {
+    targetEmail = config.adminEmail2;
+  } else {
+    targetEmail = [config.adminEmail1, config.adminEmail2].filter(Boolean).join(',');
+  }
+
+  let emails = targetEmail.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+  // 如果 adminEmail1/adminEmail2 都空的，改用 adminEmail（ADMIN_EMAIL .env 備用）
+  if (emails.length === 0 && config.adminEmail) {
+    emails = config.adminEmail.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+  }
+  if (emails.length === 0) throw new Error('請先設定管理員信箱 (ADMIN_EMAIL 或 admin_email_1 / admin_email_2)');
+
+  return await sendEmailViaSendGrid(config.apiKey, config.from, emails, subject, body);
 }
 
 app.post('/api/whatsapp/notify-order', async (req, res) => {
@@ -387,10 +457,10 @@ app.post('/api/whatsapp/notify-order', async (req, res) => {
     // 優先使用 Email 通知
     try {
       const config = await getEmailSettings(restaurant_id);
-      if (config.user && config.pass && config.adminEmail) {
-        await sendEmailNotification(config.adminEmail, subject, body, restaurant_id);
+      if (config.apiKey) {
+        await sendEmailNotification('', subject, body, restaurant_id, 'order');
         results.email = 'success';
-        console.log(`✅ Email 訂貨通知已發送 (${config.adminEmail})`);
+        console.log(`✅ Email 訂貨通知已發送`);
       }
     } catch (emailErr) {
       console.warn('⚠️ Email 發送失敗，嘗試 WhatsApp:', emailErr.message);
@@ -417,6 +487,30 @@ app.post('/api/whatsapp/notify-order', async (req, res) => {
   }
 });
 
+// 更新系統設置（支援單個或批量）
+app.post('/api/settings/update', async (req, res) => {
+  try {
+    const { restaurant_id, settings } = req.body;
+    if (!restaurant_id || !settings) {
+      return res.status(400).json({ success: false, message: '缺少 restaurant_id 或 settings' });
+    }
+    const entries = Object.entries(settings);
+    const results = [];
+    for (const [key, value] of entries) {
+      const { error } = await supabaseAdmin
+        .from('settings')
+        .upsert(
+          { restaurant_id, setting_key: key, setting_value: String(value), updated_at: new Date().toISOString() },
+          { onConflict: 'restaurant_id, setting_key' }
+        );
+      results.push({ key, success: !error, error: error?.message });
+    }
+    res.json({ success: true, results });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // 診斷 Email 連線
 app.get('/api/email/diagnose', async (req, res) => {
   const config = await getEmailSettings(req.query.restaurant_id);
@@ -436,16 +530,16 @@ app.get('/api/email/diagnose', async (req, res) => {
     tests: {},
   };
   if (!config.apiKey) {
-    diag.tests.skipped = '缺少 RESEND_API_KEY，跳過 Resend API 測試';
+    diag.tests.skipped = '缺少 SENDGRID_API_KEY，跳過 SendGrid API 測試';
     return res.json(diag);
   }
   try {
-    const r = await fetch('https://api.resend.com/domains', {
+    const r = await fetch('https://api.sendgrid.com/v3/scopes', {
       headers: { 'Authorization': `Bearer ${config.apiKey}` }
     });
-    diag.tests.resend_api = r.ok ? '✅ Resend API 認證成功' : `❌ HTTP ${r.status}`;
+    diag.tests.sendgrid_api = r.ok ? '✅ SendGrid API 認證成功' : `❌ HTTP ${r.status}`;
   } catch (e) {
-    diag.tests.resend_api = '❌ ' + e.message;
+    diag.tests.sendgrid_api = '❌ ' + e.message;
   }
   res.json(diag);
 });
@@ -462,7 +556,7 @@ app.post('/api/email/test-send', async (req, res) => {
     if (!config.apiKey) {
       return res.json({
         success: false,
-        message: '請先設定 RESEND_API_KEY（去 https://resend.com 免費註冊，1 分鐘拿到）',
+        message: '請先設定 SENDGRID_API_KEY（去 https://sendgrid.com 免費註冊，1 分鐘拿到）',
         diag
       });
     }
@@ -470,17 +564,21 @@ app.post('/api/email/test-send', async (req, res) => {
       return res.json({ success: false, message: '請先設定管理員信箱', diag });
     }
 
-    diag.steps.push('調用 Resend HTTP API...');
-    const result = await sendEmailViaResend(
+    const emails = (to || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+    if (emails.length === 0) {
+      return res.json({ success: false, message: '請填寫有效的管理員信箱', diag });
+    }
+    diag.steps.push(`調用 SendGrid HTTP API, 收件人: ${emails.join(', ')}...`);
+    const result = await sendEmailViaSendGrid(
       config.apiKey,
       config.from,
-      to,
+      emails,
       '🧪 ULTRA POS Email 通知測試',
       `測試時間: ${new Date().toISOString()}\n\n如果你收到這封郵件，表示 Email 通知設定正確！\n\nULTRA POS 系統`
     );
-    diag.steps.push('✅ Resend 接受請求 messageId=' + result.id);
-    console.log(`✅ Email 測試發送成功 → ${to} (${result.id})`);
-    res.json({ success: true, message: `測試郵件已成功發送到 ${to}，請檢查信箱`, diag, messageId: result.id });
+    diag.steps.push('✅ SendGrid 接受請求 messageId=' + result.id);
+    console.log(`✅ Email 測試發送成功 → ${emails.join(', ')} (${result.id})`);
+    res.json({ success: true, message: `測試郵件已成功發送到 ${emails.join(', ')}，請檢查信箱`, diag, messageId: result.id });
   } catch (error) {
     diag.steps.push('❌ 失敗: ' + error.message);
     console.error('❌ Email 測試發送失敗:', error.message);
