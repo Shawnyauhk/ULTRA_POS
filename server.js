@@ -41,18 +41,25 @@ const supabaseAdmin = createClient(
  * 此端點用來被外部定時任務（如 cron-job.org）每 5 分鐘呼叫一次，保持服務甦醒。
  */
 app.all('/api/health', (req, res) => {
-  res.json({
+  console.log('🔥 /api/health 被調用, method:', req.method);
+  const body = JSON.stringify({
     success: true,
     status: 'alive',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
   });
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Length', Buffer.byteLength(body));
+  res.end(body);
 });
 
 // Root route for health check - 只在非 production 時回傳 JSON
 // production 模式下由 static file middleware 提供前端頁面
 app.all('/api/root-health', (req, res) => {
-  res.json({ success: true, message: 'ULTRA POS server is running' });
+  const body = JSON.stringify({ success: true, message: 'ULTRA POS server is running' });
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Length', Buffer.byteLength(body));
+  res.end(body);
 });
 
 // =========== 後端權限驗證中間件 ===========
