@@ -335,7 +335,7 @@ let _emailTransporter = null;
 function getEmailTransporter(config) {
   if (!config.user || !config.pass) return null;
   if (_emailTransporter) return _emailTransporter;
-  _emailTransporter = nodemailer.createTransporter({
+  _emailTransporter = nodemailer.createTransport({
     host: config.host,
     port: config.port,
     secure: config.secure,
@@ -433,7 +433,7 @@ app.post('/api/email/test-send', async (req, res) => {
       return res.json({ success: false, message: '請先設定管理員信箱' });
     }
 
-    const transporter = nodemailer.createTransporter({
+    const transporter = nodemailer.createTransport({
       host: config.host, port: config.port, secure: config.secure,
       auth: { user, pass },
     });
