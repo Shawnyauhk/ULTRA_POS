@@ -40,7 +40,7 @@ const supabaseAdmin = createClient(
  * Render 免費版 15 分鐘無訪問會休眠。
  * 此端點用來被外部定時任務（如 cron-job.org）每 5 分鐘呼叫一次，保持服務甦醒。
  */
-app.get('/api/health', (req, res) => {
+app.all('/api/health', (req, res) => {
   res.json({
     success: true,
     status: 'alive',
@@ -51,7 +51,7 @@ app.get('/api/health', (req, res) => {
 
 // Root route for health check - 只在非 production 時回傳 JSON
 // production 模式下由 static file middleware 提供前端頁面
-app.get('/api/root-health', (req, res) => {
+app.all('/api/root-health', (req, res) => {
   res.json({ success: true, message: 'ULTRA POS server is running' });
 });
 
@@ -93,7 +93,7 @@ async function verifyAuth(req) {
 
 /**
  * 權限檢查中間件工廠
- * usage: app.get('/api/xxx', requirePermission('expense.view'), handler)
+ * usage: app.all('/api/xxx', requirePermission('expense.view'), handler)
  */
 function requirePermission(requiredPermission) {
   return async (req, res, next) => {
@@ -512,7 +512,7 @@ app.post('/api/settings/update', async (req, res) => {
 });
 
 // 診斷 Email 連線
-app.get('/api/email/diagnose', async (req, res) => {
+app.all('/api/email/diagnose', async (req, res) => {
   const config = await getEmailSettings(req.query.restaurant_id);
   const diag = {
     config: {
@@ -1086,7 +1086,7 @@ app.post('/api/whatsapp/auth-cancel', async (req, res) => {
   }
 });
 
-app.get('/api/whatsapp/auth-status', async (req, res) => {
+app.all('/api/whatsapp/auth-status', async (req, res) => {
   try {
     // 確保帳戶存在
     ensureWacliAccount();
@@ -1507,7 +1507,7 @@ ${knowledgeContext}`,
 });
 
 // =========== 會話管理 API ===========
-app.get('/api/ai/sessions', async (req, res) => {
+app.all('/api/ai/sessions', async (req, res) => {
   try {
     const { restaurant_id } = req.query;
     if (!restaurant_id) {
@@ -1539,7 +1539,7 @@ app.get('/api/ai/sessions', async (req, res) => {
   }
 });
 
-app.get('/api/ai/sessions/:sessionId/messages', async (req, res) => {
+app.all('/api/ai/sessions/:sessionId/messages', async (req, res) => {
   try {
     const { sessionId } = req.params;
 
@@ -1598,7 +1598,7 @@ app.delete('/api/ai/sessions/:sessionId', async (req, res) => {
 });
 
 // =========== 知識庫管理 API ===========
-app.get('/api/ai/knowledge', async (req, res) => {
+app.all('/api/ai/knowledge', async (req, res) => {
   try {
     const { restaurant_id } = req.query;
     if (!restaurant_id) {
@@ -1692,7 +1692,7 @@ app.delete('/api/ai/knowledge/:id', requirePermission('ai.knowledge_base'), asyn
 });
 
 // =========== AI 配置管理 API ===========
-app.get('/api/ai/config', async (req, res) => {
+app.all('/api/ai/config', async (req, res) => {
   try {
     const { restaurant_id } = req.query;
     if (!restaurant_id) {
@@ -1814,7 +1814,7 @@ app.post('/api/ai/suggestions', async (req, res) => {
 });
 
 // 獲取某個會話的所有建議
-app.get('/api/ai/suggestions', async (req, res) => {
+app.all('/api/ai/suggestions', async (req, res) => {
   try {
     const { session_id, restaurant_id } = req.query;
 
@@ -1977,7 +1977,7 @@ app.post('/api/register', async (req, res) => {
  */
 
 // 查詢結算紀錄（單日）
-app.get('/api/settlements', requirePermission('expense.view'), async (req, res) => {
+app.all('/api/settlements', requirePermission('expense.view'), async (req, res) => {
   try {
     const { date, restaurant_id } = req.query;
     if (!date || !restaurant_id) {
@@ -1997,7 +1997,7 @@ app.get('/api/settlements', requirePermission('expense.view'), async (req, res) 
 });
 
 // 查詢結算紀錄（按月彙總）
-app.get('/api/settlements/monthly', requirePermission('expense.view'), async (req, res) => {
+app.all('/api/settlements/monthly', requirePermission('expense.view'), async (req, res) => {
   try {
     const { month, restaurant_id } = req.query;
     if (!month || !restaurant_id) {
@@ -2037,7 +2037,7 @@ app.get('/api/settlements/monthly', requirePermission('expense.view'), async (re
 });
 
 // 查詢結算紀錄（日期範圍）
-app.get('/api/settlements/range', requirePermission('expense.view'), async (req, res) => {
+app.all('/api/settlements/range', requirePermission('expense.view'), async (req, res) => {
   try {
     const { start, end, restaurant_id } = req.query;
     if (!start || !end || !restaurant_id) {
@@ -2624,7 +2624,7 @@ app.post('/api/attendance/clock', async (req, res) => {
 /**
  * 取得今日打卡記錄
  */
-app.get('/api/attendance/today', async (req, res) => {
+app.all('/api/attendance/today', async (req, res) => {
   try {
     const { restaurant_id } = req.query;
     if (!restaurant_id) return res.status(400).json({ success: false, message: '缺少 restaurant_id' });
@@ -2690,7 +2690,7 @@ app.post('/api/attendance/store/update-ip', async (req, res) => {
 /**
  * 獲取門店當前存儲的 IP
  */
-app.get('/api/attendance/store/ip', async (req, res) => {
+app.all('/api/attendance/store/ip', async (req, res) => {
   try {
     const { restaurant_id } = req.query;
     if (!restaurant_id) {
