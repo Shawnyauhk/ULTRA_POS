@@ -477,12 +477,35 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
 app.get('/api/whatsapp/auth-status', async (req, res) => {
   try {
     const actualPath = checkWacliExists();
-    const result = spawnSync(actualPath, ['auth', 'status', '--json'], { encoding: 'utf-8', timeout: 10000 });
-    if (result.status !== 0 || !result.stdout) {
-      return res.json({ success: false, authenticated: false, message: 'wacli 未就緒' });
-    }
-    const status = JSON.parse(result.stdout);
-    res.json({ success: true, authenticated: !!(status.success && status.data?.authenticated) });
+    const diag = {
+      wacliPath: actualPath,
+      exists: false,
+      execOk: false,
+      version: ''
+    };
+    try {
+      diag.exists = existsSync(actualPath);
+      if (diag.exists) {
+        accessSync(actualPath, constants.X_OK);
+        diag.execOk = true;
+      }
+    } catch {}
+    try {
+      const verResult = spawnSync(actualPath, ['--version'], { encoding: 'utf-8', timeout: 5000 });
+      diag.version = verResult.status === 0 ? (verResult.stdout || '').trim() : 'error: ' + (verResult.stderr || '').slice(0, 100);
+    } catch (e) { diag.version = 'exception: ' + e.message; }
+    try {
+      const statusResult = spawnSync(actualPath, ['auth', 'status', '--json'], { encoding: 'utf-8', timeout: 10000 });
+      if (statusResult.status === 0 && statusResult.stdout) {
+        try {
+          const status = JSON.parse(statusResult.stdout);
+          if (status.success && status.data?.authenticated) {
+            return res.json({ success: true, authenticated: true, message: '已認證，無需重新掃碼', diag });
+          }
+        } catch {}
+      }
+    } catch (e) { diag.authError = e.message; }
+    res.json({ success: false, authenticated: false, message: 'wacli 未就緒', diag });
   } catch (error) {
     res.json({ success: false, authenticated: false, message: error.message });
   }
