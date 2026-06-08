@@ -685,13 +685,19 @@ app.post('/api/whatsapp/auth-phone', async (req, res) => {
       activeWacliAuth = null;
     });
 
-    // 7. 等待配对码（最多 12 秒）
+    // 7. 等待配对码（最多 30 秒，给 Render 慢启动留时间）
     let elapsed = 0;
     const pollInterval = 200;
-    const maxWait = 12000;
+    const maxWait = 30000;
+    let lastLogTime = 0;
     while (elapsed < maxWait && !pairingCode && !authenticated && !errorMessage) {
       await new Promise(r => setTimeout(r, pollInterval));
       elapsed += pollInterval;
+      // 每 2 秒输出一次进度
+      if (elapsed - lastLogTime > 2000) {
+        console.log(`[wacli-pairing] 等待配對碼中... (${Math.floor(elapsed/1000)}s)`);
+        lastLogTime = elapsed;
+      }
     }
 
     clearTimeout(timeout);

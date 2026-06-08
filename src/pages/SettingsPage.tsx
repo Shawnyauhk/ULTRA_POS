@@ -249,10 +249,17 @@ export default function SettingsPage() {
     if (pairingPollRef.current) clearInterval(pairingPollRef.current);
 
     try {
+      // 使用 AbortController 设置 60 秒超时（Render 容器冷启动可能较慢）
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+
       const res = await apiFetch('/api/whatsapp/auth-phone', {
         method: 'POST',
         body: JSON.stringify({ phone: phoneNumber.trim() }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
+
       const json = await res.json();
 
       if (json.authenticated) {
@@ -275,7 +282,11 @@ export default function SettingsPage() {
         if (json.debug) console.error('[配對碼調試]', json.debug);
       }
     } catch (e: any) {
-      setWacliAuthMessage('❌ 網絡錯誤: ' + e.message);
+      if (e.name === 'AbortError') {
+        setWacliAuthMessage('⏱️ 請求超時（60秒），wacli 在 Render 上啟動較慢，請重試或查看 Render 日誌');
+      } else {
+        setWacliAuthMessage('❌ 網絡錯誤: ' + e.message);
+      }
     } finally {
       setPairingLoading(false);
     }
