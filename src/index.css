@@ -57,3 +57,19 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ===== 橫向排版修正 ===== */
+/* 覆蓋 shadcn/ui 預設 tight 排版，改善中文閱讀舒適度 */
+h1, h2, h3, h4, h5, h6,
+[class*="CardTitle"],
+[class*="card-title"] {
+  line-height: 1.625;
+  letter-spacing: 0.01em;
+}
+
+p, [class*="CardDescription"],
+[class*="card-description"],
+[class*="description"] {
+  line-height: 1.625;
+  letter-spacing: 0.02em;
+}

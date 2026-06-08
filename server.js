@@ -1240,6 +1240,46 @@ app.get('/api/settlements', requirePermission('expense.view'), async (req, res) 
   }
 });
 
+// 查詢結算紀錄（按月彙總）
+app.get('/api/settlements/monthly', requirePermission('expense.view'), async (req, res) => {
+  try {
+    const { month, restaurant_id } = req.query;
+    if (!month || !restaurant_id) {
+      return res.status(400).json({ success: false, message: '缺少 month 或 restaurant_id' });
+    }
+    // month 格式: YYYY-MM
+    const startDate = `${month}-01`;
+    const endDate = new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth() + 1, 0)
+      .toISOString().split('T')[0];
+
+    const { data, error } = await supabaseAdmin
+      .from('daily_settlements')
+      .select('*')
+      .eq('restaurant_id', restaurant_id)
+      .gte('settlement_date', startDate)
+      .lte('settlement_date', endDate)
+      .order('settlement_date', { ascending: true });
+    if (error) throw error;
+
+    // 彙總所有數值欄位
+    const sumFields = [
+      'cash', 'unionpay', 'stored_value', 'octopus', 'foodpanda',
+      'alipay_hk', 'wechat_hk', 'meituan_keeta', 'openrice',
+      'booking_deposit', 'visit_card', 'shopping_card', 'prepaid_card',
+      'payme', 'total_amount', 'actual_revenue', 'total_transactions',
+    ];
+    const monthly = { days: (data || []).length };
+    for (const field of sumFields) {
+      monthly[field] = (data || []).reduce((sum, row) => sum + (parseFloat(row[field]) || 0), 0);
+    }
+    monthly.settlement_month = month;
+
+    res.json({ success: true, data: monthly, records: data || [] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // 查詢結算紀錄（日期範圍）
 app.get('/api/settlements/range', requirePermission('expense.view'), async (req, res) => {
   try {
@@ -1443,25 +1483,29 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3) {
 日期: 2026-04-10, 項目: 糖, 支出: $170
 日期: 2026-04-10, 項目: 油, 支出: $165
 總支出: $706`
-    : `你是餐廳收據辨識助手。分析收據圖片，提取每項品名和價格。
+    : `你是收據結構化提取助手。分析收據圖片，嚴格按以下格式輸出，每行一個欄位：
 
-要求：
-1. 提取單據日期，格式 YYYY-MM-DD，輸出：日期: YYYY-MM-DD
-2. 供應商名稱請簡化，去掉「貿易」「國際」「有限公司」「企業」「股份」等後綴。格式：供應商: XXX
-3. 如有發票編號，輸出：發票: 編號
-4. 列出每一項貨品：只保留核心品名，移除品牌（安佳、維他等）、規格（360裝、1箱、10KG等）和包裝描述
-5. 每項一行，格式：品名 $價格
-6. 最後一行輸出：總價 $總金額
-7. 只回覆以下內容，不要其他文字
+【必輸欄位】
+1. 日期: YYYY-MM-DD（必須單獨一行）
+2. 供應商: XXX（必須單獨一行，只保留商號核心名稱，去掉「有限公司」「食品」「國際」「貿易」「企業」「股份」等後綴）
+3. 品項: 品名1 $價格1, 品名2 $價格2, ...（所有品項用逗號分隔放在同一行，只保留核心品名，移除規格/包裝/重量）
+4. 總價: $總金額（必須單獨一行，只輸出數字）
+
+【可選欄位】
+5. 發票: 編號（如有，單獨一行）
+
+重要規則：
+- 每個欄位必須獨立一行，以「欄位名:」開頭
+- 品項欄位必須包含所有貨品，用逗號分隔
+- 只輸出以上欄位，不要任何其他文字或 markdown 格式
+- 不要輸出「**」「-」等符號
 
 範例輸出：
 日期: 2026-05-18
 供應商: 炳記行
 發票: INV-20260518
-蛋 $270
-淡忌廉 $630
-椰漿 $280
-總價 $1180`;
+品項: 蛋 $270, 淡忌廉 $630, 椰漿 $280
+總價: $1180`;
 
   let lastError;
 

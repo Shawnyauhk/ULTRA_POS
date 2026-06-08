@@ -28,6 +28,17 @@ const CATEGORY_DISPLAY: { value: string; label: string }[] = [
 const categoryToLabel = (cat: string): string =>
   CATEGORY_DISPLAY.find(c => c.value === cat)?.label || cat;
 
+const shortCategory = (cat: string): string => {
+  const label = categoryToLabel(cat);
+  return label === '進貨成本' ? '進貨' : label;
+};
+
+const shortSupplier = (name: string): string =>
+  name ? name.trim().charAt(0) || name : '—';
+
+const cleanDescription = (desc: string): string =>
+  (desc || '').replace(/\(經手人:.*\)/g, '').trim() || '—';
+
 const labelToCategory = (label: string): string =>
   CATEGORY_DISPLAY.find(c => c.label === label)?.value || 'other';
 
@@ -67,25 +78,28 @@ export default function ExpensesPage() {
   const [settlement, setSettlement] = useState<Record<string, string>>({...initialSettlement});
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const now = new Date();
+  const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
   const [settlementSaving, setSettlementSaving] = useState(false);
   const [settlementLoading, setSettlementLoading] = useState(false);
   const [settlementResult, setSettlementResult] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [settlementDays, setSettlementDays] = useState<number>(0);
+  const [settlementRecords, setSettlementRecords] = useState<any[]>([]);
 
-  // 載入該日期的結算數據
+  // 載入該月份的結算數據（彙總）
   useEffect(() => {
-    loadSettlement(date);
-  }, [date]);
+    loadMonthlySettlement(month);
+  }, [month]);
 
-  const loadSettlement = async (d: string) => {
+  const loadMonthlySettlement = async (m: string) => {
     const user = useAuthStore.getState().user;
     const rid = user?.restaurant_id;
     if (!rid) return;
     setSettlementLoading(true);
     try {
-      const res = await fetch(`/api/settlements?date=${d}&restaurant_id=${rid}`);
+      const res = await fetch(`/api/settlements/monthly?month=${m}&restaurant_id=${rid}`);
       const json = await res.json();
       if (json.success && json.data) {
         const s = json.data;
@@ -101,15 +115,22 @@ export default function ExpensesPage() {
           actual_revenue: s.actual_revenue?.toString() || '',
           total_transactions: s.total_transactions?.toString() || '',
         });
+        setSettlementDays(s.days || 0);
+        setSettlementRecords(json.records || []);
       } else {
         setSettlement({...initialSettlement});
+        setSettlementDays(0);
+        setSettlementRecords([]);
       }
     } catch (e) {
-      console.error('載入結算失敗:', e);
+      console.error('載入月度結算失敗:', e);
     } finally {
       setSettlementLoading(false);
     }
   };
+
+  // 展開/收起月結記錄
+  const [showMonthlyRecords, setShowMonthlyRecords] = useState(false);
 
   const handleSyncPOSPAL = async () => {
     const user = useAuthStore.getState().user;
@@ -117,16 +138,18 @@ export default function ExpensesPage() {
     if (!rid) return;
     setSyncing(true);
     setSyncStatus(null);
+    // POSPAL 爬蟲以單日為單位，用該月份第一天作為代表日期
+    const syncDate = `${month}-01`;
     try {
       const res = await fetch('/api/settlements/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurant_id: rid, date }),
+        body: JSON.stringify({ restaurant_id: rid, date: syncDate }),
       });
       const json = await res.json();
       if (json.success) {
         setSyncStatus(`✅ 同步完成: 總金額 $${json.data?.total_amount || 0}`);
-        loadSettlement(date);
+        loadMonthlySettlement(month);
       } else {
         setSyncStatus(`❌ 同步失敗: ${json.message}`);
       }
@@ -157,7 +180,7 @@ export default function ExpensesPage() {
     category: '進貨成本',
     amount: 0,
     description: '',
-    handler: '',
+    handler: useAuthStore.getState().user?.name || '',
     expense_date: new Date().toISOString().split('T')[0],
     payment_status: '',
     supplier: '',
@@ -172,9 +195,8 @@ export default function ExpensesPage() {
     const expenseData = {
       category: labelToCategory(newExpense.category),
       amount: newExpense.amount,
-      description: newExpense.handler
-        ? `${newExpense.description} (經手人: ${newExpense.handler})`
-        : newExpense.description,
+      description: newExpense.description,
+      handler: newExpense.handler,
       expense_date: newExpense.expense_date,
       payment_status: newExpense.payment_status,
       supplier: newExpense.supplier,
@@ -195,14 +217,11 @@ export default function ExpensesPage() {
     const updates: any = {};
     if (editForm.category) updates.category = labelToCategory(editForm.category);
     if (editForm.amount !== undefined) updates.amount = editForm.amount;
-    if (editForm.description !== undefined) {
-      updates.description = editForm.handler
-        ? `${editForm.description} (經手人: ${editForm.handler})`
-        : editForm.description;
-    }
+    if (editForm.description !== undefined) updates.description = editForm.description;
     if (editForm.expense_date) updates.expense_date = editForm.expense_date;
     if (editForm.payment_status) updates.payment_status = editForm.payment_status;
     if (editForm.supplier !== undefined) updates.supplier = editForm.supplier;
+    if (editForm.handler !== undefined) updates.handler = editForm.handler;
     const success = await updateExpense(id, updates);
     if (!success) setErrorMessage('更新支出失敗');
     setSaving(false);
@@ -430,25 +449,62 @@ export default function ExpensesPage() {
           let description = '';
           let amount = 0;
           let expense_date = new Date().toISOString().split('T')[0];
+          let invoice = '';
 
           for (const line of lines) {
-            const sm = line.match(/^供應商[：:]\s*(.+)/);
+            // 清理 markdown 格式（**粗體**）
+            const cleanLine = line.replace(/\*\*/g, '').trim();
+
+            // 提取供應商
+            const sm = cleanLine.match(/^供應商[：:]\s*(.+)/);
             if (sm) { supplier = sm[1].trim(); continue; }
-            const dm = line.match(/^日期[：:]\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2})/);
+
+            // 提取日期
+            const dm = cleanLine.match(/^日期[：:]\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2})/);
             if (dm) { expense_date = dm[1].replace(/\//g, '-'); continue; }
-            const tm = line.match(/^總價\s*\$?\s*([\d,]+\.?\d*)/);
-            if (tm) { amount = parseFloat(tm[1].replace(/,/g, '')); continue; }
-            if (line.includes('$') || /^\d/.test(line)) continue;
-            if (!/^供應商|^日期|^總價|^發票/.test(line) && line.length > 1) {
-              description += (description ? ', ' : '') + line;
+
+            // 提取發票
+            const im = cleanLine.match(/^發票[：:]\s*(.+)/);
+            if (im) { invoice = im[1].trim(); continue; }
+
+            // 提取品項列表（新版格式：品項: 品名1 $價格1, 品名2 $價格2）
+            const itemMatch = cleanLine.match(/^品項[：:]\s*(.+)/);
+            if (itemMatch) {
+              description = itemMatch[1].trim();
+              continue;
+            }
+
+            // 提取總價（支援「總價: $XXX」「總價 $XXX」格式）
+            const tm = cleanLine.match(/^總價[：:]?\s*\$?\s*([\d,]+\.?\d*)/);
+            if (tm) {
+              amount = parseFloat(tm[1].replace(/,/g, ''));
+              continue;
             }
           }
+
+          // 如果沒有「品項:」欄位，嘗試從舊格式「品名 $價格」收集
+          if (!description) {
+            const items: string[] = [];
+            for (const line of lines) {
+              const cleanLine = line.replace(/\*\*/g, '').trim();
+              const m = cleanLine.match(/^(.+?)\s+\$([\d,]+\.?\d*)\s*$/);
+              if (m && !cleanLine.match(/^總價/)) {
+                items.push(m[1].trim());
+              }
+            }
+            if (items.length > 0) description = items.join(', ');
+          }
+
+          // 組合描述：發票號 + 品項
+          const parts: string[] = [];
+          if (invoice) parts.push(`發票: ${invoice}`);
+          if (description) parts.push(description);
 
           setOcrResult({
             amount,
             expense_date,
             category: '進貨成本',
-            description: description || text.slice(0, 200),
+            description: parts.join(' | ') || text.slice(0, 200),
             handler: 'AI',
             payment_status: '',
             supplier,
@@ -677,6 +733,47 @@ export default function ExpensesPage() {
     }
   };
 
+  // 支出詳情展開
+  const [expandedDetailId, setExpandedDetailId] = useState<string | null>(null);
+
+  // ========== 保險箱彈窗 State ==========
+  const [showSafePopup, setShowSafePopup] = useState(false);
+  const [safePopupData, setSafePopupData] = useState<{
+    deposits: any[];
+    summary: { [month: string]: number };
+    totalDeposited: number;
+  }>({ deposits: [], summary: {}, totalDeposited: 0 });
+  const [safePopupLoading, setSafePopupLoading] = useState(false);
+
+  const loadSafePopupData = async () => {
+    const rid = useAuthStore.getState().user?.restaurant_id;
+    if (!rid) return;
+    setSafePopupLoading(true);
+    try {
+      const { data: deposits } = await supabase
+        .from('safe_deposits')
+        .select('*')
+        .eq('restaurant_id', rid)
+        .order('date', { ascending: false })
+        .limit(100);
+      const all = deposits || [];
+      // 按月分類歸檔
+      const summary: { [month: string]: number } = {};
+      let total = 0;
+      for (const d of all) {
+        const m = d.date ? d.date.substring(0, 7) : '未知';
+        summary[m] = (summary[m] || 0) + Number(d.amount || 0);
+        total += Number(d.amount || 0);
+      }
+      setSafePopupData({ deposits: all, summary, totalDeposited: total });
+      setShowSafePopup(true);
+    } catch (err) {
+      console.error('載入保險箱資料失敗:', err);
+    } finally {
+      setSafePopupLoading(false);
+    }
+  };
+
   // ========== 保險箱 State ==========
   const [safeMonth, setSafeMonth] = useState(() => {
     const now = new Date();
@@ -813,11 +910,11 @@ export default function ExpensesPage() {
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">門店收支</h1>
-          <p className="text-sm text-muted-foreground">支出記錄、每日結算、現金日結與保險箱管理</p>
+          <p className="text-sm text-muted-foreground">支出記錄、每月結算、現金日結與保險箱管理</p>
         </div>
-        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg self-start md:self-auto flex-wrap">
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg self-start md:self-auto flex-nowrap overflow-x-auto">
           <Button variant={activeTab === 'expenses' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('expenses')}>門店支出</Button>
-          <Button variant={activeTab === 'settlement' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('settlement')}>每日結算</Button>
+          <Button variant={activeTab === 'settlement' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('settlement')}>每月結算</Button>
           {can('expense.manage') && (
             <Button variant={activeTab === 'cash_settlement' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('cash_settlement')}>
               <DollarSign className="w-3.5 h-3.5 mr-1" />現金日結
@@ -1129,8 +1226,8 @@ export default function ExpensesPage() {
                   </div>
                   <div>
                     <label>經手人</label>
-                    <Input value={newExpense.handler || ''}
-                      onChange={e => setNewExpense({...newExpense, handler: e.target.value})} />
+                    <Input value={newExpense.handler || useAuthStore.getState().user?.name || ''}
+                      readOnly className="bg-gray-50 text-gray-600 cursor-default" />
                   </div>
                   <div>
                     <label className="text-sm font-medium">付款狀態</label>
@@ -1184,102 +1281,190 @@ export default function ExpensesPage() {
                     const yExpanded = expandedNodes.has(yg.yearKey);
                     return (
                       <div key={yg.yearKey}>
-                        {/* 年份層 */}
-                        <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors"
+                        {/* 年份層 - 全寬 */}
+                        <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors w-full"
                              onClick={() => { const n = new Set(expandedNodes); if (n.has(yg.yearKey)) n.delete(yg.yearKey); else n.add(yg.yearKey); setExpandedNodes(n); }}>
-                          {yExpanded ? <ChevronDown className="w-4 h-4 text-blue-600" /> : <ChevronRight className="w-4 h-4 text-blue-600" />}
+                          {yExpanded ? <ChevronDown className="w-4 h-4 text-blue-600 shrink-0" /> : <ChevronRight className="w-4 h-4 text-blue-600 shrink-0" />}
                           <span className="font-semibold text-blue-800">{yg.year} 年</span>
                           <Badge variant="secondary" className="ml-1 text-xs">{yg.yEntries.length} 筆</Badge>
                           <span className="ml-auto font-medium text-blue-700">${yg.yTotal.toLocaleString()}</span>
                         </div>
-
+                        {/* 月份 + 條目 - 不縮進，全寬利用 */}
                         {yExpanded && (
-                          <div className="ml-4 mt-1 space-y-1">
+                          <div className="mt-1 space-y-1">
                             {yg.months.map(mg => {
                               const mExpanded = expandedNodes.has(mg.monthKey);
                               const mParts = mg.month.split('-');
                               const mLabel = mParts.length === 2 ? `${parseInt(mParts[1])}月` : mg.month;
                               return (
                                 <div key={mg.monthKey}>
-                                  {/* 月份層 */}
-                                  <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors"
+                                  {/* 月份層 - 全寬 */}
+                                  <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors w-full"
                                        onClick={() => { const n = new Set(expandedNodes); if (n.has(mg.monthKey)) n.delete(mg.monthKey); else n.add(mg.monthKey); setExpandedNodes(n); }}>
-                                    {mExpanded ? <ChevronDown className="w-3.5 h-3.5 text-gray-500" /> : <ChevronRight className="w-3.5 h-3.5 text-gray-500" />}
+                                    {mExpanded ? <ChevronDown className="w-3.5 h-3.5 text-gray-500 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-gray-500 shrink-0" />}
                                     <span className="font-medium text-gray-700">{mLabel}</span>
                                     <Badge variant="outline" className="text-xs">{mg.mEntries.length} 筆</Badge>
                                     <span className="ml-auto text-sm text-gray-600">${mg.mTotal.toLocaleString()}</span>
                                   </div>
-
+                                  {/* 條目列表 - 全寬，不縮進 */}
                                   {mExpanded && (
-                                    <div className="ml-4 mt-1 space-y-1">
-                                      {mg.days.map(dg => {
-                                        const dParts = dg.day.split('-');
-                                        const dLabel = dParts.length === 3 ? `${parseInt(dParts[1])}/${parseInt(dParts[2])}` : dg.day;
+                                    <div className="mt-1 space-y-0.5 w-full">
+                                      {mg.mEntries.map((exp: any) => {
+                                        const isEditing = editingId === exp.id;
+                                        const isDetailOpen = expandedDetailId === exp.id;
                                         return (
-                                          <div key={dg.day} className="border rounded-lg overflow-hidden">
-                                            {/* 日期層標題 */}
-                                            <div className="flex items-center gap-2 px-3 py-1 bg-gray-50 border-b text-sm">
-                                              <Calendar className="w-3 h-3 text-gray-400" />
-                                              <span className="text-gray-600">{dLabel}</span>
-                                              <span className="text-xs text-gray-400">({dg.entries.length} 筆)</span>
-                                              <span className="ml-auto text-xs text-gray-500">小計：${dg.dTotal.toLocaleString()}</span>
+                                          <div key={exp.id}>
+                                            {/* 條目行 - 全寬利用 */}
+                                            <div
+                                              className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer rounded-lg transition-colors w-full ${
+                                                isDetailOpen ? 'bg-indigo-50 border border-indigo-200' : 'hover:bg-gray-50 border border-transparent'
+                                              }`}
+                                              onClick={() => setExpandedDetailId(isDetailOpen ? null : exp.id)}
+                                            >
+                                              {/* 日期 - 僅顯示日 */}
+                                              <span className="text-xs text-gray-400 shrink-0 w-12 text-right">
+                                                {exp.expense_date ? parseInt(exp.expense_date.slice(8)) : ''}
+                                              </span>
+                                              {/* (簡化分類) */}
+                                              <span className="text-xs font-medium text-green-700 bg-green-50 px-1.5 py-0.5 rounded shrink-0">
+                                                {shortCategory(exp.category)}
+                                              </span>
+                                              {/* 購貨內容（過濾舊資料中內嵌的經手人資訊） */}
+                                              <span className="flex-1 min-w-0 text-gray-700 truncate">
+                                                {cleanDescription(exp.description)}
+                                              </span>
+                                              {/* ($金額) */}
+                                              <span className="font-medium text-right shrink-0 w-20">
+                                                ${Number(exp.amount).toLocaleString()}
+                                              </span>
+                                              {/* 付款狀態 */}
+                                              <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium shrink-0 ${
+                                                exp.payment_status === 'cash' ? 'bg-green-100 text-green-700' :
+                                                exp.payment_status === 'bank' ? 'bg-blue-100 text-blue-700' :
+                                                'bg-gray-100 text-gray-500'
+                                              }`}>
+                                                {exp.payment_status === 'cash' ? '現金' : exp.payment_status === 'bank' ? '銀行' : '未付'}
+                                              </span>
+                                              {/* 展開箭頭 */}
+                                              <ChevronDown className={`w-3 h-3 text-gray-300 shrink-0 transition-transform ${isDetailOpen ? 'rotate-0' : '-rotate-90'}`} />
                                             </div>
-                                            {/* 條目層 */}
-                                            <div className="divide-y">
-                                              {dg.entries.map((exp: any) => {
-                                                const isEditing = editingId === exp.id;
-                                                return (
-                                                  <div key={exp.id} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50">
-                                                    <div className="w-20 shrink-0">
-                                                      {isEditing
-                                                        ? <Select value={editForm.category || categoryToLabel(exp.category)} onValueChange={v => setEditForm({...editForm, category: v})}
-                                                            options={CATEGORY_DISPLAY.map(c => ({ value: c.label, label: c.label }))} />
-                                                        : <Badge variant="outline" className="text-xs whitespace-nowrap">{categoryToLabel(exp.category)}</Badge>}
-                                                    </div>
-                                                    <div className="min-w-0 flex-1">
-                                                      {isEditing
-                                                        ? <Input value={editForm.description ?? exp.description} onChange={e => setEditForm({...editForm, description: e.target.value})} className="h-7 text-xs" />
-                                                        : <span className="truncate block" title={exp.description}>{exp.description || '—'}</span>}
-                                                    </div>
-                                                    <div className="w-24 shrink-0 text-center">
-                                                      {isEditing
-                                                        ? <Input value={(editForm.supplier ?? exp.supplier) || ''} onChange={e => setEditForm({...editForm, supplier: e.target.value})} className="h-7 text-xs" />
-                                                        : <span className="text-xs text-gray-500">{exp.supplier || '—'}</span>}
-                                                    </div>
-                                                    <div className="w-24 text-right font-medium shrink-0">
-                                                      {isEditing
-                                                        ? <Input type="number" value={editForm.amount ?? exp.amount} onChange={e => setEditForm({...editForm, amount: parseFloat(e.target.value) || 0})} className="h-7 text-xs text-right" />
-                                                        : <span>${Number(exp.amount).toLocaleString()}</span>}
-                                                    </div>
-                                                    <div className="w-20 text-center shrink-0">
-                                                      {isEditing ? (
-                                                        <select value={editForm.payment_status || exp.payment_status || ''} onChange={e => setEditForm({...editForm, payment_status: e.target.value})} className="border rounded px-1 py-0.5 text-xs">
-                                                          <option value="cash">現金</option><option value="bank">銀行</option><option value="unpaid">未付</option>
-                                                        </select>
-                                                      ) : (
-                                                        <Badge variant={exp.payment_status === 'cash' ? 'success' : exp.payment_status === 'bank' ? 'default' : 'secondary'} className="text-xs">
-                                                          {exp.payment_status === 'cash' ? '現金' : exp.payment_status === 'bank' ? '銀行' : '未付'}
-                                                        </Badge>
-                                                      )}
-                                                    </div>
-                                                    {can('expense.manage') && (
-                                                      <div className="flex gap-1 shrink-0">
-                                                        {deleteConfirmId === exp.id ? (
-                                                          <><Button size="sm" variant="destructive" onClick={() => handleDelete(exp.id)} className="h-7 text-xs">刪除</Button>
-                                                          <Button size="sm" variant="ghost" onClick={() => setDeleteConfirmId(null)} className="h-7 text-xs">取消</Button></>
-                                                        ) : isEditing ? (
-                                                          <><Button size="sm" variant="ghost" onClick={() => handleSaveEdit(exp.id)} disabled={saving} className="h-7 p-1"><Save className="w-3 h-3" /></Button>
-                                                          <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditForm({}); }} className="h-7 p-1"><X className="w-3 h-3" /></Button></>
-                                                        ) : (
-                                                          <><Button size="sm" variant="ghost" className="h-7 p-1" onClick={() => { setEditingId(exp.id); setEditForm({ category: categoryToLabel(exp.category), amount: exp.amount, description: exp.description, expense_date: exp.expense_date, payment_status: exp.payment_status, supplier: exp.supplier }); }}><Edit2 className="w-3 h-3" /></Button>
-                                                          <Button size="sm" variant="ghost" onClick={() => setDeleteConfirmId(exp.id)} className="h-7 p-1"><Trash2 className="w-3 h-3 text-red-500" /></Button></>
-                                                        )}
+                                            {/* 詳情面板 */}
+                                            {isDetailOpen && (
+                                              <div className="mx-3 mb-1 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100 text-xs">
+                                                {/* 第一行：購貨內容（全寬） */}
+                                                <div className="flex flex-col sm:flex-row sm:gap-4 gap-1 mb-2">
+                                                  <div className="flex-1 min-w-0 flex items-baseline gap-1">
+                                                    <span className="text-gray-400 shrink-0">購貨內容：</span>
+                                                    {isEditing ? (
+                                                      <input value={editForm.description ?? exp.description} onChange={e => setEditForm({...editForm, description: e.target.value})} className="w-full border rounded px-2 py-1 text-xs bg-white" />
+                                                    ) : (
+                                                      <span className="text-gray-700 break-words">{cleanDescription(exp.description)}</span>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                                {/* 第二行：分類 + 供應商 */}
+                                                <div className="flex flex-col sm:flex-row sm:gap-4 gap-1 mb-2">
+                                                  <div className="flex-1 min-w-0 flex items-baseline gap-1">
+                                                    <span className="text-gray-400 shrink-0">分類：</span>
+                                                    {isEditing ? (
+                                                      <select value={editForm.category || categoryToLabel(exp.category)} onChange={e => setEditForm({...editForm, category: e.target.value})} className="border rounded px-1 py-0.5 text-xs bg-white">
+                                                        {CATEGORY_DISPLAY.map(c => <option key={c.value} value={c.label}>{c.label}</option>)}
+                                                      </select>
+                                                    ) : (
+                                                      <span className="text-gray-700">{categoryToLabel(exp.category)}</span>
+                                                    )}
+                                                  </div>
+                                                  <div className="flex-1 min-w-0 flex items-baseline gap-1">
+                                                    <span className="text-gray-400 shrink-0">供應商：</span>
+                                                    {isEditing ? (
+                                                      <input value={editForm.supplier ?? exp.supplier ?? ''} onChange={e => setEditForm({...editForm, supplier: e.target.value})} className="w-full border rounded px-2 py-1 text-xs bg-white" />
+                                                    ) : (
+                                                      <span className="text-gray-700 break-words">{exp.supplier || '—'}</span>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                                {/* 第三行：金額 + 付款狀態 */}
+                                                <div className="flex flex-col sm:flex-row sm:gap-4 gap-1 mb-2">
+                                                  <div className="flex-1 min-w-0 flex items-baseline gap-1">
+                                                    <span className="text-gray-400 shrink-0">金額：</span>
+                                                    {isEditing ? (
+                                                      <input type="number" value={editForm.amount ?? exp.amount} onChange={e => setEditForm({...editForm, amount: parseFloat(e.target.value) || 0})} className="w-28 border rounded px-2 py-1 text-xs text-right bg-white" />
+                                                    ) : (
+                                                      <span className="font-medium text-green-700">${Number(exp.amount).toLocaleString()}</span>
+                                                    )}
+                                                  </div>
+                                                  <div className="flex-1 min-w-0 flex items-baseline gap-1">
+                                                    <span className="text-gray-400 shrink-0">付款：</span>
+                                                    {isEditing ? (
+                                                      <select value={editForm.payment_status || exp.payment_status || ''} onChange={e => setEditForm({...editForm, payment_status: e.target.value})} className="border rounded px-1 py-0.5 text-xs bg-white">
+                                                        <option value="cash">現金已付</option>
+                                                        <option value="bank">銀行已付</option>
+                                                        <option value="unpaid">未付</option>
+                                                      </select>
+                                                    ) : (
+                                                      <span className={`font-medium ${
+                                                        exp.payment_status === 'cash' ? 'text-green-600' :
+                                                        exp.payment_status === 'bank' ? 'text-blue-600' :
+                                                        'text-gray-500'
+                                                      }`}>
+                                                        {exp.payment_status === 'cash' ? '現金已付' : exp.payment_status === 'bank' ? '銀行已付' : '未付'}
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                                {/* 第四行：日期 + 經手人 */}
+                                                <div className="flex flex-col sm:flex-row sm:gap-4 gap-1 mb-2">
+                                                  <div className="flex-1 min-w-0 flex items-baseline gap-1">
+                                                    <span className="text-gray-400 shrink-0">日期：</span>
+                                                    {isEditing ? (
+                                                      <input type="date" value={editForm.expense_date || exp.expense_date} onChange={e => setEditForm({...editForm, expense_date: e.target.value})} className="border rounded px-2 py-1 text-xs bg-white" />
+                                                    ) : (
+                                                      <span className="text-gray-700">{exp.expense_date}</span>
+                                                    )}
+                                                  </div>
+                                                  <div className="flex-1 min-w-0 flex items-baseline gap-1">
+                                                    <span className="text-gray-400 shrink-0">經手人：</span>
+                                                    <span className="text-gray-700">{exp.handler || useAuthStore.getState().user?.name || '—'}</span>
+                                                  </div>
+                                                </div>
+                                                {exp.created_at && (
+                                                  <div className="flex items-baseline gap-1 mb-2">
+                                                    <span className="text-gray-400 shrink-0">記錄時間：</span>
+                                                    <span className="text-gray-700">{new Date(exp.created_at).toLocaleString()}</span>
+                                                  </div>
+                                                )}
+                                                {/* 修改/儲存/刪除按鈕 */}
+                                                {can('expense.manage') && (
+                                                  <div className="border-t border-indigo-200 pt-2 mt-2 flex items-center justify-end gap-2">
+                                                    {deleteConfirmId === exp.id ? (
+                                                      <>
+                                                        <span className="text-xs text-red-600 mr-2">確認刪除？</span>
+                                                        <Button size="sm" variant="destructive" onClick={() => handleDelete(exp.id)} className="h-6 text-xs px-3">刪除</Button>
+                                                        <Button size="sm" variant="ghost" onClick={() => setDeleteConfirmId(null)} className="h-6 text-xs">取消</Button>
+                                                      </>
+                                                    ) : editingId === exp.id ? (
+                                                      <>
+                                                        <Button size="sm" variant="ghost" onClick={() => handleSaveEdit(exp.id)} disabled={saving} className="h-6 text-xs">
+                                                          <Save className="w-3 h-3 mr-1" />儲存
+                                                        </Button>
+                                                        <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditForm({}); }} className="h-6 text-xs">
+                                                          <X className="w-3 h-3 mr-1" />取消
+                                                        </Button>
+                                                      </>
+                                                    ) : (
+                                                      <div className="flex items-center gap-2">
+                                                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => setDeleteConfirmId(exp.id)}>
+                                                          <Trash2 className="w-3 h-3" />
+                                                        </Button>
+                                                        <Button size="sm" variant="outline" className="h-7 px-3 text-xs text-indigo-600 border-indigo-200 hover:bg-indigo-100" onClick={() => { setEditingId(exp.id); setEditForm({ category: categoryToLabel(exp.category), amount: exp.amount, description: exp.description, expense_date: exp.expense_date, payment_status: exp.payment_status, supplier: exp.supplier }); setExpandedDetailId(exp.id); }}>
+                                                          <Edit2 className="w-3 h-3 mr-1" />修改
+                                                        </Button>
                                                       </div>
                                                     )}
                                                   </div>
-                                                );
-                                              })}
-                                            </div>
+                                                )}
+                                              </div>
+                                            )}
                                           </div>
                                         );
                                       })}
@@ -1300,17 +1485,24 @@ export default function ExpensesPage() {
         </div>
       ) : activeTab === 'settlement' ? (
         <div className="space-y-6">
-          {/* 每日結算 */}
+          {/* 每月結算 */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>每日營業額結算</CardTitle>
-                  <CardDescription>填寫或檢視每日各支付管道營業額</CardDescription>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+                <div className="min-w-0 flex-1">
+                  <CardTitle className="!leading-relaxed !tracking-normal text-base sm:text-2xl font-semibold break-words whitespace-normal" style={{ lineHeight: '1.625', letterSpacing: '0.01em' }}>
+                    每月營業額結算
+                  </CardTitle>
+                  <CardDescription className="!leading-relaxed !tracking-normal break-words max-w-prose" style={{ lineHeight: '1.625', letterSpacing: '0.02em' }}>
+                    檢視每月各支付管道營業額彙總（可手動填寫或從 POSPAL 同步）
+                  </CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setDate(new Date().toISOString().split('T')[0])}>
-                    <RefreshCw className="w-3 h-3 mr-1" /> 今天
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button variant="outline" size="sm" onClick={() => {
+                    const n = new Date();
+                    setMonth(`${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`);
+                  }}>
+                    <RefreshCw className="w-3 h-3 mr-1" /> 本月
                   </Button>
                   <Button variant="outline" size="sm" onClick={handleSyncPOSPAL} disabled={syncing}>
                     {syncing ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
@@ -1321,8 +1513,13 @@ export default function ExpensesPage() {
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-2 mb-4">
-                <span className="text-sm text-muted-foreground">日期</span>
-                <Input type="date" value={date} onChange={e => { setDate(e.target.value); setSettlementResult(null); }} className="w-fit" />
+                <span className="text-sm text-muted-foreground">月份</span>
+                <Input type="month" value={month} onChange={e => { setMonth(e.target.value); setSettlementResult(null); }} className="w-fit" />
+                {settlementDays > 0 && (
+                  <span className="text-xs text-muted-foreground ml-2">
+                    （含 {settlementDays} 天營業資料）
+                  </span>
+                )}
               </div>
 
               {syncStatus && (
@@ -1397,13 +1594,16 @@ export default function ExpensesPage() {
                         if (!rid) return;
                         setSettlementSaving(true);
                         setSettlementResult(null);
+                        // 以月份第一天作為代表日期儲存（彙總記錄）
+                        const settlementDate = `${month}-01`;
                         try {
                           const res = await fetch('/api/settlements', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                               restaurant_id: rid,
-                              settlement_date: date,
+                              settlement_date: settlementDate,
+                              store_name: '家傳芋曉',
                               ...Object.fromEntries(
                                 Object.entries(settlement).map(([k, v]) => [k, v ? parseFloat(v) : 0])
                               ),
@@ -1411,7 +1611,8 @@ export default function ExpensesPage() {
                           });
                           const json = await res.json();
                           if (json.success) {
-                            setSettlementResult('✅ 結算資料已儲存');
+                            setSettlementResult('✅ 月度結算資料已儲存');
+                            loadMonthlySettlement(month);
                           } else {
                             setSettlementResult('❌ 儲存失敗: ' + json.message);
                           }
@@ -1433,6 +1634,67 @@ export default function ExpensesPage() {
                       {settlementResult}
                     </div>
                   )}
+
+                  {/* === 月結記錄 === */}
+                  <div className="mt-6 pt-4 border-t">
+                    <button
+                      onClick={() => setShowMonthlyRecords(!showMonthlyRecords)}
+                      className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900 w-full text-left"
+                    >
+                      {showMonthlyRecords ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                      月結記錄
+                      {settlementDays > 0 && (
+                        <span className="text-xs text-muted-foreground font-normal ml-1">（{settlementDays} 天）</span>
+                      )}
+                    </button>
+                    {showMonthlyRecords && (
+                      <div className="mt-3 overflow-x-auto">
+                        {settlementRecords.length === 0 ? (
+                          <p className="text-sm text-gray-400 text-center py-4">本月尚無營業記錄</p>
+                        ) : (
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="border-b bg-gray-50">
+                                <th className="text-left px-2 py-1.5 font-medium text-gray-500">日期</th>
+                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">現金</th>
+                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">八達通</th>
+                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">Foodpanda</th>
+                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">Alipay</th>
+                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">WeChat</th>
+                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">美團</th>
+                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">OpenRice</th>
+                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">總金額</th>
+                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">來源</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {settlementRecords.map((r: any) => {
+                                const sourceLabel = r.source === 'pospal_crawler' ? 'POSPAL' : '手動';
+                                return (
+                                  <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                                    <td className="px-2 py-1.5 text-gray-700 whitespace-nowrap">{r.settlement_date}</td>
+                                    <td className="px-2 py-1.5 text-right font-medium">{r.cash ? `$${Number(r.cash).toLocaleString()}` : '-'}</td>
+                                    <td className="px-2 py-1.5 text-right">{r.octopus ? `$${Number(r.octopus).toLocaleString()}` : '-'}</td>
+                                    <td className="px-2 py-1.5 text-right">{r.foodpanda ? `$${Number(r.foodpanda).toLocaleString()}` : '-'}</td>
+                                    <td className="px-2 py-1.5 text-right">{r.alipay_hk ? `$${Number(r.alipay_hk).toLocaleString()}` : '-'}</td>
+                                    <td className="px-2 py-1.5 text-right">{r.wechat_hk ? `$${Number(r.wechat_hk).toLocaleString()}` : '-'}</td>
+                                    <td className="px-2 py-1.5 text-right">{r.meituan_keeta ? `$${Number(r.meituan_keeta).toLocaleString()}` : '-'}</td>
+                                    <td className="px-2 py-1.5 text-right">{r.openrice ? `$${Number(r.openrice).toLocaleString()}` : '-'}</td>
+                                    <td className="px-2 py-1.5 text-right font-medium text-indigo-700">${Number(r.total_amount || 0).toLocaleString()}</td>
+                                    <td className="px-2 py-1.5 text-right">
+                                      <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${r.source === 'pospal_crawler' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
+                                        {sourceLabel}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
             </CardContent>
@@ -1456,8 +1718,8 @@ export default function ExpensesPage() {
                 <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
               ) : (
                 <div className="space-y-4">
-                  {/* 系統計算區 */}
-                  <div className="grid grid-cols-3 gap-4">
+                  {/* 系統計算區 - 每行顯示一欄 */}
+                  <div className="space-y-2">
                     <div className="bg-blue-50 rounded-xl p-4 text-center">
                       <p className="text-xs text-blue-600 font-medium mb-1">收銀箱底金</p>
                       <p className="text-2xl font-bold text-blue-800">$1,500</p>
@@ -1478,9 +1740,9 @@ export default function ExpensesPage() {
 
                   <div className="border-t pt-4 space-y-4">
                     <h3 className="text-sm font-medium text-gray-700">店長點算</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-xs font-medium text-gray-500">實際點算金額</label>
+                    <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full">
+                      <div className="w-full sm:flex-1 sm:min-w-0">
+                        <label className="text-xs font-medium text-gray-500 block mb-1">實際點算金額</label>
                         <Input
                           type="number"
                           value={cashRegister.actual_counted ?? ''}
@@ -1496,8 +1758,8 @@ export default function ExpensesPage() {
                           placeholder="輸入點算金額"
                         />
                       </div>
-                      <div>
-                        <label className="text-xs font-medium text-gray-500">存入保險箱（餘額−底金）</label>
+                      <div className="w-full sm:flex-1 sm:min-w-0">
+                        <label className="text-xs font-medium text-gray-500 block mb-1">存入保險箱（餘額−底金）</label>
                         <Input type="number" value={cashRegister.deposited_safe} disabled className="bg-gray-50" />
                       </div>
                     </div>
@@ -1520,12 +1782,86 @@ export default function ExpensesPage() {
                       </div>
                     )}
 
-                    <div className="flex justify-end pt-2">
+                    <div className="flex items-center justify-between pt-2 gap-2">
+                      <div>
+                        {can('safe.view') && (
+                          <Button variant="outline" size="sm" onClick={loadSafePopupData} disabled={safePopupLoading}>
+                            {safePopupLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <ShieldCheck className="w-3 h-3 mr-1" />}
+                            保險箱記錄
+                          </Button>
+                        )}
+                      </div>
                       <Button onClick={handleSaveCashRegister} disabled={cashSaving || cashRegister.actual_counted === null || cashRegister.actual_counted === undefined}>
                         {cashSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                         {cashRegister.status === 'done' ? '更新日結' : '完成日結'}
                       </Button>
                     </div>
+
+                    {/* 保險箱記錄彈窗 */}
+                    {showSafePopup && (
+                      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowSafePopup(false)}>
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto mx-4" onClick={e => e.stopPropagation()}>
+                          <div className="sticky top-0 bg-white border-b px-5 py-4 flex items-center justify-between z-10">
+                            <h2 className="text-lg font-semibold flex items-center gap-2">
+                              <ShieldCheck className="w-5 h-5 text-amber-600" />
+                              保險箱記錄
+                            </h2>
+                            <button onClick={() => setShowSafePopup(false)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+                          </div>
+                          <div className="p-5 space-y-6">
+                            {/* 全部存入總計 */}
+                            <div className="bg-amber-50 rounded-xl p-4 text-center">
+                              <p className="text-xs text-amber-600 font-medium mb-1">歷史存入總額</p>
+                              <p className="text-3xl font-bold text-amber-800">${safePopupData.totalDeposited.toLocaleString()}</p>
+                            </div>
+
+                            {/* 按月分類歸檔 */}
+                            <div>
+                              <h3 className="text-sm font-medium text-gray-700 mb-3">📁 每月分類歸檔</h3>
+                              <div className="space-y-2">
+                                {Object.entries(safePopupData.summary)
+                                  .sort(([a], [b]) => b.localeCompare(a))
+                                  .map(([month, amount]) => (
+                                    <div key={month} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
+                                      <span className="text-sm font-medium text-gray-700">{month}</span>
+                                      <span className="text-sm font-bold text-green-700">${amount.toLocaleString()}</span>
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+
+                            {/* 每日存入明細 */}
+                            <div>
+                              <h3 className="text-sm font-medium text-gray-700 mb-3">📋 每日存入明細</h3>
+                              {safePopupData.deposits.length === 0 ? (
+                                <p className="text-sm text-gray-400 text-center py-4">尚無存入記錄</p>
+                              ) : (
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="border-b bg-gray-50">
+                                        <th className="text-left px-3 py-2 font-medium text-gray-500">日期</th>
+                                        <th className="text-right px-3 py-2 font-medium text-gray-500">金額</th>
+                                        <th className="text-left px-3 py-2 font-medium text-gray-500">備註</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {safePopupData.deposits.map((d: any, i: number) => (
+                                        <tr key={d.id || i} className="border-b border-gray-50 hover:bg-gray-50/50">
+                                          <td className="px-3 py-2 text-gray-700">{d.date}</td>
+                                          <td className="px-3 py-2 text-right font-medium text-green-700">${Number(d.amount).toLocaleString()}</td>
+                                          <td className="px-3 py-2 text-gray-400">{d.notes || '-'}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1537,12 +1873,12 @@ export default function ExpensesPage() {
           {/* 保險箱 */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-amber-600" />
-                  保險箱管理
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <CardTitle className="flex items-center gap-2 shrink-0 break-words whitespace-normal text-base sm:text-2xl">
+                  <ShieldCheck className="w-5 h-5 text-amber-600 shrink-0" />
+                  <span>保險箱管理</span>
                 </CardTitle>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
                   <Input
                     type="month"
                     value={safeMonth}
