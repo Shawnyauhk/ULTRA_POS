@@ -442,30 +442,26 @@ app.get('/api/email/diagnose', async (req, res) => {
     },
     tests: {},
   };
-  if (!config.user || !config.pass) {
-    diag.tests.skipped = '缺少帳號或密碼，跳過連線測試';
-    return res.json(diag);
-  }
   const net = await import('net');
-  // 1) TCP 連通性
-  await new Promise((resolve) => {
-    const sock = net.createConnection({ host: config.host, port: config.port, timeout: 10000 });
-    const t = setTimeout(() => { sock.destroy(); diag.tests.tcp = '⏱ 10s timeout'; resolve(); }, 11000);
-    sock.on('connect', () => { clearTimeout(t); diag.tests.tcp = '✅ TCP 連線成功'; sock.end(); resolve(); });
-    sock.on('error', (e) => { clearTimeout(t); diag.tests.tcp = '❌ ' + e.code + ' - ' + e.message; resolve(); });
-    sock.on('timeout', () => { clearTimeout(t); diag.tests.tcp = '⏱ 連線超時'; sock.destroy(); resolve(); });
-  });
-  // 2) SMTP 握手驗證
-  try {
-    const transporter = nodemailer.createTransport({
-      host: config.host, port: config.port, secure: config.secure,
-      auth: { user: config.user, pass: config.pass },
-      connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 20000,
+  // 測試多個 SMTP 服務和端口，定位網絡限制
+  const targets = [
+    { host: 'smtp.gmail.com', port: 587, label: 'Gmail 587' },
+    { host: 'smtp.gmail.com', port: 465, label: 'Gmail 465' },
+    { host: 'smtp.gmail.com', port: 25, label: 'Gmail 25' },
+    { host: 'smtp.sendgrid.net', port: 587, label: 'SendGrid 587' },
+    { host: 'smtp-mail.outlook.com', port: 587, label: 'Outlook 587' },
+    { host: 'smtp.resend.com', port: 465, label: 'Resend 465' },
+    { host: '8.8.8.8', port: 53, label: 'Google DNS 53' },
+    { host: '1.1.1.1', port: 443, label: 'Cloudflare 443' },
+  ];
+  for (const t of targets) {
+    await new Promise((resolve) => {
+      const sock = net.createConnection({ host: t.host, port: t.port, timeout: 8000 });
+      const timer = setTimeout(() => { sock.destroy(); diag.tests[t.label] = '⏱ timeout'; resolve(); }, 9000);
+      sock.on('connect', () => { clearTimeout(timer); diag.tests[t.label] = '✅ connected'; sock.end(); resolve(); });
+      sock.on('error', (e) => { clearTimeout(timer); diag.tests[t.label] = '❌ ' + e.code; resolve(); });
+      sock.on('timeout', () => { clearTimeout(timer); diag.tests[t.label] = '⏱ timeout'; sock.destroy(); resolve(); });
     });
-    await transporter.verify();
-    diag.tests.smtp = '✅ SMTP 認證成功（帳號密碼正確）';
-  } catch (e) {
-    diag.tests.smtp = '❌ ' + (e.code || '') + ' - ' + e.message;
   }
   res.json(diag);
 });
