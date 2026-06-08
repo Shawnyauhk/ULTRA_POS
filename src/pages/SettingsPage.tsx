@@ -281,7 +281,7 @@ export default function SettingsPage() {
     }
   };
 
-  /** 倒計時器 */
+  /** 倒計時器（僅用於提示，過期後不停止輪詢） */
   const startCountdown = () => {
     if (countdownRef.current) clearInterval(countdownRef.current);
     countdownRef.current = setInterval(() => {
@@ -289,11 +289,10 @@ export default function SettingsPage() {
         if (prev <= 1) {
           if (countdownRef.current) clearInterval(countdownRef.current);
           countdownRef.current = null;
-          // 配對碼過期，自動清理
+          // 配對碼已過期，清除顯示但**保留後台輪詢**
+          // （因為 wacli bootstrap sync 可能比配對碼有效期更長）
           setPairingCode(null);
-          setWacliAuthMessage('❌ 配對碼已過期，請重新獲取');
-          if (pairingPollRef.current) clearInterval(pairingPollRef.current);
-          pairingPollRef.current = null;
+          setWacliAuthMessage('配對碼已過期，正在等待認證狀態...');
           return 0;
         }
         return prev - 1;
@@ -301,7 +300,7 @@ export default function SettingsPage() {
     }, 1000);
   };
 
-  /** 輪詢認證狀態（每 3 秒） */
+  /** 輪詢認證狀態（每 3 秒）- 持續運行直到認證成功或用戶取消 */
   const startPairingPoll = () => {
     if (pairingPollRef.current) clearInterval(pairingPollRef.current);
     pairingPollRef.current = setInterval(async () => {
@@ -322,7 +321,30 @@ export default function SettingsPage() {
     }, 3000);
   };
 
-  /** 複製配對碼到剪貼簿 */
+  /** 手動刷新認證狀態 */
+  const handleRefreshStatus = async () => {
+    if (wacliAuthState === 'done') return;
+    setWacliAuthMessage('正在檢查認證狀態...');
+    try {
+      const st = await (await apiFetch('/api/whatsapp/auth-status')).json();
+      if (st.authenticated) {
+        setWacliAuthState('done');
+        setSenderDisabled(false);
+        setWacliAuthMessage('✅ 認證成功！可設定發送號碼');
+        if (pairingPollRef.current) clearInterval(pairingPollRef.current);
+        pairingPollRef.current = null;
+        if (countdownRef.current) clearInterval(countdownRef.current);
+        countdownRef.current = null;
+      } else {
+        const msg = st.diag?.version 
+          ? `尚未認證 (wacli ${st.diag.version})` 
+          : '尚未認證，請在手機上檢查是否已連結裝置';
+        setWacliAuthMessage(`❌ ${msg}`);
+      }
+    } catch (e: any) {
+      setWacliAuthMessage('❌ 網絡錯誤: ' + e.message);
+    }
+  };
   const handleCopyCode = async () => {
     if (!pairingCode) return;
     setCopying(true);
@@ -511,6 +533,16 @@ export default function SettingsPage() {
               )}
 
               {wacliAuthMessage && <p className={`text-xs mt-2 ${wacliAuthMessage.includes('✅') ? 'text-green-700' : wacliAuthMessage.includes('❌') ? 'text-red-600' : 'text-blue-600'}`}>{wacliAuthMessage}</p>}
+
+              {wacliAuthState !== 'done' && (pairingCode || wacliAuthMessage.includes('尚未認證')) && (
+                <button
+                  onClick={handleRefreshStatus}
+                  className="mt-2 w-full py-1.5 px-4 rounded-md text-xs font-medium border border-gray-200 text-gray-600 bg-gray-50 hover:bg-gray-100 flex items-center justify-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  檢測認證狀態
+                </button>
+              )}
 
               {wacliAuthState === 'done' && (
                 <div className="flex items-center gap-2 text-sm text-green-700 mt-2">
