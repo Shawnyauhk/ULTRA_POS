@@ -98,16 +98,33 @@ export default function PWAInstallPrompt() {
               <span>安裝到主屏幕</span>
             </button>
           ) : (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-              <p className="text-xs text-amber-700 leading-relaxed">
-                <strong className="block mb-1">📱 iPhone 安裝步驟：</strong>
-                1. 點下方中間的「分享」按鈕
-                <span className="inline-block mx-1 text-base">📤</span>
-                <br />
-                2. 向下滑，點「添加到主屏幕」
-                <span className="inline-block mx-1">➕</span>
-                <br />
-                3. 點右上角「新增」
+            <div className="space-y-2">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                <p className="text-xs text-amber-700 leading-relaxed text-center font-medium mb-2">
+                  ⚠️ iPhone 無法一鍵安裝，但只要做一次就不需要了
+                </p>
+                <div className="flex items-center justify-center gap-4 py-1">
+                  <div className="flex flex-col items-center text-center">
+                    <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-lg font-bold text-amber-600 mb-1">1</div>
+                    <span className="text-[10px] text-gray-500">點分享</span>
+                    <span className="text-lg">📤</span>
+                  </div>
+                  <div className="text-amber-300 text-lg">→</div>
+                  <div className="flex flex-col items-center text-center">
+                    <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-lg font-bold text-amber-600 mb-1">2</div>
+                    <span className="text-[10px] text-gray-500">滑到底</span>
+                    <span className="text-lg">➕</span>
+                  </div>
+                  <div className="text-amber-300 text-lg">→</div>
+                  <div className="flex flex-col items-center text-center">
+                    <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-lg font-bold text-amber-600 mb-1">3</div>
+                    <span className="text-[10px] text-gray-500">按新增</span>
+                    <span className="text-lg">✅</span>
+                  </div>
+                </div>
+              </div>
+              <p className="text-[10px] text-gray-400 text-center">
+                💡 先找年輕人幫忙裝一次，之後都不用再設定了
               </p>
             </div>
           )}
