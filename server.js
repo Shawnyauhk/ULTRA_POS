@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import multer from 'multer';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync } from 'fs';
 import { spawnSync, spawn } from 'child_process';
 import { createClient } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
@@ -17,6 +17,14 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+// 全局錯誤處理：避免崩潰導致空響應
+process.on('uncaughtException', (err) => {
+  console.error('💥 未捕獲異常:', err.message, err.stack?.slice(0, 300));
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('💥 未處理的 Promise 拒絕:', reason);
+});
 
 // Setup multer for file uploads if needed
 const upload = multer({ storage: multer.memoryStorage() });
@@ -2207,6 +2215,13 @@ try {
 } catch (err) {
   console.warn('   ⚠️ node-cron 未安裝，POSPAL 自動爬蟲已跳過');
 }
+
+// Express 全局錯誤中介軟體（放在所有路由之後）
+app.use((err, req, res, next) => {
+  console.error('❌ Express 錯誤:', err.message, err.stack?.slice(0, 200));
+  if (res.headersSent) return;
+  res.status(500).json({ success: false, message: '伺服器內部錯誤: ' + err.message });
+});
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ ULTRA POS 服務器啟動成功，端口: ${PORT}`);
