@@ -353,6 +353,20 @@ app.post('/api/whatsapp/test-send', async (req, res) => {
 const wacliPath = process.env.WACLI_PATH || 'wacli';
 let activeWacliAuth = null; // 保持 wacli 程序存活
 
+/** 全局 wacli 認證狀態（用於跨請求通信）
+ *  - auth-phone 事件監聽器設為 true
+ *  - auth-status 讀取並驗證
+ *  - 解決 doctor 命令無法讀取到運行中進程認證狀態的問題
+ */
+const wacliGlobalAuth = {
+  /** auth-phone 進程是否曾發送過 authenticated 事件 */
+  eventFired: false,
+  /** 記錄事件觸發時間（ms） */
+  eventTimestamp: 0,
+  /** 上一個排程 process 的 PID */
+  processPid: 0,
+};
+
 /** 檢查 wacli 是否可執行（使用 fs 而非 shell，避免 Alpine 相容問題） */
 function checkWacliExists() {
   const commonPaths = ['/usr/local/bin/wacli', '/usr/bin/wacli', '/app/wacli', wacliPath];
@@ -609,6 +623,15 @@ app.post('/api/whatsapp/auth-phone', async (req, res) => {
       }
     }
 
+    // 4.5 檢查全局事件狀態（auth-phone 進程曾發出 authenticated 事件）
+    if (!alreadyAuthenticated && wacliGlobalAuth.eventFired) {
+      const since = Date.now() - wacliGlobalAuth.eventTimestamp;
+      if (since < 120000) {  // 2 分鐘內的事件仍有效
+        alreadyAuthenticated = true;
+        console.log('[wacli-pairing] ✅ 根據全局事件判定已認證');
+      }
+    }
+
     // 5. 如果已认证，直接返回，不重置 session
     if (alreadyAuthenticated) {
       clearTimeout(timeout);
@@ -623,6 +646,10 @@ app.post('/api/whatsapp/auth-phone', async (req, res) => {
     // 关键：必须先删除已存在的账户（accounts add 遇到已存在账户会失败）
     // 然后用 accounts add 创建新账户并触发认证
     // 注意：此操作会丢弃之前的 session，因此仅在未认证时才执行
+    // 重置全局狀態（全新配對流程）
+    wacliGlobalAuth.eventFired = false;
+    wacliGlobalAuth.eventTimestamp = 0;
+    wacliGlobalAuth.processPid = 0;
     const removeResult = spawnSync(wacliActualPath, ['accounts', 'remove', 'default'], {
       encoding: 'utf-8', timeout: 5000, stdio: 'pipe',
     });
@@ -644,6 +671,7 @@ app.post('/api/whatsapp/auth-phone', async (req, res) => {
         }
       );
       activeWacliAuth = authProcess;
+      wacliGlobalAuth.processPid = authProcess.pid;
     } catch (spawnErr) {
       clearTimeout(timeout);
       console.error('[wacli-pairing] 啟動失敗:', spawnErr.message);
@@ -676,7 +704,10 @@ app.post('/api/whatsapp/auth-phone', async (req, res) => {
           console.log('[wacli-pairing] 收到配對碼:', pairingCode);
         } else if (evt.event === 'authenticated') {
           authenticated = true;
-          console.log('[wacli-pairing] ✅ 認證成功');
+          // 更新全局狀態，讓 auth-status 端點也能讀到
+          wacliGlobalAuth.eventFired = true;
+          wacliGlobalAuth.eventTimestamp = Date.now();
+          console.log('[wacli-pairing] ✅ 認證成功 (全局狀態已更新)');
         } else if (evt.event === 'error' || evt.event === 'auth_error') {
           errorMessage = evt.data?.message || (typeof evt.data === 'string' ? evt.data : '') || '未知錯誤';
           console.error('[wacli-pairing] 認證錯誤:', errorMessage);
@@ -823,16 +854,30 @@ app.get('/api/whatsapp/auth-status', async (req, res) => {
       }
     } catch {}
 
-    // 優先使用 doctor 命令（包含 connection_state）
+    // 1) 檢查全局事件狀態（auth-phone 進程曾發出 authenticated 事件）
     let authenticated = false;
     let connectionState = 'unknown';
+    const processStillRunning = activeWacliAuth !== null
+      && typeof activeWacliAuth.pid === 'number'
+      && activeWacliAuth.pid === wacliGlobalAuth.processPid
+      && wacliGlobalAuth.eventFired;
+    if (processStillRunning) {
+      authenticated = true;
+      connectionState = 'connected';
+      diag.connectionState = connectionState;
+      diag.source = 'global_event';
+    }
+
+    // 2) 全局狀態確認後，仍用 doctor 確認實際連線狀態
     try {
       const doctorResult = spawnSync(actualPath, ['doctor', '--json'], { encoding: 'utf-8', timeout: 10000 });
       if (doctorResult.status === 0 && doctorResult.stdout) {
         try {
           const doctor = JSON.parse(doctorResult.stdout);
-          authenticated = !!doctor.data?.authenticated;
-          connectionState = doctor.data?.connection_state || 'unknown';
+          if (doctor.data?.authenticated) {
+            authenticated = true;
+            connectionState = doctor.data?.connection_state || 'connected';
+          }
           diag.connectionState = connectionState;
           diag.storeDir = doctor.data?.store_dir;
           diag.doctorOk = true;
@@ -840,8 +885,8 @@ app.get('/api/whatsapp/auth-status', async (req, res) => {
       }
     } catch (e) { diag.doctorError = e.message; }
 
-    // fallback: 使用 auth status
-    if (!diag.doctorOk) {
+    // 3) fallback: 使用 auth status
+    if (!authenticated && !diag.doctorOk) {
       try {
         const statusResult = spawnSync(actualPath, ['auth', 'status', '--json'], { encoding: 'utf-8', timeout: 10000 });
         if (statusResult.status === 0 && statusResult.stdout) {
@@ -853,7 +898,22 @@ app.get('/api/whatsapp/auth-status', async (req, res) => {
       } catch (e) { diag.authError = e.message; }
     }
 
+    // 4) 後備：如果全局事件曾觸發但 doctor 沒看到，仍採信全局事件
+    if (!authenticated && wacliGlobalAuth.eventFired) {
+      const since = Date.now() - wacliGlobalAuth.eventTimestamp;
+      if (since < 120000) {  // 2 分鐘內的事件仍然有效
+        authenticated = true;
+        connectionState = 'connected';
+        diag.connectionState = connectionState;
+        diag.source = 'global_event_fallback';
+      }
+    }
+
     if (authenticated) {
+      // 認證成功後清理運行中的配對進程（不再需要）
+      if (activeWacliAuth) {
+        killExistingAuthProcess();
+      }
       return res.json({
         success: true,
         authenticated: true,
