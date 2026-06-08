@@ -575,32 +575,54 @@ app.post('/api/whatsapp/auth-phone', async (req, res) => {
     // 3. 先清理可能存在的旧进程
     killExistingAuthProcess();
 
-    // 4. 检查是否已认证
+    // 4. 检查是否已认证 - 使用 doctor 命令（包含 connection_state）
+    let alreadyAuthenticated = false;
     try {
-      const statusResult = spawnSync(wacliActualPath, ['auth', 'status', '--json'], {
-        encoding: 'utf-8',
-        timeout: 10000,
+      const doctorResult = spawnSync(wacliActualPath, ['doctor', '--json'], {
+        encoding: 'utf-8', timeout: 10000,
       });
-      if (statusResult.status === 0 && statusResult.stdout) {
+      if (doctorResult.status === 0 && doctorResult.stdout) {
         try {
-          const status = JSON.parse(statusResult.stdout);
-          if (status.success && status.data?.authenticated) {
-            clearTimeout(timeout);
-            return res.json({
-              success: true,
-              authenticated: true,
-              message: '已認證，無需重新配對'
-            });
-          }
+          const doctor = JSON.parse(doctorResult.stdout);
+          alreadyAuthenticated = !!doctor.data?.authenticated;
+          console.log(`[wacli-pairing] doctor 結果: authenticated=${alreadyAuthenticated}, connection_state=${doctor.data?.connection_state}`);
         } catch {}
       }
     } catch (e) {
-      console.warn('[wacli-pairing] 認證狀態檢查失敗:', e.message);
+      console.warn('[wacli-pairing] doctor 檢查失敗:', e.message);
     }
 
-    // 5. 启动 wacli 配对码进程
+    // fallback: 使用 auth status
+    if (!alreadyAuthenticated) {
+      try {
+        const statusResult = spawnSync(wacliActualPath, ['auth', 'status', '--json'], {
+          encoding: 'utf-8', timeout: 10000,
+        });
+        if (statusResult.status === 0 && statusResult.stdout) {
+          try {
+            const status = JSON.parse(statusResult.stdout);
+            alreadyAuthenticated = !!status.data?.authenticated;
+          } catch {}
+        }
+      } catch (e) {
+        console.warn('[wacli-pairing] auth status 檢查失敗:', e.message);
+      }
+    }
+
+    // 5. 如果已认证，直接返回，不重置 session
+    if (alreadyAuthenticated) {
+      clearTimeout(timeout);
+      return res.json({
+        success: true,
+        authenticated: true,
+        message: '已認證，無需重新配對'
+      });
+    }
+
+    // 6. 启动 wacli 配对码进程
     // 关键：必须先删除已存在的账户（accounts add 遇到已存在账户会失败）
     // 然后用 accounts add 创建新账户并触发认证
+    // 注意：此操作会丢弃之前的 session，因此仅在未认证时才执行
     const removeResult = spawnSync(wacliActualPath, ['accounts', 'remove', 'default'], {
       encoding: 'utf-8', timeout: 5000, stdio: 'pipe',
     });
