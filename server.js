@@ -2511,5 +2511,15 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ ULTRA POS 服務器啟動成功，端口: ${PORT}`);
   console.log(`   🔗 健康檢查: http://localhost:${PORT}/api/health`);
   console.log(`   ⏰ 保活機制: 請使用 cron-job.org 每 5 分鐘 ping /api/health`);
+
+  // 啟動時初始化 wacli 帳戶（確保 Dockerfile 中的初始化已生效）
+  try {
+    const initWacli = spawnSync('wacli', ['accounts', 'add', 'default'], {
+      encoding: 'utf-8', timeout: 10000, stdio: 'pipe',
+    });
+    console.log(`   📱 wacli 帳戶初始化: ${initWacli.status === 0 || initWacli.stdout?.includes('already exists') ? '✅ 就緒' : '⚠️ 可能已存在'}`);
+  } catch (e) {
+    console.warn('   📱 wacli 帳戶初始化跳過（非致命）:', e.message);
+  }
 });
 

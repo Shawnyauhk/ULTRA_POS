@@ -20,6 +20,12 @@ RUN curl -fsSLo /tmp/wacli.tar.gz https://github.com/openclaw/wacli/releases/dow
   && chmod +x /usr/local/bin/wacli \
   && rm /tmp/wacli.tar.gz
 
+# 初始化 wacli 默認帳戶（防止運行時報 "account config not found"）
+RUN wacli accounts add default 2>/dev/null; exit 0
+
+# wacli 存儲目錄（用環境變數指定，確保位置固定）
+ENV WACLI_STORE_DIR=/app/.wacli
+
 # 複製依賴文件
 COPY package.json package-lock.json ./
 COPY scripts/pospal-crawler/package.json ./scripts/pospal-crawler/
