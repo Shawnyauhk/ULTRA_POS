@@ -367,23 +367,29 @@ function checkWacliExists() {
   return wacliPath;
 }
 
-/** 確保 wacli 默認帳戶存在（創建 if missing） */
+/** 確保 wacli 默認帳戶存在（創建 if missing）- 使用 --no-auth 避免啟動認證流程 */
 function ensureWacliAccount() {
   try {
-    const result = spawnSync(wacliPath, ['accounts', 'add', 'default'], {
+    // 先檢查賬戶列表
+    const listResult = spawnSync(wacliPath, ['accounts', 'list'], {
       encoding: 'utf-8', timeout: 10000, stdio: 'pipe',
     });
-    // 如果返回 0 或輸出包含 "already exists" 都視為成功
+    if (listResult.status === 0 && listResult.stdout?.includes('default')) {
+      return true; // 賬戶已存在
+    }
+    // 創建賬戶（使用 --no-auth 避免自動啟動認證）
+    const result = spawnSync(wacliPath, ['accounts', 'add', 'default', '--no-auth'], {
+      encoding: 'utf-8', timeout: 15000, stdio: 'pipe',
+    });
     if (result.status === 0) {
-      console.log('[wacli] ✅ 默認帳戶就緒');
+      console.log('[wacli] ✅ 默認帳戶已創建');
+      // 同時設為默認
+      spawnSync(wacliPath, ['accounts', 'use', 'default'], {
+        encoding: 'utf-8', timeout: 5000, stdio: 'pipe',
+      });
       return true;
     }
-    // 如果已經存在但返回非零
-    if (result.stderr?.includes('already exists') || result.stdout?.includes('already exists')) {
-      console.log('[wacli] ✅ 默認帳戶已存在');
-      return true;
-    }
-    console.warn('[wacli] ⚠️ 帳戶初始化返回非零:', result.stderr?.slice(0, 100));
+    console.warn('[wacli] ⚠️ 帳戶創建失敗:', result.stderr?.slice(0, 200));
     return false;
   } catch (e) {
     console.warn('[wacli] ⚠️ 帳戶初始化跳過:', e.message);
@@ -593,19 +599,26 @@ app.post('/api/whatsapp/auth-phone', async (req, res) => {
     }
 
     // 5. 启动 wacli 配对码进程
+    // 关键：必须先删除已存在的账户（accounts add 遇到已存在账户会失败）
+    // 然后用 accounts add 创建新账户并触发认证
+    const removeResult = spawnSync(wacliActualPath, ['accounts', 'remove', 'default'], {
+      encoding: 'utf-8', timeout: 5000, stdio: 'pipe',
+    });
+    console.log('[wacli-pairing] 清理舊賬戶:', removeResult.stdout?.trim() || '無舊賬戶');
+
     let authProcess;
     try {
-      // 参数说明：
-      // --events: 启用事件流
-      // --phone: 绑定手机号
-      // --follow: 持续运行直到认证完成
-      // --account: 账号名
+      // accounts add default: 创建账户 + 触发认证
+      //   --phone: 使用手机配对码
+      //   --events: 输出 NDJSON 事件流
+      //   --follow: 配对后保持运行
+      //   --idle-exit 0: 永不因空闲退出
       authProcess = spawn(
         wacliActualPath,
-        ['auth', '--events', '--phone', phone, '--follow', '--account', 'default'],
+        ['accounts', 'add', 'default', '--phone', phone, '--events', '--follow', '--idle-exit', '0'],
         {
           stdio: ['pipe', 'pipe', 'pipe'],
-          detached: false,  // 不脱离父进程，确保被杀时一起死
+          detached: false,
         }
       );
       activeWacliAuth = authProcess;
@@ -758,7 +771,9 @@ app.get('/api/whatsapp/auth-status', async (req, res) => {
       wacliPath: actualPath,
       exists: false,
       execOk: false,
-      version: ''
+      version: '',
+      connectionState: 'unknown',
+      accounts: []
     };
     try {
       diag.exists = existsSync(actualPath);
@@ -772,17 +787,58 @@ app.get('/api/whatsapp/auth-status', async (req, res) => {
       diag.version = verResult.status === 0 ? (verResult.stdout || '').trim() : 'error: ' + (verResult.stderr || '').slice(0, 100);
     } catch (e) { diag.version = 'exception: ' + e.message; }
     try {
-      const statusResult = spawnSync(actualPath, ['auth', 'status', '--json'], { encoding: 'utf-8', timeout: 10000 });
-      if (statusResult.status === 0 && statusResult.stdout) {
+      // 列出所有賬戶
+      const listResult = spawnSync(actualPath, ['accounts', 'list'], { encoding: 'utf-8', timeout: 5000 });
+      if (listResult.stdout) {
+        const lines = (listResult.stdout || '').split('\n').filter(l => l.includes('default') || l.includes('*'));
+        diag.accounts = lines;
+      }
+    } catch {}
+
+    // 優先使用 doctor 命令（包含 connection_state）
+    let authenticated = false;
+    let connectionState = 'unknown';
+    try {
+      const doctorResult = spawnSync(actualPath, ['doctor', '--json'], { encoding: 'utf-8', timeout: 10000 });
+      if (doctorResult.status === 0 && doctorResult.stdout) {
         try {
-          const status = JSON.parse(statusResult.stdout);
-          if (status.success && status.data?.authenticated) {
-            return res.json({ success: true, authenticated: true, message: '已認證，無需重新掃碼', diag });
-          }
+          const doctor = JSON.parse(doctorResult.stdout);
+          authenticated = !!doctor.data?.authenticated;
+          connectionState = doctor.data?.connection_state || 'unknown';
+          diag.connectionState = connectionState;
+          diag.storeDir = doctor.data?.store_dir;
+          diag.doctorOk = true;
         } catch {}
       }
-    } catch (e) { diag.authError = e.message; }
-    res.json({ success: false, authenticated: false, message: 'wacli 未就緒', diag });
+    } catch (e) { diag.doctorError = e.message; }
+
+    // fallback: 使用 auth status
+    if (!diag.doctorOk) {
+      try {
+        const statusResult = spawnSync(actualPath, ['auth', 'status', '--json'], { encoding: 'utf-8', timeout: 10000 });
+        if (statusResult.status === 0 && statusResult.stdout) {
+          try {
+            const status = JSON.parse(statusResult.stdout);
+            authenticated = !!status.data?.authenticated;
+          } catch {}
+        }
+      } catch (e) { diag.authError = e.message; }
+    }
+
+    if (authenticated) {
+      return res.json({
+        success: true,
+        authenticated: true,
+        message: connectionState === 'connected' ? '已認證並連線' : '已認證',
+        diag
+      });
+    }
+    res.json({
+      success: false,
+      authenticated: false,
+      message: `wacli 未認證 (連線狀態: ${connectionState})`,
+      diag
+    });
   } catch (error) {
     res.json({ success: false, authenticated: false, message: error.message });
   }
