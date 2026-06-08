@@ -1857,6 +1857,32 @@ app.all('/api/ai/suggestions', async (req, res) => {
   }
 });
 
+// =========== Debug：診斷 Email 設定（不顯示完整 key，只顯示前 8 碼）===========
+app.get('/api/email/diag', async (req, res) => {
+  try {
+    const restaurantId = req.query.restaurant_id;
+    const config = await getEmailSettings(restaurantId);
+    const maskedKey = config.apiKey ? config.apiKey.substring(0, 8) + '...' + (config.apiKey.length > 12 ? config.apiKey.substring(config.apiKey.length - 4) : '') : '(未設定)';
+    const isResend = config.apiKey?.startsWith('re_') || false;
+    res.json({
+      ok: true,
+      apiKeySet: !!config.apiKey,
+      apiKeyPrefix: config.apiKey?.substring(0, 3) || '',
+      apiKeyMasked: maskedKey,
+      provider: isResend ? 'Resend' : (config.apiKey ? 'SendGrid' : '未設定'),
+      from: config.from,
+      adminEmail1: config.adminEmail1 || '(未設定)',
+      adminEmail2: config.adminEmail2 || '(未設定)',
+      adminEmail: config.adminEmail || '(未設定)',
+      envHasResend: !!process.env.RESEND_API_KEY,
+      envHasSendgrid: !!process.env.SENDGRID_API_KEY,
+      envEmailFrom: process.env.EMAIL_FROM || '(未設定)',
+    });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
 // =========== 生產環境：提供前端靜態文件（不使用 express.static） ===========
 const distPath = resolve(__dirname, 'dist');
 const MIME_MAP = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2' };
