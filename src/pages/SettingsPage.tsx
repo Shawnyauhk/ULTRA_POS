@@ -52,6 +52,18 @@ function SectionCard({ id, icon, title, badge, expandedSection, onToggle, childr
   );
 }
 
+// ===== Email 通知功能定義（動態擴展：加一行即可自動顯示）=====
+const NOTIFICATION_FUNCTIONS = [
+  { id: 'order', label: '訂貨通知', icon: '📦', desc: '員工提交訂貨請求時' },
+  { id: 'expense', label: '支出/結算通知', icon: '💰', desc: '新增支出或日結算時' },
+  { id: 'cash_diff', label: '現金差異通知', icon: '💵', desc: '結算現金差異超過門檻時' },
+];
+const RECIPIENT_OPTIONS = [
+  { value: 'admin1', label: '管理員 1 號' },
+  { value: 'admin2', label: '管理員 2 號' },
+  { value: 'all', label: '全部管理員' },
+];
+
 export default function SettingsPage() {
   const { can } = usePermission();
   const { settings, loading, refetch, getSetting, updateSetting } = useSettings();
@@ -96,18 +108,14 @@ export default function SettingsPage() {
   const pairingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Email 通知 (Resend)
+  // Email 通知 (Resend / SendGrid 通用)
   const [resendApiKey, setResendApiKey] = useState('');
   const [emailFrom, setEmailFrom] = useState('ULTRA POS <onboarding@resend.dev>');
-  const [adminEmail, setAdminEmail] = useState('');
+  const [adminEmail1, setAdminEmail1] = useState(''); // 管理員 1 號信箱
+  const [adminEmail2, setAdminEmail2] = useState(''); // 管理員 2 號信箱
+  const [notificationRules, setNotificationRules] = useState<Record<string, string>>({});
   const [testEmailSending, setTestEmailSending] = useState(false);
   const [testEmailResult, setTestEmailResult] = useState<{ success: boolean; message: string } | null>(null);
-
-  // 權限設定
-  const [rolePermissions, setRolePermissions] = useState<Record<RoleName, PermissionKey[]>>({ manager: [], staff: [] });
-  const [permLoading, setPermLoading] = useState(true);
-  const [permSaving, setPermSaving] = useState(false);
-  const [permSaved, setPermSaved] = useState(false);
 
   useEffect(() => {
     if (!loading) {
@@ -123,7 +131,14 @@ export default function SettingsPage() {
       setWhatsappAdmin(getSetting('whatsapp_admin', ''));
       setResendApiKey(getSetting('resend_api_key', ''));
       setEmailFrom(getSetting('email_from', 'ULTRA POS <onboarding@resend.dev>'));
-      setAdminEmail(getSetting('admin_email', ''));
+      setAdminEmail1(getSetting('admin_email_1', ''));
+      setAdminEmail2(getSetting('admin_email_2', ''));
+      // 載入 Email 通知功能規則
+      const rules: Record<string, string> = {};
+      NOTIFICATION_FUNCTIONS.forEach(fn => {
+        rules[fn.id] = getSetting(`notify_rule_${fn.id}_recipient`, 'all');
+      });
+      setNotificationRules(rules);
     }
   }, [loading, settings]);
 
@@ -232,13 +247,14 @@ export default function SettingsPage() {
   };
 
   const handleTestEmail = async () => {
-    if (!resendApiKey) { setTestEmailResult({ success: false, message: '請先填寫 Resend API Key' }); return; }
-    if (!adminEmail) { setTestEmailResult({ success: false, message: '請先填寫管理員信箱' }); return; }
+    if (!resendApiKey) { setTestEmailResult({ success: false, message: '請先填寫 Resend / SendGrid API Key' }); return; }
+    const testTo = [adminEmail1, adminEmail2].filter(Boolean).join(',');
+    if (!testTo) { setTestEmailResult({ success: false, message: '請先填寫至少一個管理員信箱' }); return; }
     setTestEmailSending(true); setTestEmailResult(null);
     try {
       const res = await apiFetch('/api/email/test-send', {
         method: 'POST',
-        body: JSON.stringify({ restaurant_id: user?.restaurant_id, admin_email: adminEmail }),
+        body: JSON.stringify({ restaurant_id: user?.restaurant_id, admin_email: testTo }),
       });
       setTestEmailResult(await res.json());
     } catch (e: any) { setTestEmailResult({ success: false, message: e.message || '網絡錯誤' }); }
@@ -463,7 +479,12 @@ export default function SettingsPage() {
       await updateSetting('whatsapp_admin', whatsappAdmin);
       await updateSetting('resend_api_key', resendApiKey);
       await updateSetting('email_from', emailFrom);
-      await updateSetting('admin_email', adminEmail);
+      await updateSetting('admin_email_1', adminEmail1);
+      await updateSetting('admin_email_2', adminEmail2);
+      // 儲存 Email 通知功能規則
+      for (const [fnId, recipient] of Object.entries(notificationRules)) {
+        await updateSetting(`notify_rule_${fnId}_recipient`, recipient);
+      }
       if (storeLat && storeLng) await updateSetting('store_location', JSON.stringify({ lat: parseFloat(storeLat), lng: parseFloat(storeLng) }));
       alert('設定已儲存');
     } catch (err) { console.error('Error saving settings:', err); alert('儲存失敗'); }
@@ -516,7 +537,7 @@ export default function SettingsPage() {
         </SectionCard>
 
         <SectionCard id="email" icon={<Mail className="w-5 h-5 text-blue-500" />} title="Email 通知" badge="Resend" expandedSection={expandedSection} onToggle={toggleSection}>
-          <div className="space-y-4">
+          <div className="space-y-5">
             <p className="text-sm text-gray-500">使用 <b>Resend HTTP API</b> 發送 Email 通知。<b>Render 免費版阻擋 SMTP 端口</b>，所以必須用 HTTP API。</p>
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">
               <strong>📘 如何取得 Resend API Key（1 分鐘）：</strong>
@@ -527,23 +548,60 @@ export default function SettingsPage() {
                 <li>免費額度：<b>3000 封/月</b>、<b>100 封/天</b>，POS 通知完全夠用</li>
               </ol>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1"><Key className="w-4 h-4 inline mr-1" />Resend API Key</label>
-              <input type="password" value={resendApiKey} onChange={e => setResendApiKey(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-xs" placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxxxx" disabled={saving} />
-              <p className="text-xs text-gray-400 mt-1">從 <a href="https://resend.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline">resend.com/api-keys</a> 取得</p>
+
+            {/* 核心設定：API Key、發件人、管理員 1/2 號信箱 */}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1"><Key className="w-4 h-4 inline mr-1" />Resend API Key</label>
+                <input type="password" value={resendApiKey} onChange={e => setResendApiKey(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-xs" placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxxxx" disabled={saving} />
+                <p className="text-xs text-gray-400 mt-1">從 <a href="https://resend.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline">resend.com/api-keys</a> 取得</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1"><Mail className="w-4 h-4 inline mr-1" />發件人名稱</label>
+                <input type="text" value={emailFrom} onChange={e => setEmailFrom(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="ULTRA POS <onboarding@resend.dev>" disabled={saving} />
+                <p className="text-xs text-gray-400 mt-1">預設使用 Resend 測試域名（onboarding@resend.dev），無需設定</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">📧 管理員 1 號信箱</label>
+                  <input type="text" value={adminEmail1} onChange={e => setAdminEmail1(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="admin1@example.com" disabled={saving} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">📧 管理員 2 號信箱</label>
+                  <input type="text" value={adminEmail2} onChange={e => setAdminEmail2(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="admin2@example.com" disabled={saving} />
+                </div>
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1"><Mail className="w-4 h-4 inline mr-1" />發件人名稱</label>
-              <input type="text" value={emailFrom} onChange={e => setEmailFrom(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="ULTRA POS <onboarding@resend.dev>" disabled={saving} />
-              <p className="text-xs text-gray-400 mt-1">預設使用 Resend 測試域名，無需設定</p>
+
+            {/* Email 通知功能管理（動態清單） */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">📨 Email 通知功能管理</h4>
+              <p className="text-xs text-gray-500">每個事件可以指定要通知哪幾位管理員</p>
+              {NOTIFICATION_FUNCTIONS.map(fn => (
+                <div key={fn.id} className="flex items-center justify-between px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-100">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="text-base shrink-0">{fn.icon}</span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-gray-800">{fn.label}</div>
+                      <div className="text-[10px] text-gray-500 truncate">{fn.desc}</div>
+                    </div>
+                  </div>
+                  <select
+                    value={notificationRules[fn.id] || 'all'}
+                    onChange={e => setNotificationRules(prev => ({ ...prev, [fn.id]: e.target.value }))}
+                    className="text-xs border border-gray-300 rounded px-2 py-1 bg-white shrink-0 ml-2"
+                    disabled={saving}
+                  >
+                    {RECIPIENT_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1"><Mail className="w-4 h-4 inline mr-1" />管理員信箱（接收通知）</label>
-              <input type="text" value={adminEmail} onChange={e => setAdminEmail(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="boss@gmail.com, manager@gmail.com" disabled={saving} />
-              <p className="text-xs text-gray-400 mt-1">多個信箱用逗號分隔，所有管理員都會收到通知</p>
-            </div>
-            <button onClick={handleTestEmail} disabled={testEmailSending || !resendApiKey || !adminEmail} className="w-full py-2 px-4 border border-blue-300 rounded-md text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 flex items-center justify-center gap-2">
-              {testEmailSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}{testEmailSending ? '發送中...' : '測試發送 Email'}
+
+            <button onClick={handleTestEmail} disabled={testEmailSending || !resendApiKey || (!adminEmail1 && !adminEmail2)} className="w-full py-2 px-4 border border-blue-300 rounded-md text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 flex items-center justify-center gap-2">
+              {testEmailSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}{testEmailSending ? '發送中...' : '測試發送'}
             </button>
             {testEmailResult && <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${testEmailResult.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>{testEmailResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}{testEmailResult.message}</div>}
           </div>
