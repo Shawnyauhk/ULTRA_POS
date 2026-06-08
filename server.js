@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { readFileSync, existsSync, mkdirSync, accessSync, constants } from 'fs';
 import { spawnSync, spawn } from 'child_process';
 import { createClient } from '@supabase/supabase-js';
+import nodemailer from 'nodemailer';
 import QRCode from 'qrcode';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -291,6 +292,82 @@ function parseNumbers(str) {
   return (str || '').split('\n').map(s => s.trim()).filter(Boolean);
 }
 
+// =========== Email 通知設定 ===========
+
+/** 從 Supabase settings 或 .env 讀取 Email 設定 */
+async function getEmailSettings(restaurantId) {
+  let host = process.env.EMAIL_HOST || 'smtp.gmail.com';
+  let port = parseInt(process.env.EMAIL_PORT || '465');
+  let secure = process.env.EMAIL_SECURE !== 'false';
+  let user = process.env.EMAIL_USER || '';
+  let pass = process.env.EMAIL_PASS || '';
+  let adminEmail = process.env.ADMIN_EMAIL || '';
+  let from = process.env.EMAIL_FROM || 'ULTRA POS';
+
+  if (restaurantId) {
+    try {
+      const { data } = await supabaseAdmin
+        .from('settings')
+        .select('setting_key, setting_value')
+        .eq('restaurant_id', restaurantId)
+        .in('setting_key', ['email_user', 'email_pass', 'admin_email', 'email_host', 'email_port', 'email_secure', 'email_from']);
+
+      if (data) {
+        const getVal = (key) => data.find(s => s.setting_key === key)?.setting_value;
+        if (getVal('email_host')) host = getVal('email_host');
+        if (getVal('email_port')) port = parseInt(getVal('email_port'));
+        if (getVal('email_secure') === 'false' || getVal('email_secure') === 'true') secure = getVal('email_secure') === 'true';
+        if (getVal('email_user')) user = getVal('email_user');
+        if (getVal('email_pass')) pass = getVal('email_pass');
+        if (getVal('admin_email')) adminEmail = getVal('admin_email');
+        if (getVal('email_from')) from = getVal('email_from');
+      }
+    } catch (err) {
+      console.warn('⚠️ 無法從 Supabase 讀取 Email 設定，使用 .env 備用:', err.message);
+    }
+  }
+
+  return { host, port, secure, user, pass, adminEmail, from };
+}
+
+/** 建立或取得 Email transporter（輕量快取避免重複建立） */
+let _emailTransporter = null;
+function getEmailTransporter(config) {
+  if (!config.user || !config.pass) return null;
+  if (_emailTransporter) return _emailTransporter;
+  _emailTransporter = nodemailer.createTransporter({
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    auth: { user: config.user, pass: config.pass },
+  });
+  return _emailTransporter;
+}
+
+/** 發送 Email 通知到一個或多個管理員 */
+async function sendEmailNotification(adminEmails, subject, body, restaurantId) {
+  const config = await getEmailSettings(restaurantId);
+  const transporter = getEmailTransporter(config);
+  if (!transporter) throw new Error('請先設定 Email 帳號和密碼');
+  if (!config.user) throw new Error('請先設定發件信箱 (EMAIL_USER)');
+  if (!config.pass) throw new Error('請先設定信箱密碼 (EMAIL_PASS)');
+
+  const emails = adminEmails.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+  if (emails.length === 0) throw new Error('請先設定管理員信箱 (ADMIN_EMAIL)');
+
+  const results = [];
+  for (const email of emails) {
+    const info = await transporter.sendMail({
+      from: `"${config.from || 'ULTRA POS'}" <${config.user}>`,
+      to: email,
+      subject,
+      text: body,
+    });
+    results.push(info);
+  }
+  return results;
+}
+
 app.post('/api/whatsapp/notify-order', async (req, res) => {
   try {
     const { employeeName, items, restaurant_id } = req.body;
@@ -298,26 +375,81 @@ app.post('/api/whatsapp/notify-order', async (req, res) => {
     const wacliPath = process.env.WACLI_PATH || 'wacli';
     const numbers = parseNumbers(admin);
 
-    if (numbers.length === 0) {
-      return res.json({ success: false, message: '未設定管理員 WhatsApp 號碼，請在設定頁面配置' });
-    }
-
     const itemList = items.map(i => `• ${i.name} × ${i.quantity}`).join('\n');
-    const message = `🔔 新訂貨通知\n\n員工：${employeeName}\n\n項目：\n${itemList}\n\n請登入系統處理。`;
-    const truncatedMsg = message.length > 1000 ? message.slice(0, 997) + '...' : message;
+    const subject = `🔔 新訂貨通知 - ${employeeName}`;
+    const body = `新訂貨通知\n\n員工：${employeeName}\n\n項目：\n${itemList}\n\n請登入系統處理。`;
+    const truncatedMsg = body.length > 1000 ? body.slice(0, 997) + '...' : body;
 
-    let successCount = 0;
-    for (const num of numbers) {
-      const result = sendWhatsApp(wacliPath, num, truncatedMsg, sender);
-      if (result.status === 0) successCount++;
-      else console.error(`❌ 發送給 ${num} 失敗:`, result.stderr || result.stdout);
+    const results = { email: null, whatsapp: null };
+
+    // 優先使用 Email 通知
+    try {
+      const config = await getEmailSettings(restaurant_id);
+      if (config.user && config.pass && config.adminEmail) {
+        await sendEmailNotification(config.adminEmail, subject, body, restaurant_id);
+        results.email = 'success';
+        console.log(`✅ Email 訂貨通知已發送 (${config.adminEmail})`);
+      }
+    } catch (emailErr) {
+      console.warn('⚠️ Email 發送失敗，嘗試 WhatsApp:', emailErr.message);
+      results.email = emailErr.message;
     }
 
-    console.log(`✅ WhatsApp 通知已發送給 ${successCount}/${numbers.length} 人`);
-    res.json({ success: successCount > 0, message: `已發送給 ${successCount}/${numbers.length} 個管理員` });
+    // 備用：WhatsApp 通知（如果 Email 失敗或未配置）
+    if (numbers.length > 0 && results.email !== 'success') {
+      let successCount = 0;
+      for (const num of numbers) {
+        const result = sendWhatsApp(wacliPath, num, truncatedMsg, sender);
+        if (result.status === 0) successCount++;
+        else console.error(`❌ WhatsApp 發送給 ${num} 失敗:`, result.stderr || result.stdout);
+      }
+      results.whatsapp = `${successCount}/${numbers.length}`;
+      console.log(`✅ WhatsApp 通知已發送給 ${successCount}/${numbers.length} 人`);
+    }
+
+    const hasSuccess = results.email === 'success' || (results.whatsapp && !results.whatsapp.startsWith('0/'));
+    res.json({ success: hasSuccess, results, message: '通知處理完成' });
   } catch (error) {
-    console.error('❌ WhatsApp 發送失敗:', error.message);
+    console.error('❌ 通知發送失敗:', error.message);
     res.json({ success: false, message: error.message });
+  }
+});
+
+// 測試 Email 發送
+app.post('/api/email/test-send', async (req, res) => {
+  try {
+    const { restaurant_id, email_user, email_pass, admin_email } = req.body;
+
+    // 優先使用請求中的參數，其次從環境變數或資料庫讀取
+    const config = await getEmailSettings(restaurant_id);
+    const user = email_user || config.user;
+    const pass = email_pass || config.pass;
+    const to = admin_email || config.adminEmail;
+
+    if (!user || !pass) {
+      return res.json({ success: false, message: '請先設定 Email 帳號和密碼' });
+    }
+    if (!to) {
+      return res.json({ success: false, message: '請先設定管理員信箱' });
+    }
+
+    const transporter = nodemailer.createTransporter({
+      host: config.host, port: config.port, secure: config.secure,
+      auth: { user, pass },
+    });
+
+    await transporter.sendMail({
+      from: `"${config.from || 'ULTRA POS'}" <${user}>`,
+      to,
+      subject: '🧪 ULTRA POS Email 通知測試',
+      text: '如果你收到這封郵件，表示 Email 通知設定正確！\n\nULTRA POS 系統',
+    });
+
+    console.log(`✅ Email 測試發送成功 → ${to}`);
+    res.json({ success: true, message: `測試郵件已成功發送到 ${to}，請檢查信箱` });
+  } catch (error) {
+    console.error('❌ Email 測試發送失敗:', error.message);
+    res.json({ success: false, message: '發送失敗: ' + error.message });
   }
 });
 

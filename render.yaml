@@ -17,6 +17,20 @@ services:
         sync: false
       - key: VITE_NVIDIA_NIM_MODEL
         value: meta/llama-3.2-11b-vision-instruct
+      - key: EMAIL_HOST
+        value: smtp.gmail.com
+      - key: EMAIL_PORT
+        value: "465"
+      - key: EMAIL_SECURE
+        value: "true"
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+      - key: EMAIL_FROM
+        value: ULTRA POS
+      - key: ADMIN_EMAIL
+        sync: false
       - key: POSPAL_USERNAME
         sync: false
       - key: POSPAL_PASSWORD

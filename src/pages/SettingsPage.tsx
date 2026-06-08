@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { Badge } from '@/components/ui/badge';
 import { ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from '@/types';
 import type { PermissionKey, RestaurantRole } from '@/types';
-import { Loader2, MapPin, Crosshair, Wifi, WifiOff, CheckCircle2, AlertCircle, Globe, MessageSquare, Send, Smartphone, QrCode, Scan, ChevronDown, ChevronRight, Key, Shield, Save, Copy } from 'lucide-react';
+import { Loader2, MapPin, Crosshair, Wifi, WifiOff, CheckCircle2, AlertCircle, Globe, MessageSquare, Send, Smartphone, QrCode, Scan, ChevronDown, ChevronRight, Key, Shield, Save, Copy, Mail } from 'lucide-react';
 
 type RoleName = 'manager' | 'staff';
 
@@ -96,6 +96,13 @@ export default function SettingsPage() {
   const pairingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Email 通知
+  const [emailUser, setEmailUser] = useState('');
+  const [emailPass, setEmailPass] = useState('');
+  const [adminEmail, setAdminEmail] = useState('');
+  const [testEmailSending, setTestEmailSending] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState<{ success: boolean; message: string } | null>(null);
+
   // 權限設定
   const [rolePermissions, setRolePermissions] = useState<Record<RoleName, PermissionKey[]>>({ manager: [], staff: [] });
   const [permLoading, setPermLoading] = useState(true);
@@ -114,6 +121,9 @@ export default function SettingsPage() {
       }
       setWhatsappSender(getSetting('whatsapp_sender', ''));
       setWhatsappAdmin(getSetting('whatsapp_admin', ''));
+      setEmailUser(getSetting('email_user', ''));
+      setEmailPass(getSetting('email_pass', ''));
+      setAdminEmail(getSetting('admin_email', ''));
     }
   }, [loading, settings]);
 
@@ -219,6 +229,20 @@ export default function SettingsPage() {
       setTestResult(await res.json());
     } catch (e: any) { setTestResult({ success: false, message: e.message || '網絡錯誤' }); }
     finally { setTestSending(false); }
+  };
+
+  const handleTestEmail = async () => {
+    if (!emailUser || !emailPass) { setTestEmailResult({ success: false, message: '請先填寫 Email 帳號和密碼' }); return; }
+    if (!adminEmail) { setTestEmailResult({ success: false, message: '請先填寫管理員信箱' }); return; }
+    setTestEmailSending(true); setTestEmailResult(null);
+    try {
+      const res = await apiFetch('/api/email/test-send', {
+        method: 'POST',
+        body: JSON.stringify({ restaurant_id: user?.restaurant_id, email_user: emailUser, email_pass: emailPass, admin_email: adminEmail }),
+      });
+      setTestEmailResult(await res.json());
+    } catch (e: any) { setTestEmailResult({ success: false, message: e.message || '網絡錯誤' }); }
+    finally { setTestEmailSending(false); }
   };
 
   // ====== 手機配對碼認證 ======
@@ -437,6 +461,9 @@ export default function SettingsPage() {
       await updateSetting('ocr_api_key', ocrApiKey);
       await updateSetting('whatsapp_sender', whatsappSender);
       await updateSetting('whatsapp_admin', whatsappAdmin);
+      await updateSetting('email_user', emailUser);
+      await updateSetting('email_pass', emailPass);
+      await updateSetting('admin_email', adminEmail);
       if (storeLat && storeLng) await updateSetting('store_location', JSON.stringify({ lat: parseFloat(storeLat), lng: parseFloat(storeLng) }));
       alert('設定已儲存');
     } catch (err) { console.error('Error saving settings:', err); alert('儲存失敗'); }
@@ -485,6 +512,40 @@ export default function SettingsPage() {
                 <button onClick={handleSaveManualIp} disabled={savingIp || !storeIpManual.trim()} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-green-400 text-sm font-medium flex items-center gap-1">{savingIp ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}設定</button></div>
               {ipStatus && <p className={`mt-1 text-xs ${ipStatus.startsWith('error') ? 'text-red-500' : 'text-green-600'}`}>{ipStatus.startsWith('error') ? ipStatus.slice(6) : '門店 IP 已更新'}</p>}
             </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard id="email" icon={<Mail className="w-5 h-5 text-blue-500" />} title="Email 通知" badge="推薦" expandedSection={expandedSection} onToggle={toggleSection}>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-500">設定 Email 通知，系統會發送訂貨、結算等通知到管理員信箱。<b>建議使用 Gmail App Password</b>。</p>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">
+              <strong>📘 如何取得 Gmail App Password：</strong>
+              <ol className="list-decimal list-inside mt-1 space-y-0.5">
+                <li>前往 <a href="https://myaccount.google.com/security" target="_blank" rel="noopener noreferrer" className="underline text-blue-600">Google 帳戶安全性設定</a></li>
+                <li>開啟「兩步驗證」</li>
+                <li>搜尋「應用程式密碼」</li>
+                <li>選「郵件」+「其他（自訂名稱）」→ 輸入 ULTRA POS</li>
+                <li>複製生成的 16 位密碼貼到下方密碼欄位</li>
+              </ol>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1"><Mail className="w-4 h-4 inline mr-1" />Email 帳號（Gmail 地址）</label>
+              <input type="email" value={emailUser} onChange={e => setEmailUser(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="ultrapos@gmail.com" disabled={saving} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1"><Key className="w-4 h-4 inline mr-1" />App Password（16 位密碼）</label>
+              <input type="password" value={emailPass} onChange={e => setEmailPass(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="abcd efgh ijkl mnop" disabled={saving} />
+              <p className="text-xs text-gray-400 mt-1">這是 Gmail 的應用程式密碼，<b>不是</b>登入密碼</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1"><Mail className="w-4 h-4 inline mr-1" />管理員信箱（接收通知）</label>
+              <input type="text" value={adminEmail} onChange={e => setAdminEmail(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="boss@gmail.com, manager@gmail.com" disabled={saving} />
+              <p className="text-xs text-gray-400 mt-1">多個信箱用逗號分隔，所有管理員都會收到通知</p>
+            </div>
+            <button onClick={handleTestEmail} disabled={testEmailSending || !emailUser || !emailPass || !adminEmail} className="w-full py-2 px-4 border border-blue-300 rounded-md text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 flex items-center justify-center gap-2">
+              {testEmailSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}{testEmailSending ? '發送中...' : '測試發送 Email'}
+            </button>
+            {testEmailResult && <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${testEmailResult.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>{testEmailResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}{testEmailResult.message}</div>}
           </div>
         </SectionCard>
 
