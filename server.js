@@ -8,7 +8,6 @@ import { fileURLToPath } from 'url';
 import { readFileSync, existsSync, mkdirSync, accessSync, constants } from 'fs';
 import { spawnSync, spawn } from 'child_process';
 import { createClient } from '@supabase/supabase-js';
-import nodemailer from 'nodemailer';
 import QRCode from 'qrcode';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -292,17 +291,21 @@ function parseNumbers(str) {
   return (str || '').split('\n').map(s => s.trim()).filter(Boolean);
 }
 
-// =========== Email 通知設定 ===========
+// =========== Email 通知設定（使用 Resend HTTP API）===========
+/**
+ * 為什麼用 Resend 而不是 SMTP？
+ * Render 免費版自 2025-09-26 起永久阻擋 SMTP 端口（25/465/587）
+ * 唯一可行方案：用 HTTP API 發送
+ * Resend：https://resend.com（免費 3000 封/月，3 行程式碼）
+ */
 
 /** 從 Supabase settings 或 .env 讀取 Email 設定 */
 async function getEmailSettings(restaurantId) {
-  let host = process.env.EMAIL_HOST || 'smtp.gmail.com';
-  let port = parseInt(process.env.EMAIL_PORT || '465');
-  let secure = process.env.EMAIL_SECURE !== 'false';
+  let apiKey = process.env.RESEND_API_KEY || process.env.EMAIL_API_KEY || '';
+  let from = process.env.EMAIL_FROM || 'ULTRA POS <onboarding@resend.dev>';
   let user = process.env.EMAIL_USER || '';
   let pass = process.env.EMAIL_PASS || '';
   let adminEmail = process.env.ADMIN_EMAIL || '';
-  let from = process.env.EMAIL_FROM || 'ULTRA POS';
 
   if (restaurantId) {
     try {
@@ -310,13 +313,12 @@ async function getEmailSettings(restaurantId) {
         .from('settings')
         .select('setting_key, setting_value')
         .eq('restaurant_id', restaurantId)
-        .in('setting_key', ['email_user', 'email_pass', 'admin_email', 'email_host', 'email_port', 'email_secure', 'email_from']);
+        .in('setting_key', ['resend_api_key', 'email_api_key', 'email_user', 'email_pass', 'admin_email', 'email_from']);
 
       if (data) {
         const getVal = (key) => data.find(s => s.setting_key === key)?.setting_value;
-        if (getVal('email_host')) host = getVal('email_host');
-        if (getVal('email_port')) port = parseInt(getVal('email_port'));
-        if (getVal('email_secure') === 'false' || getVal('email_secure') === 'true') secure = getVal('email_secure') === 'true';
+        if (getVal('resend_api_key')) apiKey = getVal('resend_api_key');
+        if (getVal('email_api_key')) apiKey = getVal('email_api_key');
         if (getVal('email_user')) user = getVal('email_user');
         if (getVal('email_pass')) pass = getVal('email_pass');
         if (getVal('admin_email')) adminEmail = getVal('admin_email');
@@ -327,49 +329,45 @@ async function getEmailSettings(restaurantId) {
     }
   }
 
-  return { host, port, secure, user, pass, adminEmail, from };
+  return { apiKey, from, user, pass, adminEmail };
 }
 
-/** 建立或取得 Email transporter（輕量快取避免重複建立） */
-let _emailTransporter = null;
-function getEmailTransporter(config) {
-  if (!config.user || !config.pass) return null;
-  if (_emailTransporter) return _emailTransporter;
-  _emailTransporter = nodemailer.createTransport({
-    host: config.host,
-    port: config.port,
-    secure: config.secure,
-    auth: { user: config.user, pass: config.pass },
-    connectionTimeout: 20000,
-    greetingTimeout: 20000,
-    socketTimeout: 30000,
-    tls: { rejectUnauthorized: false, minVersion: 'TLSv1' },
+/** 通過 Resend HTTP API 發送郵件 */
+async function sendEmailViaResend(apiKey, from, to, subject, text) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from,
+      to: Array.isArray(to) ? to : [to],
+      subject,
+      text,
+    }),
   });
-  return _emailTransporter;
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(`Resend API 錯誤 [${res.status}]: ${data.message || JSON.stringify(data)}`);
+  }
+  return data;
 }
 
 /** 發送 Email 通知到一個或多個管理員 */
 async function sendEmailNotification(adminEmails, subject, body, restaurantId) {
   const config = await getEmailSettings(restaurantId);
-  const transporter = getEmailTransporter(config);
-  if (!transporter) throw new Error('請先設定 Email 帳號和密碼');
-  if (!config.user) throw new Error('請先設定發件信箱 (EMAIL_USER)');
-  if (!config.pass) throw new Error('請先設定信箱密碼 (EMAIL_PASS)');
-
-  const emails = adminEmails.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+  if (!config.apiKey) {
+    // 備用：若無 Resend API Key，嘗試用 Gmail SMTP（本地可運行，Render 無法）
+    if (config.user && config.pass) {
+      throw new Error('Render 免費版阻擋 SMTP 端口，請設定 Resend API Key。SMTP 方案僅在付費 Render 計劃或本地可運作。');
+    }
+    throw new Error('請先設定 RESEND_API_KEY（在 resend.com 免費註冊取得）');
+  }
+  const emails = (adminEmails || config.adminEmail).split(/[,;]/).map(s => s.trim()).filter(Boolean);
   if (emails.length === 0) throw new Error('請先設定管理員信箱 (ADMIN_EMAIL)');
 
-  const results = [];
-  for (const email of emails) {
-    const info = await transporter.sendMail({
-      from: `"${config.from || 'ULTRA POS'}" <${config.user}>`,
-      to: email,
-      subject,
-      text: body,
-    });
-    results.push(info);
-  }
-  return results;
+  return await sendEmailViaResend(config.apiKey, config.from, emails, subject, body);
 }
 
 app.post('/api/whatsapp/notify-order', async (req, res) => {
@@ -419,104 +417,72 @@ app.post('/api/whatsapp/notify-order', async (req, res) => {
   }
 });
 
-// 診斷 Email 連線（不實際發送）
+// 診斷 Email 連線
 app.get('/api/email/diagnose', async (req, res) => {
   const config = await getEmailSettings(req.query.restaurant_id);
   const diag = {
     config: {
-      host: config.host,
-      port: config.port,
-      secure: config.secure,
-      user: config.user ? config.user.substring(0, 4) + '****' : '(empty)',
-      passSet: !!config.pass,
-      passLength: config.pass ? config.pass.length : 0,
+      apiKeySet: !!config.apiKey,
+      apiKeyPrefix: config.apiKey ? config.apiKey.substring(0, 8) + '****' : '(empty)',
+      from: config.from,
       adminEmail: config.adminEmail,
     },
     env: {
+      RESEND_API_KEY: process.env.RESEND_API_KEY ? 'set' : 'missing',
       EMAIL_USER: process.env.EMAIL_USER ? 'set' : 'missing',
-      EMAIL_PASS: process.env.EMAIL_PASS ? 'set' : 'missing',
       ADMIN_EMAIL: process.env.ADMIN_EMAIL ? 'set' : 'missing',
-      EMAIL_HOST: process.env.EMAIL_HOST || '(default)',
-      EMAIL_PORT: process.env.EMAIL_PORT || '(default)',
-      EMAIL_SECURE: process.env.EMAIL_SECURE || '(default)',
     },
+    note: 'Render 免費版阻擋 SMTP 端口（25/465/587），必須使用 HTTP API（如 Resend）',
     tests: {},
   };
-  const net = await import('net');
-  // 測試多個 SMTP 服務和端口，定位網絡限制
-  const targets = [
-    { host: 'smtp.gmail.com', port: 587, label: 'Gmail 587' },
-    { host: 'smtp.gmail.com', port: 465, label: 'Gmail 465' },
-    { host: 'smtp.gmail.com', port: 25, label: 'Gmail 25' },
-    { host: 'smtp.sendgrid.net', port: 587, label: 'SendGrid 587' },
-    { host: 'smtp-mail.outlook.com', port: 587, label: 'Outlook 587' },
-    { host: 'smtp.resend.com', port: 465, label: 'Resend 465' },
-    { host: '8.8.8.8', port: 53, label: 'Google DNS 53' },
-    { host: '1.1.1.1', port: 443, label: 'Cloudflare 443' },
-  ];
-  for (const t of targets) {
-    await new Promise((resolve) => {
-      const sock = net.createConnection({ host: t.host, port: t.port, timeout: 8000 });
-      const timer = setTimeout(() => { sock.destroy(); diag.tests[t.label] = '⏱ timeout'; resolve(); }, 9000);
-      sock.on('connect', () => { clearTimeout(timer); diag.tests[t.label] = '✅ connected'; sock.end(); resolve(); });
-      sock.on('error', (e) => { clearTimeout(timer); diag.tests[t.label] = '❌ ' + e.code; resolve(); });
-      sock.on('timeout', () => { clearTimeout(timer); diag.tests[t.label] = '⏱ timeout'; sock.destroy(); resolve(); });
+  if (!config.apiKey) {
+    diag.tests.skipped = '缺少 RESEND_API_KEY，跳過 Resend API 測試';
+    return res.json(diag);
+  }
+  try {
+    const r = await fetch('https://api.resend.com/domains', {
+      headers: { 'Authorization': `Bearer ${config.apiKey}` }
     });
+    diag.tests.resend_api = r.ok ? '✅ Resend API 認證成功' : `❌ HTTP ${r.status}`;
+  } catch (e) {
+    diag.tests.resend_api = '❌ ' + e.message;
   }
   res.json(diag);
 });
 
-// 測試 Email 發送
+// 測試 Email 發送（Resend HTTP API）
 app.post('/api/email/test-send', async (req, res) => {
   const diag = { steps: [] };
   try {
-    const { restaurant_id, email_user, email_pass, admin_email } = req.body;
-
-    // 優先使用請求中的參數，其次從環境變數或資料庫讀取
+    const { restaurant_id, admin_email } = req.body;
     const config = await getEmailSettings(restaurant_id);
-    const user = email_user || config.user;
-    const pass = email_pass || config.pass;
     const to = admin_email || config.adminEmail;
-    diag.steps.push(`config: host=${config.host} port=${config.port} secure=${config.secure}`);
-    diag.steps.push(`user: ${user ? user.substring(0,4)+'****' : '(empty)'}, pass: ${pass ? pass.length+'ch' : '(empty)'}, to: ${to}`);
+    diag.steps.push(`apiKey: ${config.apiKey ? 'set' : 'missing'}, from: ${config.from}, to: ${to}`);
 
-    if (!user || !pass) {
-      return res.json({ success: false, message: '請先設定 Email 帳號和密碼', diag });
+    if (!config.apiKey) {
+      return res.json({
+        success: false,
+        message: '請先設定 RESEND_API_KEY（去 https://resend.com 免費註冊，1 分鐘拿到）',
+        diag
+      });
     }
     if (!to) {
       return res.json({ success: false, message: '請先設定管理員信箱', diag });
     }
 
-    diag.steps.push('建立 transporter...');
-    const transporter = nodemailer.createTransport({
-      host: config.host, port: config.port, secure: config.secure,
-      auth: { user, pass },
-      connectionTimeout: 20000, greetingTimeout: 20000, socketTimeout: 30000,
-      tls: { rejectUnauthorized: false, minVersion: 'TLSv1' },
-    });
-
-    diag.steps.push('驗證 SMTP 連線...');
-    try {
-      await transporter.verify();
-      diag.steps.push('✅ SMTP 驗證成功');
-    } catch (e) {
-      diag.steps.push('❌ SMTP 驗證失敗: ' + e.message);
-      return res.json({ success: false, message: 'SMTP 連線失敗: ' + e.message, diag });
-    }
-
-    diag.steps.push('發送郵件...');
-    const info = await transporter.sendMail({
-      from: `"${config.from || 'ULTRA POS'}" <${user}>`,
+    diag.steps.push('調用 Resend HTTP API...');
+    const result = await sendEmailViaResend(
+      config.apiKey,
+      config.from,
       to,
-      subject: '🧪 ULTRA POS Email 通知測試',
-      text: `測試時間: ${new Date().toISOString()}\n\n如果你收到這封郵件，表示 Email 通知設定正確！\n\nULTRA POS 系統`,
-    });
-
-    diag.steps.push('✅ 發送成功 messageId=' + info.messageId);
-    console.log(`✅ Email 測試發送成功 → ${to} (${info.messageId})`);
-    res.json({ success: true, message: `測試郵件已成功發送到 ${to}，請檢查信箱`, diag, messageId: info.messageId });
+      '🧪 ULTRA POS Email 通知測試',
+      `測試時間: ${new Date().toISOString()}\n\n如果你收到這封郵件，表示 Email 通知設定正確！\n\nULTRA POS 系統`
+    );
+    diag.steps.push('✅ Resend 接受請求 messageId=' + result.id);
+    console.log(`✅ Email 測試發送成功 → ${to} (${result.id})`);
+    res.json({ success: true, message: `測試郵件已成功發送到 ${to}，請檢查信箱`, diag, messageId: result.id });
   } catch (error) {
-    diag.steps.push('❌ 拋出異常: ' + (error.code || '') + ' - ' + error.message);
+    diag.steps.push('❌ 失敗: ' + error.message);
     console.error('❌ Email 測試發送失敗:', error.message);
     res.json({ success: false, message: '發送失敗: ' + error.message, diag });
   }

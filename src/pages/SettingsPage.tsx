@@ -96,9 +96,9 @@ export default function SettingsPage() {
   const pairingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Email 通知
-  const [emailUser, setEmailUser] = useState('');
-  const [emailPass, setEmailPass] = useState('');
+  // Email 通知 (Resend)
+  const [resendApiKey, setResendApiKey] = useState('');
+  const [emailFrom, setEmailFrom] = useState('ULTRA POS <onboarding@resend.dev>');
   const [adminEmail, setAdminEmail] = useState('');
   const [testEmailSending, setTestEmailSending] = useState(false);
   const [testEmailResult, setTestEmailResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -121,8 +121,8 @@ export default function SettingsPage() {
       }
       setWhatsappSender(getSetting('whatsapp_sender', ''));
       setWhatsappAdmin(getSetting('whatsapp_admin', ''));
-      setEmailUser(getSetting('email_user', ''));
-      setEmailPass(getSetting('email_pass', ''));
+      setResendApiKey(getSetting('resend_api_key', ''));
+      setEmailFrom(getSetting('email_from', 'ULTRA POS <onboarding@resend.dev>'));
       setAdminEmail(getSetting('admin_email', ''));
     }
   }, [loading, settings]);
@@ -232,13 +232,13 @@ export default function SettingsPage() {
   };
 
   const handleTestEmail = async () => {
-    if (!emailUser || !emailPass) { setTestEmailResult({ success: false, message: '請先填寫 Email 帳號和密碼' }); return; }
+    if (!resendApiKey) { setTestEmailResult({ success: false, message: '請先填寫 Resend API Key' }); return; }
     if (!adminEmail) { setTestEmailResult({ success: false, message: '請先填寫管理員信箱' }); return; }
     setTestEmailSending(true); setTestEmailResult(null);
     try {
       const res = await apiFetch('/api/email/test-send', {
         method: 'POST',
-        body: JSON.stringify({ restaurant_id: user?.restaurant_id, email_user: emailUser, email_pass: emailPass, admin_email: adminEmail }),
+        body: JSON.stringify({ restaurant_id: user?.restaurant_id, admin_email: adminEmail }),
       });
       setTestEmailResult(await res.json());
     } catch (e: any) { setTestEmailResult({ success: false, message: e.message || '網絡錯誤' }); }
@@ -461,8 +461,8 @@ export default function SettingsPage() {
       await updateSetting('ocr_api_key', ocrApiKey);
       await updateSetting('whatsapp_sender', whatsappSender);
       await updateSetting('whatsapp_admin', whatsappAdmin);
-      await updateSetting('email_user', emailUser);
-      await updateSetting('email_pass', emailPass);
+      await updateSetting('resend_api_key', resendApiKey);
+      await updateSetting('email_from', emailFrom);
       await updateSetting('admin_email', adminEmail);
       if (storeLat && storeLng) await updateSetting('store_location', JSON.stringify({ lat: parseFloat(storeLat), lng: parseFloat(storeLng) }));
       alert('設定已儲存');
@@ -515,34 +515,34 @@ export default function SettingsPage() {
           </div>
         </SectionCard>
 
-        <SectionCard id="email" icon={<Mail className="w-5 h-5 text-blue-500" />} title="Email 通知" badge="推薦" expandedSection={expandedSection} onToggle={toggleSection}>
+        <SectionCard id="email" icon={<Mail className="w-5 h-5 text-blue-500" />} title="Email 通知" badge="Resend" expandedSection={expandedSection} onToggle={toggleSection}>
           <div className="space-y-4">
-            <p className="text-sm text-gray-500">設定 Email 通知，系統會發送訂貨、結算等通知到管理員信箱。<b>建議使用 Gmail App Password</b>。</p>
+            <p className="text-sm text-gray-500">使用 <b>Resend HTTP API</b> 發送 Email 通知。<b>Render 免費版阻擋 SMTP 端口</b>，所以必須用 HTTP API。</p>
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">
-              <strong>📘 如何取得 Gmail App Password：</strong>
+              <strong>📘 如何取得 Resend API Key（1 分鐘）：</strong>
               <ol className="list-decimal list-inside mt-1 space-y-0.5">
-                <li>前往 <a href="https://myaccount.google.com/security" target="_blank" rel="noopener noreferrer" className="underline text-blue-600">Google 帳戶安全性設定</a></li>
-                <li>開啟「兩步驗證」</li>
-                <li>搜尋「應用程式密碼」</li>
-                <li>選「郵件」+「其他（自訂名稱）」→ 輸入 ULTRA POS</li>
-                <li>複製生成的 16 位密碼貼到下方密碼欄位</li>
+                <li>前往 <a href="https://resend.com/signup" target="_blank" rel="noopener noreferrer" className="underline text-blue-600">resend.com/signup</a> 免費註冊</li>
+                <li>到 <a href="https://resend.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline text-blue-600">API Keys</a> 頁面點「Create API Key」</li>
+                <li>複製 <code className="bg-yellow-100 px-1 rounded">re_xxxxx</code> 開頭的 Key 貼到下方</li>
+                <li>免費額度：<b>3000 封/月</b>、<b>100 封/天</b>，POS 通知完全夠用</li>
               </ol>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1"><Mail className="w-4 h-4 inline mr-1" />Email 帳號（Gmail 地址）</label>
-              <input type="email" value={emailUser} onChange={e => setEmailUser(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="ultrapos@gmail.com" disabled={saving} />
+              <label className="block text-sm font-medium text-gray-700 mb-1"><Key className="w-4 h-4 inline mr-1" />Resend API Key</label>
+              <input type="password" value={resendApiKey} onChange={e => setResendApiKey(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-xs" placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxxxx" disabled={saving} />
+              <p className="text-xs text-gray-400 mt-1">從 <a href="https://resend.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline">resend.com/api-keys</a> 取得</p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1"><Key className="w-4 h-4 inline mr-1" />App Password（16 位密碼）</label>
-              <input type="password" value={emailPass} onChange={e => setEmailPass(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="abcd efgh ijkl mnop" disabled={saving} />
-              <p className="text-xs text-gray-400 mt-1">這是 Gmail 的應用程式密碼，<b>不是</b>登入密碼</p>
+              <label className="block text-sm font-medium text-gray-700 mb-1"><Mail className="w-4 h-4 inline mr-1" />發件人名稱</label>
+              <input type="text" value={emailFrom} onChange={e => setEmailFrom(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="ULTRA POS <onboarding@resend.dev>" disabled={saving} />
+              <p className="text-xs text-gray-400 mt-1">預設使用 Resend 測試域名，無需設定</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1"><Mail className="w-4 h-4 inline mr-1" />管理員信箱（接收通知）</label>
               <input type="text" value={adminEmail} onChange={e => setAdminEmail(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="boss@gmail.com, manager@gmail.com" disabled={saving} />
               <p className="text-xs text-gray-400 mt-1">多個信箱用逗號分隔，所有管理員都會收到通知</p>
             </div>
-            <button onClick={handleTestEmail} disabled={testEmailSending || !emailUser || !emailPass || !adminEmail} className="w-full py-2 px-4 border border-blue-300 rounded-md text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 flex items-center justify-center gap-2">
+            <button onClick={handleTestEmail} disabled={testEmailSending || !resendApiKey || !adminEmail} className="w-full py-2 px-4 border border-blue-300 rounded-md text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 flex items-center justify-center gap-2">
               {testEmailSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}{testEmailSending ? '發送中...' : '測試發送 Email'}
             </button>
             {testEmailResult && <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${testEmailResult.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>{testEmailResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}{testEmailResult.message}</div>}
