@@ -400,7 +400,7 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
     let authProcess;
     try {
       authProcess = spawn(wacliActualPath, ['auth', '--events', '--json', '--timeout', '120s', '--session-dir', sessionDir], {
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['pipe', 'pipe', 'pipe'], // 同時捕獲 stdout 和 stderr
         detached: true,
       });
       authProcess.unref();
@@ -416,6 +416,7 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
     let qrCode = '';
     let stderrBuf = '';
 
+    // wacli 透過 stderr 輸出 --events JSON，事件名為 "qr"（不是 "qr_code"）
     authProcess.stderr?.on('data', (data) => {
       const chunk = data.toString();
       stderrBuf += chunk;
@@ -423,8 +424,8 @@ app.post('/api/whatsapp/auth-qr', async (req, res) => {
       for (const line of lines) {
         try {
           const evt = JSON.parse(line);
-          if (evt.event === 'qr_code' && evt.data?.code) {
-            qrCode = evt.data.code;
+          if (evt.event === 'qr' && evt.data) {
+            qrCode = evt.data; // data 是字串，如 "1@abc123..."
           }
         } catch {}
       }
