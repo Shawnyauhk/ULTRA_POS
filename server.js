@@ -340,6 +340,9 @@ function getEmailTransporter(config) {
     port: config.port,
     secure: config.secure,
     auth: { user: config.user, pass: config.pass },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 30000,
   });
   return _emailTransporter;
 }
