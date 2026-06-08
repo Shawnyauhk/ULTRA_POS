@@ -1419,8 +1419,8 @@ app.post('/api/settlements/sync', requirePermission('expense.manage'), async (re
       encoding: 'utf-8',
       env: {
         ...process.env,
-        PUPPETEER_EXECUTABLE_PATH: '/usr/bin/chromium-browser',
-        CHROMIUM_PATH: '/usr/bin/chromium-browser',
+        PUPPETEER_EXECUTABLE_PATH: '/usr/bin/chromium',
+        CHROMIUM_PATH: '/usr/bin/chromium',
         CRAWLER_HEADLESS: 'true',
       },
     });
@@ -2195,8 +2195,8 @@ async function runPospalCrawler(dateStr) {
       encoding: 'utf-8',
       env: {
         ...process.env,
-        PUPPETEER_EXECUTABLE_PATH: '/usr/bin/chromium-browser',
-        CHROMIUM_PATH: '/usr/bin/chromium-browser',
+        PUPPETEER_EXECUTABLE_PATH: '/usr/bin/chromium',
+        CHROMIUM_PATH: '/usr/bin/chromium',
         CRAWLER_HEADLESS: 'true',
       },
     });

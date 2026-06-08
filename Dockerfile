@@ -1,10 +1,18 @@
 # Render build cache refresh 2026-06-02
-FROM node:22-alpine
+FROM node:22-slim
 
 WORKDIR /app
 
-# 安裝系統依賴（含 Chromium for Puppeteer）
-RUN apk add --no-cache curl ca-certificates chromium nss freetype freetype-dev harfbuzz ca-certificates libpng-dev
+# 安裝系統依賴（含 Chromium for Puppeteer + glibc 支援 wacli）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates \
+    chromium \
+    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
+    libcups2 libdbus-1-3 libgdk-pixbuf2.0-0 \
+    libx11-xcb1 libxcomposite1 libxdamage1 libxrandr2 \
+    libgbm1 libpango-1.0-0 libcairo2 libasound2 \
+    libfreetype6 libharfbuzz0b libpng-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # 下載並安裝 wacli（WhatsApp CLI）
 RUN curl -fsSLo /tmp/wacli.tar.gz https://github.com/openclaw/wacli/releases/download/v0.11.0/wacli_0.11.0_linux_amd64.tar.gz \
@@ -22,7 +30,7 @@ RUN cd scripts/pospal-crawler && npm install
 
 # Puppeteer 使用系統 Chromium 而非自行下載
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV CHROMIUM_PATH=/usr/bin/chromium-browser
+ENV CHROMIUM_PATH=/usr/bin/chromium
 
 # 複製源碼
 COPY . .
