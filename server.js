@@ -604,10 +604,17 @@ app.post('/api/email/probe', async (req, res) => {
   try {
     const config = await getEmailSettings(req.body.restaurant_id);
     if (!config.apiKey) return res.json({ ok: false, error: 'no api key' });
-    const result = await sendEmailViaSendGrid(config.apiKey, req.body.body.from, req.body.body.to, req.body.body.subject || 'probe', req.body.body.text || 'probe');
-    return res.json({ ok: true, id: result.id, to: req.body.body.to, from: req.body.body.from });
+    const body = req.body.body;
+    // 直接呼叫 Resend API（不走 sendEmailViaSendGrid 函數包裝）
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const respText = await r.text();
+    return res.json({ ok: r.ok, status: r.status, payload: body, response: respText.substring(0, 500) });
   } catch (e) {
-    return res.json({ ok: false, error: e.message, to: req.body.body.to, from: req.body.body.from });
+    return res.json({ ok: false, error: e.message });
   }
 });
 
