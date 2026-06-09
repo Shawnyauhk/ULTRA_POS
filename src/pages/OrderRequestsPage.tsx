@@ -65,6 +65,49 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // =========== 桌面同欄拖曳排序 ===========
+  const [columnOrder, setColumnOrder] = useState<Record<ColumnType, string[]>>({ request: [], pending: [], received: [], completed: [] });
+  const desktopDragRef = useRef<{ orderId: string; colType: ColumnType } | null>(null);
+  const [desktopDraggingId, setDesktopDraggingId] = useState<string | null>(null);
+
+  // 當訂單載入時初始化排序
+  useEffect(() => {
+    if (orderRequests.length > 0) {
+      setColumnOrder(prev => {
+        const next = { ...prev };
+        for (const col of ['request', 'pending', 'received'] as ColumnType[]) {
+          if (next[col].length === 0) {
+            next[col] = orderRequests.filter(o => getOrderColumn(o) === col).map(o => o.id);
+          }
+        }
+        return next;
+      });
+    }
+  }, [orderRequests]);
+
+  const reorderColumn = (colType: ColumnType, fromIndex: number, toIndex: number) => {
+    setColumnOrder(prev => {
+      const ids = [...(prev[colType] || [])];
+      const [moved] = ids.splice(fromIndex, 1);
+      ids.splice(toIndex, 0, moved);
+      return { ...prev, [colType]: ids };
+    });
+  };
+
+  const getSortedOrders = (colType: ColumnType) => {
+    const orders = orderRequests.filter(o => getOrderColumn(o) === colType);
+    const sortIds = columnOrder[colType];
+    if (!sortIds || sortIds.length === 0) return orders;
+    return [...orders].sort((a, b) => {
+      const ai = sortIds.indexOf(a.id);
+      const bi = sortIds.indexOf(b.id);
+      if (ai === -1 && bi === -1) return 0;
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+  };
+
   // 簽收 Modal state
   const [showSignModal, setShowSignModal] = useState(false);
   const [signingOrder, setSigningOrder] = useState<OrderRequest | null>(null);
@@ -549,7 +592,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     icon: React.ReactNode,
     bgColor: string,
   ) => {
-    const columnOrders = orderRequests.filter(o => getOrderColumn(o) === colType);
+    const columnOrders = getSortedOrders(colType);
     const borderColor = colType === 'request' ? 'border-red-200' : colType === 'pending' ? 'border-yellow-200' : 'border-green-200';
     return (
       <div
@@ -567,20 +610,62 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
               <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
             </div>
           ) : columnOrders.length > 0 ? (
-            columnOrders.map(order => {
+            columnOrders.map((order, cardIdx) => {
               const items = order.items || [];
               const firstItem = items[0];
               const isExpanded = expandedOrder === order.id;
               const statusLabel = getStatusLabel(order.status);
               return (
-                <Card key={order.id} ref={el => { if (el) cardRefs.current.set(order.id, el); }} className={`overflow-hidden select-none transition-all duration-200 ${borderColor} ${isExpanded ? 'border-primary/50 ring-1 ring-primary/20' : ''} ${dragState?.order.id === order.id ? 'opacity-40 scale-95' : ''} ${isDragging && dragState?.order.id === order.id ? 'shadow-2xl scale-[1.03] ring-2 ring-indigo-400 z-50 relative' : 'hover:shadow-md active:scale-[1.01]'}`} onTouchStart={(e) => handleTouchStart(order, e)} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+                <Card
+                  key={order.id}
+                  draggable="true"
+                  ref={el => { if (el) cardRefs.current.set(order.id, el); }}
+                  className={`overflow-hidden select-none transition-all duration-200 ${borderColor} ${isExpanded ? 'border-primary/50 ring-1 ring-primary/20' : ''} ${dragState?.order.id === order.id || desktopDraggingId === order.id ? 'opacity-70 scale-[0.98]' : ''} ${isDragging && dragState?.order.id === order.id ? 'shadow-2xl scale-[1.03] ring-2 ring-indigo-400 z-50 relative' : 'hover:shadow-md active:scale-[1.01]'}`}
+                  onTouchStart={(e) => handleTouchStart(order, e)}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', order.id);
+                    desktopDragRef.current = { orderId: order.id, colType };
+                    setDraggedOrder(order);
+                    setDesktopDraggingId(order.id);
+                  }}
+                  onDragOver={(e) => {
+                    if (!desktopDragRef.current) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    // 同欄排序（不同欄由 Column 的 handleDrop 處理）
+                    if (desktopDragRef.current.colType !== colType) return;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const y = e.clientY - rect.top;
+                    const threshold = rect.height / 2;
+                    const isAfter = y > threshold;
+                    const targetIdx = cardIdx + (isAfter ? 1 : 0);
+                    const fromIdx = columnOrders.findIndex(o => o.id === desktopDragRef.current!.orderId);
+                    if (fromIdx !== -1 && targetIdx !== fromIdx && targetIdx !== fromIdx + 1) {
+                      reorderColumn(colType, fromIdx, targetIdx > fromIdx ? targetIdx - 1 : targetIdx);
+                      desktopDragRef.current = { orderId: order.id, colType };
+                    }
+                  }}
+                  onDragEnd={() => {
+                    desktopDragRef.current = null;
+                    setDraggedOrder(null);
+                    setDesktopDraggingId(null);
+                  }}
+                >
                   <div
                     className="p-2.5 cursor-pointer hover:bg-gray-50/60 transition-colors"
                     onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
                   >
-                    {/* 預設只顯示貨物名（自動換行） */}
-                    <div className="text-sm font-medium text-gray-800 leading-snug">
-                      {firstItem?.inventory?.name || order.notes || '未知貨物'}
+                    {/* 預設只顯示貨物名 + 數量（緊密排列） */}
+                    <div className="text-sm font-medium text-gray-800 leading-snug flex items-baseline gap-1">
+                      <span className="truncate">{firstItem?.inventory?.name || order.notes || '未知貨物'}</span>
+                      {firstItem && (
+                        <span className="text-[11px] text-gray-500 font-normal shrink-0">
+                          x{firstItem.requested_quantity}{firstItem.inventory?.unit || ''}
+                        </span>
+                      )}
                     </div>
 
                     {/* 展開後的詳情（優化排版） */}
@@ -623,9 +708,9 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                           <div className="pt-1">
                             <div className="text-[10px] text-gray-400 mb-1 font-medium">貨物清單</div>
                             {items.map((item: any, idx: number) => (
-                              <div key={item.id} className="flex items-center justify-between text-[11px] py-0.5">
-                                <span className="text-gray-700 truncate flex-1 mr-2">{item.inventory?.name || '未知貨物'}</span>
-                                <span className="text-gray-500 whitespace-nowrap">
+                              <div key={item.id} className="flex items-center gap-1.5 text-[11px] py-0.5">
+                                <span className="text-gray-700 truncate">{item.inventory?.name || '未知貨物'}</span>
+                                <span className="text-gray-500 shrink-0">
                                   x{item.requested_quantity}{item.inventory?.unit || ''}
                                 </span>
                               </div>
