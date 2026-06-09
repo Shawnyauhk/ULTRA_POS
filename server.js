@@ -452,16 +452,15 @@ async function sendEmailNotification(adminEmails, subject, body, restaurantId, t
   if (recipients.length === 0) throw new Error('請先設定管理員信箱 (ADMIN_EMAIL 或 admin_email_1 / admin_email_2)');
 
   // Resend 限制：onboarding@resend.dev 只能直接發送給 Key 創建者
-  // 突破方法：把 owner 放在 To，其他收件人放在 BCC
+  // 強制 BCC 模式：To=owner，BCC=其他人
   const isResend = config.apiKey?.startsWith('re_');
   const ownerEmail = 'shawnyauws@gmail.com'; // Resend Key 創建者
-  const ownerInList = recipients.includes(ownerEmail);
 
   const results = [];
   let lastError = null;
 
-  if (isResend && !ownerInList) {
-    // 策略：發一封信給 owner（To），其他人放 BCC
+  if (isResend && recipients.length > 1) {
+    // 強制 BCC 模式：保證 To 一定是 owner
     const others = recipients.filter(e => e !== ownerEmail);
     try {
       const result = await sendEmailViaSendGrid(
@@ -637,14 +636,13 @@ app.post('/api/email/test-send', async (req, res) => {
       return res.json({ success: false, message: '請填寫有效的管理員信箱', diag });
     }
 
-    // Resend BCC 模式：To=Key 創建者, BCC=其他人
+    // Resend BCC 模式：To=Key 創建者, BCC=其他人（強制）
     const isResend = config.apiKey?.startsWith('re_');
     const ownerEmail = 'shawnyauws@gmail.com';
-    const ownerInList = emails.includes(ownerEmail);
     let mainTo, bcc;
 
-    if (isResend && !ownerInList && emails.length > 1) {
-      // 把 owner 放 To，其他人放 BCC
+    if (isResend && emails.length > 1) {
+      // 強制 BCC 模式：保證 To 一定是 owner
       mainTo = [ownerEmail];
       bcc = emails.filter(e => e !== ownerEmail);
       diag.steps.push(`Resend BCC 模式: To=${mainTo[0]}, BCC=${bcc.join(',')}`);
