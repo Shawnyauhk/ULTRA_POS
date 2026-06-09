@@ -317,15 +317,16 @@ async function getEmailSettings(restaurantId) {
 
       if (data) {
         const getVal = (key) => data.find(s => s.setting_key === key)?.setting_value;
-        if (getVal('sendgrid_api_key')) apiKey = getVal('sendgrid_api_key');
+        // 環境變量優先於 DB 設定
+        if (getVal('sendgrid_api_key') && !process.env.SENDGRID_API_KEY) apiKey = getVal('sendgrid_api_key');
         if (getVal('resend_api_key') && !apiKey) apiKey = getVal('resend_api_key');
         if (getVal('email_api_key') && !apiKey) apiKey = getVal('email_api_key');
         if (getVal('email_user')) user = getVal('email_user');
         if (getVal('email_pass')) pass = getVal('email_pass');
-        if (getVal('admin_email')) adminEmail = getVal('admin_email');
+        if (getVal('admin_email') && !process.env.ADMIN_EMAIL) adminEmail = getVal('admin_email');
         if (getVal('admin_email_1')) adminEmail1 = getVal('admin_email_1');
         if (getVal('admin_email_2')) adminEmail2 = getVal('admin_email_2');
-        if (getVal('email_from')) from = getVal('email_from');
+        if (getVal('email_from') && !process.env.EMAIL_FROM) from = getVal('email_from');
       }
     } catch (err) {
       console.warn('⚠️ 無法從 Supabase 讀取 Email 設定，使用 .env 備用:', err.message);
