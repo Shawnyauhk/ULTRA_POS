@@ -336,24 +336,29 @@ async function getEmailSettings(restaurantId) {
 }
 
 /** 通過 SendGrid 或 Resend HTTP API 發送郵件 */
-async function sendEmailViaSendGrid(apiKey, from, to, subject, text) {
+async function sendEmailViaSendGrid(apiKey, from, to, subject, text, extra = {}) {
   const isResend = apiKey.startsWith('re_');
   const toList = Array.isArray(to) ? to : [to];
 
   if (isResend) {
     // Resend API: https://resend.com/docs/api-reference/emails/send-email
+    const payload = {
+      from: from.includes('<') ? from : `ULTRA POS <${from}>`,
+      to: toList,
+      subject,
+      text,
+    };
+    if (extra.bcc && extra.bcc.length) payload.bcc = extra.bcc;
+    if (extra.cc && extra.cc.length) payload.cc = extra.cc;
+    if (extra.reply_to) payload.reply_to = Array.isArray(extra.reply_to) ? extra.reply_to : [extra.reply_to];
+
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        from: from.includes('<') ? from : `ULTRA POS <${from}>`,
-        to: toList,
-        subject,
-        text,
-      }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const data = await res.text();
@@ -565,6 +570,18 @@ app.all('/api/email/diagnose', async (req, res) => {
     diag.tests.sendgrid_api = '❌ ' + e.message;
   }
   res.json(diag);
+});
+
+// Resend 探測端點：測試各種 from/to/bcc/cc 組合
+app.post('/api/email/probe', async (req, res) => {
+  try {
+    const config = await getEmailSettings(req.body.restaurant_id);
+    if (!config.apiKey) return res.json({ ok: false, error: 'no api key' });
+    const result = await sendEmailViaSendGrid(config.apiKey, req.body.body.from, req.body.body.to, req.body.body.subject || 'probe', req.body.body.text || 'probe');
+    return res.json({ ok: true, id: result.id, to: req.body.body.to, from: req.body.body.from });
+  } catch (e) {
+    return res.json({ ok: false, error: e.message, to: req.body.body.to, from: req.body.body.from });
+  }
 });
 
 // 測試 Email 發送（Resend HTTP API）
