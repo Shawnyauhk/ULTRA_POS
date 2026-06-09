@@ -300,7 +300,7 @@ function parseNumbers(str) {
 /** 從 Supabase settings 或 .env 讀取 Email 設定 */
 async function getEmailSettings(restaurantId) {
   let apiKey = process.env.SENDGRID_API_KEY || process.env.RESEND_API_KEY || process.env.EMAIL_API_KEY || '';
-  let from = process.env.EMAIL_FROM || 'onboarding@resend.dev';
+  let from = process.env.EMAIL_FROM || 'handmadetarohk813@gmail.com';
   let user = process.env.EMAIL_USER || '';
   let pass = process.env.EMAIL_PASS || '';
   let adminEmail = process.env.ADMIN_EMAIL || '';
