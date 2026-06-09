@@ -447,18 +447,42 @@ async function sendEmailNotification(adminEmails, subject, body, restaurantId, t
   const recipients = await getRecipients();
   if (recipients.length === 0) throw new Error('請先設定管理員信箱 (ADMIN_EMAIL 或 admin_email_1 / admin_email_2)');
 
-  // 對每個收件人個別發送（Resend 免費版限制一次只能送一個收件人）
+  // Resend 限制：onboarding@resend.dev 只能直接發送給 Key 創建者
+  // 突破方法：把 owner 放在 To，其他收件人放在 BCC
+  const isResend = config.apiKey?.startsWith('re_');
+  const ownerEmail = 'shawnyauws@gmail.com'; // Resend Key 創建者
+  const ownerInList = recipients.includes(ownerEmail);
+
   const results = [];
   let lastError = null;
-  for (const email of recipients) {
+
+  if (isResend && !ownerInList) {
+    // 策略：發一封信給 owner（To），其他人放 BCC
+    const others = recipients.filter(e => e !== ownerEmail);
     try {
-      const result = await sendEmailViaSendGrid(config.apiKey, config.from, [email], subject, body);
-      results.push({ email, success: true, id: result.id });
-      console.log(`✅ Email 發送成功 → ${email}`);
+      const result = await sendEmailViaSendGrid(
+        config.apiKey, config.from, [ownerEmail], subject, body,
+        { bcc: others.length > 0 ? others : undefined }
+      );
+      recipients.forEach(e => results.push({ email: e, success: true, id: result.id }));
+      console.log(`✅ Resend BCC 模式發送: To=${ownerEmail}, BCC=${others.join(',')}`);
     } catch (err) {
       lastError = err;
-      results.push({ email, success: false, error: err.message });
-      console.error(`❌ Email 發送失敗 → ${email}: ${err.message}`);
+      recipients.forEach(e => results.push({ email: e, success: false, error: err.message }));
+      console.error('❌ Resend BCC 發送失敗:', err.message);
+    }
+  } else {
+    // 標準模式：逐個收件人發送（Resend 免費版/付費版/SendGrid）
+    for (const email of recipients) {
+      try {
+        const result = await sendEmailViaSendGrid(config.apiKey, config.from, [email], subject, body);
+        results.push({ email, success: true, id: result.id });
+        console.log(`✅ Email 發送成功 → ${email}`);
+      } catch (err) {
+        lastError = err;
+        results.push({ email, success: false, error: err.message });
+        console.error(`❌ Email 發送失敗 → ${email}: ${err.message}`);
+      }
     }
   }
 
@@ -596,7 +620,7 @@ app.post('/api/email/test-send', async (req, res) => {
     if (!config.apiKey) {
       return res.json({
         success: false,
-        message: '請先設定 SENDGRID_API_KEY（去 https://sendgrid.com 免費註冊，1 分鐘拿到）',
+        message: '請先設定 RESEND_API_KEY 或 SENDGRID_API_KEY',
         diag
       });
     }
@@ -608,17 +632,34 @@ app.post('/api/email/test-send', async (req, res) => {
     if (emails.length === 0) {
       return res.json({ success: false, message: '請填寫有效的管理員信箱', diag });
     }
-    diag.steps.push(`調用 SendGrid HTTP API, 收件人: ${emails.join(', ')}...`);
+
+    // Resend BCC 模式：To=Key 創建者, BCC=其他人
+    const isResend = config.apiKey?.startsWith('re_');
+    const ownerEmail = 'shawnyauws@gmail.com';
+    const ownerInList = emails.includes(ownerEmail);
+    let mainTo, bcc;
+
+    if (isResend && !ownerInList && emails.length > 1) {
+      // 把 owner 放 To，其他人放 BCC
+      mainTo = [ownerEmail];
+      bcc = emails.filter(e => e !== ownerEmail);
+      diag.steps.push(`Resend BCC 模式: To=${mainTo[0]}, BCC=${bcc.join(',')}`);
+    } else {
+      mainTo = emails;
+    }
+
+    diag.steps.push(`調用 ${isResend ? 'Resend' : 'SendGrid'} HTTP API...`);
     const result = await sendEmailViaSendGrid(
       config.apiKey,
       config.from,
-      emails,
+      mainTo,
       '🧪 ULTRA POS Email 通知測試',
-      `測試時間: ${new Date().toISOString()}\n\n如果你收到這封郵件，表示 Email 通知設定正確！\n\nULTRA POS 系統`
+      `測試時間: ${new Date().toISOString()}\n收件人: ${emails.join(', ')}\n\n如果你收到這封郵件，表示 Email 通知設定正確！\n\nULTRA POS 系統`,
+      { bcc }
     );
-    diag.steps.push('✅ SendGrid 接受請求 messageId=' + result.id);
+    diag.steps.push('✅ 接受請求 messageId=' + result.id);
     console.log(`✅ Email 測試發送成功 → ${emails.join(', ')} (${result.id})`);
-    res.json({ success: true, message: `測試郵件已成功發送到 ${emails.join(', ')}，請檢查信箱`, diag, messageId: result.id });
+    res.json({ success: true, message: `測試郵件已成功發送到 ${emails.join(', ')}，請檢查所有信箱`, diag, messageId: result.id });
   } catch (error) {
     diag.steps.push('❌ 失敗: ' + error.message);
     console.error('❌ Email 測試發送失敗:', error.message);
