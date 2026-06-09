@@ -19,6 +19,8 @@ services:
         value: meta/llama-3.2-11b-vision-instruct
       - key: SENDGRID_API_KEY
         sync: false
+      - key: BREVO_API_KEY
+        sync: false
       - key: EMAIL_FROM
         value: handmadetarohk813@gmail.com
       - key: ADMIN_EMAIL

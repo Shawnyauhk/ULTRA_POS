@@ -299,7 +299,8 @@ function parseNumbers(str) {
 
 /** 從 Supabase settings 或 .env 讀取 Email 設定 */
 async function getEmailSettings(restaurantId) {
-  let apiKey = process.env.SENDGRID_API_KEY || process.env.RESEND_API_KEY || process.env.EMAIL_API_KEY || '';
+  // 優先順序：BREVO_API_KEY (env) > brevo_api_key (DB) > SENDGRID_API_KEY (env) > sendgrid_api_key (DB) > RESEND_API_KEY (env) > resend_api_key (DB)
+  let apiKey = process.env.BREVO_API_KEY || process.env.SENDGRID_API_KEY || process.env.RESEND_API_KEY || process.env.EMAIL_API_KEY || '';
   let from = process.env.EMAIL_FROM || 'handmadetarohk813@gmail.com';
   let user = process.env.EMAIL_USER || '';
   let pass = process.env.EMAIL_PASS || '';
@@ -313,12 +314,13 @@ async function getEmailSettings(restaurantId) {
         .from('settings')
         .select('setting_key, setting_value')
         .eq('restaurant_id', restaurantId)
-        .in('setting_key', ['sendgrid_api_key', 'resend_api_key', 'email_api_key', 'email_user', 'email_pass', 'admin_email', 'admin_email_1', 'admin_email_2', 'email_from']);
+        .in('setting_key', ['brevo_api_key', 'sendgrid_api_key', 'resend_api_key', 'email_api_key', 'email_user', 'email_pass', 'admin_email', 'admin_email_1', 'admin_email_2', 'email_from']);
 
       if (data) {
         const getVal = (key) => data.find(s => s.setting_key === key)?.setting_value;
-        // 環境變量優先於 DB 設定
-        if (getVal('sendgrid_api_key') && !process.env.SENDGRID_API_KEY) apiKey = getVal('sendgrid_api_key');
+        // 環境變量優先於 DB 設定；Brevo > SendGrid > Resend
+        if (getVal('brevo_api_key') && !process.env.BREVO_API_KEY && !process.env.SENDGRID_API_KEY && !process.env.RESEND_API_KEY) apiKey = getVal('brevo_api_key');
+        if (getVal('sendgrid_api_key') && !process.env.BREVO_API_KEY && !process.env.SENDGRID_API_KEY && !process.env.RESEND_API_KEY && !getVal('brevo_api_key')) apiKey = getVal('sendgrid_api_key');
         if (getVal('resend_api_key') && !apiKey) apiKey = getVal('resend_api_key');
         if (getVal('email_api_key') && !apiKey) apiKey = getVal('email_api_key');
         if (getVal('email_user')) user = getVal('email_user');
@@ -336,16 +338,51 @@ async function getEmailSettings(restaurantId) {
   return { apiKey, from, user, pass, adminEmail, adminEmail1, adminEmail2 };
 }
 
-/** 通過 SendGrid 或 Resend HTTP API 發送郵件 */
+/** 通過 Brevo / SendGrid / Resend HTTP API 發送郵件 */
 async function sendEmailViaSendGrid(apiKey, from, to, subject, text, extra = {}) {
+  const isBrevo = apiKey.startsWith('xkeysib-');
   const isResend = apiKey.startsWith('re_');
   const toList = Array.isArray(to) ? to : [to];
 
+  if (isBrevo) {
+    // Brevo (SendinBlue) API: https://developers.brevo.com/reference/sendtransacemail
+    // 免費 300 封/天，HTTP API，不需域名
+    const fromEmail = from.match(/[\w.+-]+@[\w.-]+/)?.[0] || from;
+    const htmlContent = text.replace(/\n/g, '<br>');
+    const payload = {
+      sender: { email: fromEmail, name: '家傳芋圓通知' },
+      to: toList.map(email => ({ email })),
+      subject,
+      textContent: text,
+      htmlContent: `<div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; color: #333;">${htmlContent}</div>`,
+      headers: {
+        'X-Mailer': 'ULTRA POS',
+        'X-Priority': '3 (Normal)',
+      },
+    };
+    if (extra.bcc && extra.bcc.length) payload.bcc = extra.bcc.map(email => ({ email }));
+    if (extra.cc && extra.cc.length) payload.cc = extra.cc.map(email => ({ email }));
+    if (extra.reply_to) payload.reply_to = { email: Array.isArray(extra.reply_to) ? extra.reply_to[0] : extra.reply_to };
+
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': apiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const data = await res.text();
+      throw new Error(`Brevo API 錯誤 [${res.status}]: ${data}`);
+    }
+    const data = await res.json();
+    return { id: data.messageId || 'brevo-' + Date.now() };
+  }
+
   if (isResend) {
     // Resend API: https://resend.com/docs/api-reference/emails/send-email
-    // Resend 免費版限制：from 必須是 'onboarding@resend.dev' 或已驗證域名
-    // 'Name <email>' 格式會被視作新發件人而拒絕（403）
-    // 自動提取 email 部分作為 from
     const fromEmail = from.match(/[\w.+-]+@[\w.-]+/)?.[0] || 'onboarding@resend.dev';
     const payload = {
       from: fromEmail,
@@ -374,7 +411,6 @@ async function sendEmailViaSendGrid(apiKey, from, to, subject, text, extra = {})
   }
 
   // SendGrid API: https://docs.sendgrid.com/api-reference
-  // 加入 HTML 版本、發件人名稱、headers 以提高送達率（減少被標為垃圾郵件）
   const htmlText = text.replace(/\n/g, '<br>');
   const mailBody = {
     personalizations: [{
@@ -385,7 +421,7 @@ async function sendEmailViaSendGrid(apiKey, from, to, subject, text, extra = {})
         'X-Priority': '3 (Normal)',
       },
     }],
-    from: { email: from, name: '家傳芋曉通知' },
+    from: { email: from, name: '家傳芋圓通知' },
     content: [
       { type: 'text/plain', value: text },
       { type: 'text/html', value: `<div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; color: #333;">${htmlText}</div>` },
@@ -465,16 +501,30 @@ async function sendEmailNotification(adminEmails, subject, body, restaurantId, t
   const recipients = await getRecipients();
   if (recipients.length === 0) throw new Error('請先設定管理員信箱 (ADMIN_EMAIL 或 admin_email_1 / admin_email_2)');
 
-  // Resend 限制：onboarding@resend.dev 只能直接發送給 Key 創建者
-  // 強制 BCC 模式：To=owner，BCC=其他人
+  // 判斷 Email 供應商
   const isResend = config.apiKey?.startsWith('re_');
+  const isBrevo = config.apiKey?.startsWith('xkeysib-');
   const ownerEmail = 'shawnyauws@gmail.com'; // Resend Key 創建者
 
   const results = [];
   let lastError = null;
 
-  if (isResend && recipients.length > 1) {
-    // 強制 BCC 模式：保證 To 一定是 owner
+  if (isBrevo && recipients.length > 1) {
+    // Brevo：支援多收件人，一次 API 呼叫即可（Brevo 不限制）
+    try {
+      const result = await sendEmailViaSendGrid(
+        config.apiKey, config.from, recipients, subject, body
+      );
+      recipients.forEach(e => results.push({ email: e, success: true, id: result.id }));
+      console.log(`✅ Brevo 多收件人發送: To=${recipients.join(',')}`);
+    } catch (err) {
+      lastError = err;
+      recipients.forEach(e => results.push({ email: e, success: false, error: err.message }));
+      console.error('❌ Brevo 發送失敗:', err.message);
+    }
+  } else if (isResend && recipients.length > 1) {
+    // Resend 限制：onboarding@resend.dev 只能直接發送給 Key 創建者
+    // 強制 BCC 模式：To=owner，BCC=其他人
     const others = recipients.filter(e => e !== ownerEmail);
     try {
       const result = await sendEmailViaSendGrid(
@@ -489,7 +539,7 @@ async function sendEmailNotification(adminEmails, subject, body, restaurantId, t
       console.error('❌ Resend BCC 發送失敗:', err.message);
     }
   } else {
-    // 標準模式：逐個收件人發送（Resend 免費版/付費版/SendGrid）
+    // 標準模式：逐個收件人發送（所有供應商通用）
     for (const email of recipients) {
       try {
         const result = await sendEmailViaSendGrid(config.apiKey, config.from, [email], subject, body);
@@ -583,32 +633,53 @@ app.post('/api/settings/update', async (req, res) => {
 // 診斷 Email 連線
 app.all('/api/email/diagnose', async (req, res) => {
   const config = await getEmailSettings(req.query.restaurant_id);
+  const provider = config.apiKey?.startsWith('xkeysib-') ? 'Brevo' : config.apiKey?.startsWith('re_') ? 'Resend' : 'SendGrid';
   const diag = {
     config: {
       apiKeySet: !!config.apiKey,
       apiKeyPrefix: config.apiKey ? config.apiKey.substring(0, 8) + '****' : '(empty)',
+      provider,
       from: config.from,
       adminEmail: config.adminEmail,
     },
     env: {
+      BREVO_API_KEY: process.env.BREVO_API_KEY ? 'set' : 'missing',
       RESEND_API_KEY: process.env.RESEND_API_KEY ? 'set' : 'missing',
+      SENDGRID_API_KEY: process.env.SENDGRID_API_KEY ? 'set' : 'missing',
       EMAIL_USER: process.env.EMAIL_USER ? 'set' : 'missing',
       ADMIN_EMAIL: process.env.ADMIN_EMAIL ? 'set' : 'missing',
     },
-    note: 'Render 免費版阻擋 SMTP 端口（25/465/587），必須使用 HTTP API（如 Resend）',
+    note: 'Render 免費版阻擋 SMTP 端口（25/465/587），必須使用 HTTP API（如 Brevo / Resend）',
     tests: {},
   };
   if (!config.apiKey) {
-    diag.tests.skipped = '缺少 SENDGRID_API_KEY，跳過 SendGrid API 測試';
+    diag.tests.skipped = '缺少 API Key，跳過 API 測試';
     return res.json(diag);
   }
   try {
-    const r = await fetch('https://api.sendgrid.com/v3/scopes', {
-      headers: { 'Authorization': `Bearer ${config.apiKey}` }
-    });
-    diag.tests.sendgrid_api = r.ok ? '✅ SendGrid API 認證成功' : `❌ HTTP ${r.status}`;
+    const isBrevo = config.apiKey.startsWith('xkeysib-');
+    const isResend = config.apiKey.startsWith('re_');
+    let testUrl, testHeaders;
+
+    if (isBrevo) {
+      testUrl = 'https://api.brevo.com/v3/account';
+      testHeaders = { 'api-key': config.apiKey, 'Accept': 'application/json' };
+    } else if (isResend) {
+      testUrl = 'https://api.resend.com/emails';
+      testHeaders = { 'Authorization': `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' };
+    } else {
+      testUrl = 'https://api.sendgrid.com/v3/scopes';
+      testHeaders = { 'Authorization': `Bearer ${config.apiKey}` };
+    }
+
+    const r = await fetch(testUrl, { headers: testHeaders });
+    diag.tests.api_auth = r.ok ? `✅ ${provider} API 認證成功` : `❌ HTTP ${r.status}`;
+    if (!r.ok) {
+      const errBody = await r.text().catch(() => '(無法讀取)');
+      diag.tests.api_detail = errBody.substring(0, 300);
+    }
   } catch (e) {
-    diag.tests.sendgrid_api = '❌ ' + e.message;
+    diag.tests.api_auth = '❌ ' + e.message;
   }
   res.json(diag);
 });
@@ -632,19 +703,20 @@ app.post('/api/email/probe', async (req, res) => {
   }
 });
 
-// 測試 Email 發送（Resend HTTP API）
+// 測試 Email 發送
 app.post('/api/email/test-send', async (req, res) => {
   const diag = { steps: [] };
   try {
     const { restaurant_id, admin_email } = req.body;
     const config = await getEmailSettings(restaurant_id);
     const to = admin_email || config.adminEmail;
-    diag.steps.push(`apiKey: ${config.apiKey ? 'set' : 'missing'}, from: ${config.from}, to: ${to}`);
+    const provider = config.apiKey?.startsWith('xkeysib-') ? 'Brevo' : config.apiKey?.startsWith('re_') ? 'Resend' : config.apiKey ? 'SendGrid' : '未設定';
+    diag.steps.push(`provider: ${provider}, from: ${config.from}, to: ${to}`);
 
     if (!config.apiKey) {
       return res.json({
         success: false,
-        message: '請先設定 RESEND_API_KEY 或 SENDGRID_API_KEY',
+        message: '請先設定 BREVO_API_KEY / RESEND_API_KEY / SENDGRID_API_KEY',
         diag
       });
     }
@@ -657,13 +729,12 @@ app.post('/api/email/test-send', async (req, res) => {
       return res.json({ success: false, message: '請填寫有效的管理員信箱', diag });
     }
 
-    // Resend BCC 模式：To=Key 創建者, BCC=其他人（強制）
+    // Brevo 直接發送所有收件人；Resend BCC 模式
     const isResend = config.apiKey?.startsWith('re_');
     const ownerEmail = 'shawnyauws@gmail.com';
     let mainTo, bcc;
 
     if (isResend && emails.length > 1) {
-      // 強制 BCC 模式：保證 To 一定是 owner
       mainTo = [ownerEmail];
       bcc = emails.filter(e => e !== ownerEmail);
       diag.steps.push(`Resend BCC 模式: To=${mainTo[0]}, BCC=${bcc.join(',')}`);
@@ -671,7 +742,7 @@ app.post('/api/email/test-send', async (req, res) => {
       mainTo = emails;
     }
 
-    diag.steps.push(`調用 ${isResend ? 'Resend' : 'SendGrid'} HTTP API...`);
+    diag.steps.push(`調用 ${provider} HTTP API...`);
     const result = await sendEmailViaSendGrid(
       config.apiKey,
       config.from,
@@ -1944,17 +2015,23 @@ app.get('/api/email/diag', async (req, res) => {
     const restaurantId = req.query.restaurant_id;
     const config = await getEmailSettings(restaurantId);
     const maskedKey = config.apiKey ? config.apiKey.substring(0, 8) + '...' + (config.apiKey.length > 12 ? config.apiKey.substring(config.apiKey.length - 4) : '') : '(未設定)';
+    const isBrevo = config.apiKey?.startsWith('xkeysib-') || false;
     const isResend = config.apiKey?.startsWith('re_') || false;
+    let provider = '未設定';
+    if (isBrevo) provider = 'Brevo';
+    else if (isResend) provider = 'Resend';
+    else if (config.apiKey) provider = 'SendGrid';
     res.json({
       ok: true,
       apiKeySet: !!config.apiKey,
       apiKeyPrefix: config.apiKey?.substring(0, 3) || '',
       apiKeyMasked: maskedKey,
-      provider: isResend ? 'Resend' : (config.apiKey ? 'SendGrid' : '未設定'),
+      provider,
       from: config.from,
       adminEmail1: config.adminEmail1 || '(未設定)',
       adminEmail2: config.adminEmail2 || '(未設定)',
       adminEmail: config.adminEmail || '(未設定)',
+      envHasBrevo: !!process.env.BREVO_API_KEY,
       envHasResend: !!process.env.RESEND_API_KEY,
       envHasSendgrid: !!process.env.SENDGRID_API_KEY,
       envEmailFrom: process.env.EMAIL_FROM || '(未設定)',
