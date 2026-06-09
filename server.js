@@ -300,7 +300,7 @@ function parseNumbers(str) {
 /** 從 Supabase settings 或 .env 讀取 Email 設定 */
 async function getEmailSettings(restaurantId) {
   let apiKey = process.env.SENDGRID_API_KEY || process.env.RESEND_API_KEY || process.env.EMAIL_API_KEY || '';
-  let from = process.env.EMAIL_FROM || 'handmadetarohk813@gmail.com';
+  let from = process.env.EMAIL_FROM || 'onboarding@resend.dev';
   let user = process.env.EMAIL_USER || '';
   let pass = process.env.EMAIL_PASS || '';
   let adminEmail = process.env.ADMIN_EMAIL || '';
@@ -342,8 +342,12 @@ async function sendEmailViaSendGrid(apiKey, from, to, subject, text, extra = {})
 
   if (isResend) {
     // Resend API: https://resend.com/docs/api-reference/emails/send-email
+    // Resend 免費版限制：from 必須是 'onboarding@resend.dev' 或已驗證域名
+    // 'Name <email>' 格式會被視作新發件人而拒絕（403）
+    // 自動提取 email 部分作為 from
+    const fromEmail = from.match(/[\w.+-]+@[\w.-]+/)?.[0] || 'onboarding@resend.dev';
     const payload = {
-      from: from.includes('<') ? from : `ULTRA POS <${from}>`,
+      from: fromEmail,
       to: toList,
       subject,
       text,
