@@ -385,7 +385,7 @@ async function sendEmailViaSendGrid(apiKey, from, to, subject, text, extra = {})
         'X-Priority': '3 (Normal)',
       },
     }],
-    from: { email: from, name: 'ULTRA POS' },
+    from: { email: from, name: '家傳芋曉通知' },
     content: [
       { type: 'text/plain', value: text },
       { type: 'text/html', value: `<div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; color: #333;">${htmlText}</div>` },
