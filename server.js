@@ -374,17 +374,30 @@ async function sendEmailViaSendGrid(apiKey, from, to, subject, text, extra = {})
   }
 
   // SendGrid API: https://docs.sendgrid.com/api-reference
+  // 加入 HTML 版本、發件人名稱、headers 以提高送達率（減少被標為垃圾郵件）
+  const htmlText = text.replace(/\n/g, '<br>');
+  const mailBody = {
+    personalizations: [{
+      to: toList.map(email => ({ email })),
+      subject,
+      headers: {
+        'X-Mailer': 'ULTRA POS',
+        'X-Priority': '3 (Normal)',
+      },
+    }],
+    from: { email: from, name: 'ULTRA POS' },
+    content: [
+      { type: 'text/plain', value: text },
+      { type: 'text/html', value: `<div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; color: #333;">${htmlText}</div>` },
+    ],
+  };
   const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      personalizations: [{ to: toList.map(email => ({ email })), subject }],
-      from: { email: from },
-      content: [{ type: 'text/plain', value: text }],
-    }),
+    body: JSON.stringify(mailBody),
   });
   if (!res.ok) {
     const data = await res.text();
@@ -503,9 +516,9 @@ app.post('/api/whatsapp/notify-order', async (req, res) => {
     const wacliPath = process.env.WACLI_PATH || 'wacli';
     const numbers = parseNumbers(admin);
 
-    const itemList = items.map(i => `• ${i.name} × ${i.quantity}`).join('\n');
-    const subject = `🔔 新訂貨通知 - ${employeeName}`;
-    const body = `新訂貨通知\n\n員工：${employeeName}\n\n項目：\n${itemList}\n\n請登入系統處理。`;
+    const itemList = items.map(i => `• ${i.name} x ${i.quantity}`).join('\n');
+    const subject = `新訂貨通知 - ${employeeName}`;
+    const body = `ULTRA POS 系統通知\n\n員工 ${employeeName} 提交了一份新訂貨請求：\n\n${itemList}\n\n請登入系統查看及處理。\n\n---\nULTRA POS 餐廳管理系統`;
     const truncatedMsg = body.length > 1000 ? body.slice(0, 997) + '...' : body;
 
     const results = { email: null, whatsapp: null };
@@ -663,8 +676,8 @@ app.post('/api/email/test-send', async (req, res) => {
       config.apiKey,
       config.from,
       mainTo,
-      '🧪 ULTRA POS Email 通知測試',
-      `測試時間: ${new Date().toISOString()}\n收件人: ${emails.join(', ')}\n\n如果你收到這封郵件，表示 Email 通知設定正確！\n\nULTRA POS 系統`,
+      'ULTRA POS Email 設定測試',
+      `ULTRA POS 系統\n測試時間: ${new Date().toISOString()}\n收件人: ${emails.join(', ')}\n\n此郵件表示系統 Email 通知設定正確。\n\n---\nULTRA POS 餐廳管理系統`,
       { bcc }
     );
     diag.steps.push('✅ 接受請求 messageId=' + result.id);
