@@ -339,7 +339,7 @@ async function getEmailSettings(restaurantId) {
 }
 
 /** 通過 Brevo / SendGrid / Resend HTTP API 發送郵件 */
-async function sendEmailViaSendGrid(apiKey, from, to, subject, text, extra = {}) {
+async function sendEmailViaSendGrid(apiKey, from, to, subject, text, extra = {}, html = '') {
   const isBrevo = apiKey.startsWith('xkeysib-');
   const isResend = apiKey.startsWith('re_');
   const toList = Array.isArray(to) ? to : [to];
@@ -348,13 +348,13 @@ async function sendEmailViaSendGrid(apiKey, from, to, subject, text, extra = {})
     // Brevo (SendinBlue) API: https://developers.brevo.com/reference/sendtransacemail
     // 免費 300 封/天，HTTP API，不需域名
     const fromEmail = from.match(/[\w.+-]+@[\w.-]+/)?.[0] || from;
-    const htmlContent = text.replace(/\n/g, '<br>');
+    const finalHtml = html || `<div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; color: #333;">${text.replace(/\n/g, '<br>')}</div>`;
     const payload = {
-      sender: { email: fromEmail, name: '家傳芋圓通知' },
+      sender: { email: fromEmail, name: '家傳芋曉: 通知' },
       to: toList.map(email => ({ email })),
       subject,
       textContent: text,
-      htmlContent: `<div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; color: #333;">${htmlContent}</div>`,
+      htmlContent: finalHtml,
       headers: {
         'X-Mailer': 'ULTRA POS',
         'X-Priority': '3 (Normal)',
@@ -421,7 +421,7 @@ async function sendEmailViaSendGrid(apiKey, from, to, subject, text, extra = {})
         'X-Priority': '3 (Normal)',
       },
     }],
-    from: { email: from, name: '家傳芋圓通知' },
+    from: { email: from, name: '家傳芋曉: 通知' },
     content: [
       { type: 'text/plain', value: text },
       { type: 'text/html', value: `<div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; color: #333;">${htmlText}</div>` },
@@ -453,7 +453,7 @@ async function sendEmailViaSendGrid(apiKey, from, to, subject, text, extra = {})
  * ⚠️ 為了相容 Resend 免費版（每個呼叫只能送給一個收件人），
  *    此函數會對每個管理員信箱分別呼叫一次 API。
  */
-async function sendEmailNotification(adminEmails, subject, body, restaurantId, type = '') {
+async function sendEmailNotification(adminEmails, subject, body, restaurantId, type = '', htmlBody = '') {
   const config = await getEmailSettings(restaurantId);
   if (!config.apiKey) {
     throw new Error('請先設定 API Key（Resend 或 SendGrid）');
@@ -513,7 +513,7 @@ async function sendEmailNotification(adminEmails, subject, body, restaurantId, t
     // Brevo：支援多收件人，一次 API 呼叫即可（Brevo 不限制）
     try {
       const result = await sendEmailViaSendGrid(
-        config.apiKey, config.from, recipients, subject, body
+        config.apiKey, config.from, recipients, subject, body, {}, htmlBody
       );
       recipients.forEach(e => results.push({ email: e, success: true, id: result.id }));
       console.log(`✅ Brevo 多收件人發送: To=${recipients.join(',')}`);
@@ -529,7 +529,7 @@ async function sendEmailNotification(adminEmails, subject, body, restaurantId, t
     try {
       const result = await sendEmailViaSendGrid(
         config.apiKey, config.from, [ownerEmail], subject, body,
-        { bcc: others.length > 0 ? others : undefined }
+        { bcc: others.length > 0 ? others : undefined }, htmlBody
       );
       recipients.forEach(e => results.push({ email: e, success: true, id: result.id }));
       console.log(`✅ Resend BCC 模式發送: To=${ownerEmail}, BCC=${others.join(',')}`);
@@ -542,7 +542,7 @@ async function sendEmailNotification(adminEmails, subject, body, restaurantId, t
     // 標準模式：逐個收件人發送（所有供應商通用）
     for (const email of recipients) {
       try {
-        const result = await sendEmailViaSendGrid(config.apiKey, config.from, [email], subject, body);
+        const result = await sendEmailViaSendGrid(config.apiKey, config.from, [email], subject, body, {}, htmlBody);
         results.push({ email, success: true, id: result.id });
         console.log(`✅ Email 發送成功 → ${email}`);
       } catch (err) {
@@ -559,6 +559,72 @@ async function sendEmailNotification(adminEmails, subject, body, restaurantId, t
   return { results, successCount, totalCount: recipients.length };
 }
 
+/** 產生美化的訂貨通知 Email HTML */
+function buildOrderEmailHtml(employeeName, items) {
+  const itemRows = items.map((i, idx) => `
+    <tr style="${idx % 2 === 0 ? 'background: #f8fafc;' : 'background: #ffffff;'}">
+      <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 14px; color: #334155;">${i.name}</td>
+      <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 14px; color: #334155; text-align: center;">${i.quantity}</td>
+    </tr>
+  `).join('');
+
+  const totalQty = items.reduce((sum, i) => sum + i.quantity, 0);
+
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin: 0; padding: 0; background: #f1f5f9; font-family: 'Noto Sans TC', 'Microsoft JhengHei', Arial, sans-serif;">
+  <table width="100%" style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; margin-top: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
+    <!-- 頂部色條 -->
+    <tr>
+      <td style="background: linear-gradient(135deg, #4f46e5, #7c3aed); padding: 24px 32px; text-align: center;">
+        <h1 style="margin: 0; color: #ffffff; font-size: 22px; letter-spacing: 1px;">📋 新訂貨通知</h1>
+      </td>
+    </tr>
+    <!-- 內容 -->
+    <tr>
+      <td style="padding: 24px 32px;">
+        <p style="margin: 0 0 16px; font-size: 15px; color: #475569; line-height: 1.6;">
+          員工 <strong style="color: #4f46e5; font-size: 16px;">${employeeName}</strong> 提交了一份新的訂貨請求，請登入系統查看及處理。
+        </p>
+
+        <!-- 資訊卡 -->
+        <table style="width: 100%; background: #f8fafc; border-radius: 8px; padding: 0; margin-bottom: 20px;">
+          <tr><td style="padding: 12px 16px; border-bottom: 1px solid #e2e8f0;"><span style="color: #94a3b8; font-size: 13px;">申請人</span><br><span style="color: #1e293b; font-size: 15px; font-weight: 600;">${employeeName}</span></td></tr>
+          <tr><td style="padding: 12px 16px; border-bottom: 1px solid #e2e8f0;"><span style="color: #94a3b8; font-size: 13px;">時間</span><br><span style="color: #1e293b; font-size: 15px;">${new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Hong_Kong' })}</span></td></tr>
+          <tr><td style="padding: 12px 16px;"><span style="color: #94a3b8; font-size: 13px;">項目總數</span><br><span style="color: #1e293b; font-size: 15px; font-weight: 600;">${items.length} 項（共 ${totalQty} 件）</span></td></tr>
+        </table>
+
+        <!-- 貨物清單標題 -->
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px;">
+          <thead>
+            <tr style="background: #4f46e5;">
+              <th style="padding: 10px 12px; text-align: left; color: #ffffff; font-size: 13px; font-weight: 600;">貨物名稱</th>
+              <th style="padding: 10px 12px; text-align: center; color: #ffffff; font-size: 13px; font-weight: 600; width: 80px;">數量</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemRows}
+          </tbody>
+        </table>
+
+        <p style="margin: 20px 0 0; font-size: 13px; color: #94a3b8; text-align: center;">
+          <a href="https://ultra-pos-0i2f.onrender.com/orders" style="display: inline-block; padding: 10px 24px; background: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 14px;">前往系統查看</a>
+        </p>
+      </td>
+    </tr>
+    <!-- 底部 -->
+    <tr>
+      <td style="background: #f8fafc; padding: 16px 32px; text-align: center; border-top: 1px solid #e2e8f0;">
+        <p style="margin: 0; font-size: 12px; color: #94a3b8;">ULTRA POS 餐廳管理系統</p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
 app.post('/api/whatsapp/notify-order', async (req, res) => {
   try {
     const { employeeName, items, restaurant_id } = req.body;
@@ -569,6 +635,7 @@ app.post('/api/whatsapp/notify-order', async (req, res) => {
     const itemList = items.map(i => `• ${i.name} x ${i.quantity}`).join('\n');
     const subject = `新訂貨通知 - ${employeeName}`;
     const body = `ULTRA POS 系統通知\n\n員工 ${employeeName} 提交了一份新訂貨請求：\n\n${itemList}\n\n請登入系統查看及處理。\n\n---\nULTRA POS 餐廳管理系統`;
+    const htmlBody = buildOrderEmailHtml(employeeName, items);
     const truncatedMsg = body.length > 1000 ? body.slice(0, 997) + '...' : body;
 
     const results = { email: null, whatsapp: null };
@@ -577,7 +644,7 @@ app.post('/api/whatsapp/notify-order', async (req, res) => {
     try {
       const config = await getEmailSettings(restaurant_id);
       if (config.apiKey) {
-        await sendEmailNotification('', subject, body, restaurant_id, 'order');
+        await sendEmailNotification('', subject, body, restaurant_id, 'order', htmlBody);
         results.email = 'success';
         console.log(`✅ Email 訂貨通知已發送`);
       }

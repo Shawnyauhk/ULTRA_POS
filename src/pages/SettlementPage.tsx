@@ -17,6 +17,12 @@ const initialSettlement = {
   total_amount: '', actual_revenue: '', total_transactions: '',
 };
 
+const WEEKDAY_CN = ['日', '一', '二', '三', '四', '五', '六'];
+const formatDateWithWeekday = (dateStr: string) => {
+  const d = new Date(dateStr);
+  return `${dateStr}(${WEEKDAY_CN[d.getDay()]})`;
+};
+
 export default function SettlementPage() {
   const { can } = usePermission();
 
@@ -338,7 +344,7 @@ export default function SettlementPage() {
                         <td className="px-3 py-2">
                           <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
                         </td>
-                        <td className="px-3 py-2 font-medium">{record.settlement_date}</td>
+                        <td className="px-3 py-2 font-medium">{formatDateWithWeekday(record.settlement_date)}</td>
                         <td className="px-3 py-2">
                           <Badge variant={record.source === 'pospal_crawler' ? 'default' : 'secondary'} className="text-xs">
                             {record.source === 'pospal_crawler' ? 'POSPAL' : '手動'}
@@ -365,7 +371,7 @@ export default function SettlementPage() {
             return (
               <div key={`detail-${record.settlement_date}`} className="border rounded-lg p-4 bg-gray-50 space-y-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="font-medium text-sm">{record.settlement_date} 詳細數據</h4>
+                  <h4 className="font-medium text-sm">{formatDateWithWeekday(record.settlement_date)} 詳細數據</h4>
                   {can('expense.manage') && (
                     <Button size="sm" variant="outline" onClick={() => loadHistoryToForm(record)}>
                       <Edit2 className="w-3 h-3 mr-1" /> 載入編輯
