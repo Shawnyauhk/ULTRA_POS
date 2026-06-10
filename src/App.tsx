@@ -29,7 +29,6 @@ import ReportsPage from '@/pages/ReportsPage'
 import { useState, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
 import { ToastContainer } from '@/components/ui/toast'
-import PWAInstallPrompt from '@/components/PWAInstallPrompt'
 import type { PermissionKey } from '@/types'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -144,7 +143,6 @@ export default function App() {
 
   return (
     <>
-      <PWAInstallPrompt />
       <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
