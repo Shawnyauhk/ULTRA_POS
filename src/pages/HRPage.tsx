@@ -16,10 +16,10 @@ import { generateSchedule, formatScheduleToText, parseScheduleFromText } from '@
 import type { ShiftAssignment } from '@/lib/schedulingEngine'
 
 const TABS = [
-  { key: 'schedules', label: '排班表', icon: CalendarDays },
-  { key: 'attendance', label: '打卡記錄', icon: Clock },
-  { key: 'employees', label: '員工名冊', icon: Users },
-  { key: 'smart_schedule', label: '智能排班', icon: Brain },
+  { key: 'schedules', label: '排班表', shortLabel: '排班', icon: CalendarDays },
+  { key: 'attendance', label: '打卡記錄', shortLabel: '打卡', icon: Clock },
+  { key: 'employees', label: '員工名冊', shortLabel: '員工', icon: Users },
+  { key: 'smart_schedule', label: '智能排班', shortLabel: '智能', icon: Brain },
 ] as const
 
 type TabKey = (typeof TABS)[number]['key']
@@ -355,16 +355,18 @@ export function HRPage() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+              className={`flex items-center gap-1 px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 isActive ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              <Icon className="h-4 w-4" />
-              {tab.label}
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="hidden sm:inline">{tab.label}</span>
+              <span className="sm:hidden">{tab.shortLabel || tab.label}</span>
             </button>
           )
         })}
       </div>
+      <div className="text-[10px] text-gray-300 text-right px-2 py-0.5">v0620</div>
 
       {/* Toast */}
       {message && (
