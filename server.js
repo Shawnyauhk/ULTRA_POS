@@ -2110,7 +2110,7 @@ app.get('/api/email/diag', async (req, res) => {
 
 // =========== 生產環境：提供前端靜態文件（不使用 express.static） ===========
 const distPath = resolve(__dirname, 'dist');
-const MIME_MAP = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2' };
+const MIME_MAP = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2' };
 if (process.env.NODE_ENV === 'production' && existsSync(distPath)) {
   console.log('📁 提供靜態文件從:', distPath);
   // 靜態檔案服務（先於 SPA fallback）
