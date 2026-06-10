@@ -347,7 +347,7 @@ export function HRPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-0 border-b border-gray-200">
+      <div className="flex gap-0 border-b border-gray-200 overflow-x-auto -mx-3 px-3">
         {TABS.map(tab => {
           const Icon = tab.icon
           const isActive = activeTab === tab.key
