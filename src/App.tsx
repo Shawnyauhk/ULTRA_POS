@@ -29,6 +29,7 @@ import ReportsPage from '@/pages/ReportsPage'
 import { useState, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
 import { ToastContainer } from '@/components/ui/toast'
+import { UpdatePrompt } from '@/components/UpdatePrompt'
 import type { PermissionKey } from '@/types'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -91,6 +92,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen bg-gray-100 overflow-hidden">
       <ToastContainer />
+      <UpdatePrompt />
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex-1 flex flex-col min-w-0">
         <TopBar onMenuClick={() => setSidebarOpen(true)} />
