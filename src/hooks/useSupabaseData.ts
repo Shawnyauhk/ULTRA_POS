@@ -13,7 +13,10 @@ import type {
   OrderItem,
   Setting,
   Review,
-  Expense
+  Expense,
+  UnavailabilityRecord,
+  SchedulingRuleRecord,
+  Recipe,
 } from '@/types'
 
 // Fallback for demo mode - real users get their restaurant_id from auth store
@@ -370,17 +373,44 @@ export function useSchedules() {
   const fetchSchedules = useCallback(async () => {
     try {
       setLoading(true)
+      const restaurantId = getRestaurantId()
+
+      // 1) 取得當前餐廳的所有員工（用於後續 join）
+      const { data: employeesData, error: empErr } = await supabase
+        .from('employees')
+        .select('id, name, role, phone, email, hourly_rate, monthly_salary, hire_date, is_active, restaurant_id, position, salary_type, work_days, monthly_rest_days, default_shift_minutes, probation_end, notes, updated_at, created_at')
+        .eq('restaurant_id', restaurantId)
+
+      if (empErr) {
+        console.error('Error fetching employees for schedule join:', empErr.message)
+      }
+      const employeeMap: Record<string, any> = {}
+      for (const emp of employeesData || []) {
+        employeeMap[emp.id] = emp
+      }
+
+      // 2) 取得排班（不用 embed，避開多個外鍵衝突）
       const { data, error: fetchError } = await supabase
         .from('schedules')
-        .select('*, employee:employees(*)')
+        .select('*')
         .order('date', { ascending: true })
         .order('start_time', { ascending: true })
 
-      if (fetchError) throw fetchError
-      setSchedules(data || [])
-    } catch (err) {
-      console.error('Error fetching schedules:', err)
-      setError(err instanceof Error ? err.message : 'Failed to fetch schedules')
+      if (fetchError) {
+        console.error('Supabase schedules fetch error:', fetchError.message, fetchError.code, fetchError.details)
+        throw fetchError
+      }
+
+      // 3) 手動關聯 employee 物件
+      const enriched = (data || []).map(s => ({
+        ...s,
+        employee: employeeMap[s.employee_id] || null,
+      }))
+
+      setSchedules(enriched)
+    } catch (err: any) {
+      console.error('Error fetching schedules:', err?.message || err, err?.code, err?.details)
+      setError(err instanceof Error ? err.message : `Failed to fetch schedules: ${err?.message || JSON.stringify(err)}`)
     } finally {
       setLoading(false)
     }
@@ -398,7 +428,11 @@ export function useSchedules() {
           employee_id: schedule.employee_id,
           date: schedule.date,
           start_time: schedule.start_time,
-          end_time: schedule.end_time
+          end_time: schedule.end_time,
+          shift_type: schedule.shift_type || 'full_day',
+          status: schedule.status || 'confirmed',
+          created_by: schedule.created_by || null,
+          notes: schedule.notes || null,
         }])
         .select()
         .single()
@@ -880,4 +914,197 @@ export function useExpenses(startDate?: string, endDate?: string) {
   }
 
   return { expenses, loading, error, refetch: fetchExpenses, createExpense, updateExpense, deleteExpense }
+}
+
+// ============================================
+// Employee Unavailability Hooks
+// ============================================
+
+export function useUnavailability(employeeId?: string, month?: string) {
+  const [records, setRecords] = useState<UnavailabilityRecord[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const fetchRecords = useCallback(async () => {
+    try {
+      setLoading(true)
+      let query = supabase
+        .from('employee_unavailability')
+        .select('*')
+        .eq('restaurant_id', getRestaurantId())
+
+      if (employeeId) {
+        query = query.eq('employee_id', employeeId)
+      }
+
+      if (month) {
+        const [y, m] = month.split('-')
+        const start = `${y}-${m}-01`
+        const endDate = new Date(parseInt(y), parseInt(m), 0)
+        const end = endDate.toISOString().split('T')[0]
+        query = query.gte('date', start).lte('date', end)
+      }
+
+      const { data, error } = await query.order('date', { ascending: true })
+      if (error) throw error
+      setRecords(data || [])
+    } catch (err) {
+      console.error('Error fetching unavailability:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [employeeId, month])
+
+  useEffect(() => { fetchRecords() }, [fetchRecords])
+
+  const toggleUnavailability = async (date: string, reason?: string) => {
+    // Check if record exists
+    const existing = records.find(r => r.date === date && (!employeeId || r.employee_id === employeeId))
+    if (existing) {
+      const { error } = await supabase
+        .from('employee_unavailability')
+        .delete()
+        .eq('id', existing.id)
+      if (error) { console.error('Error deleting unavailability:', error); return false }
+    } else {
+      const { error } = await supabase
+        .from('employee_unavailability')
+        .insert([{
+          restaurant_id: getRestaurantId(),
+          employee_id: employeeId || useAuthStore.getState().user?.id,
+          date,
+          reason: reason || '',
+        }])
+      if (error) { console.error('Error adding unavailability:', error); return false }
+    }
+    await fetchRecords()
+    return true
+  }
+
+  const isUnavailable = (date: string): boolean => {
+    return records.some(r => r.date === date && (!employeeId || r.employee_id === employeeId))
+  }
+
+  return { records, loading, refetch: fetchRecords, toggleUnavailability, isUnavailable }
+}
+
+// ============================================
+// Scheduling Rules Hooks
+// ============================================
+
+export function useSchedulingRules() {
+  const [rules, setRules] = useState<SchedulingRuleRecord[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const fetchRules = useCallback(async () => {
+    try {
+      setLoading(true)
+      const { data, error } = await supabase
+        .from('scheduling_rules')
+        .select('*')
+        .eq('restaurant_id', getRestaurantId())
+        .order('sort_order', { ascending: true })
+      if (error) throw error
+      setRules(data || [])
+    } catch (err) {
+      console.error('Error fetching scheduling rules:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchRules() }, [fetchRules])
+
+  const addRule = async (rule: Omit<SchedulingRuleRecord, 'id' | 'restaurant_id' | 'created_at' | 'updated_at'>) => {
+    const { error } = await supabase
+      .from('scheduling_rules')
+      .insert([{ restaurant_id: getRestaurantId(), ...rule }])
+    if (error) { console.error('Error adding rule:', error); return false }
+    await fetchRules()
+    return true
+  }
+
+  const updateRule = async (id: string, updates: Partial<SchedulingRuleRecord>) => {
+    const { error } = await supabase
+      .from('scheduling_rules')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+    if (error) { console.error('Error updating rule:', error); return false }
+    await fetchRules()
+    return true
+  }
+
+  const deleteRule = async (id: string) => {
+    const { error } = await supabase
+      .from('scheduling_rules')
+      .delete()
+      .eq('id', id)
+    if (error) { console.error('Error deleting rule:', error); return false }
+    await fetchRules()
+    return true
+  }
+
+  return { rules, loading, refetch: fetchRules, addRule, updateRule, deleteRule }
+}
+
+// ============================================
+// Recipe Hooks (店主專用，秘傳配方)
+// ============================================
+
+export function useRecipes() {
+  const [recipes, setRecipes] = useState<Recipe[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const fetchRecipes = useCallback(async () => {
+    try {
+      setLoading(true)
+      const { data, error } = await supabase
+        .from('recipes')
+        .select('*')
+        .eq('restaurant_id', getRestaurantId())
+        .order('product_name', { ascending: true })
+      if (error) throw error
+      setRecipes(data || [])
+    } catch (err) {
+      console.error('Error fetching recipes:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchRecipes() }, [fetchRecipes])
+
+  const createRecipe = async (recipe: Omit<Recipe, 'id' | 'restaurant_id' | 'created_at' | 'updated_at'>) => {
+    const { data, error } = await supabase
+      .from('recipes')
+      .insert([{ restaurant_id: getRestaurantId(), ...recipe }])
+      .select()
+      .single()
+    if (error) { console.error('Error creating recipe:', error); return null }
+    await fetchRecipes()
+    return data
+  }
+
+  const updateRecipe = async (id: string, updates: Partial<Omit<Recipe, 'id' | 'restaurant_id' | 'created_at'>>) => {
+    const { data, error } = await supabase
+      .from('recipes')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single()
+    if (error) { console.error('Error updating recipe:', error); return null }
+    await fetchRecipes()
+    return data
+  }
+
+  const deleteRecipe = async (id: string) => {
+    const { error } = await supabase
+      .from('recipes')
+      .delete()
+      .eq('id', id)
+    if (error) { console.error('Error deleting recipe:', error); return false }
+    await fetchRecipes()
+    return true
+  }
+
+  return { recipes, loading, refetch: fetchRecipes, createRecipe, updateRecipe, deleteRecipe }
 }

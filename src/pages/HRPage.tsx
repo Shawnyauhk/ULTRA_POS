@@ -4,26 +4,29 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { CalendarDays, Clock, Users, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertCircle, Plus, Pencil, Trash2, FileCheck, Smartphone } from 'lucide-react'
-import { useEmployees, useSchedules, useAttendance } from '@/hooks/useSupabaseData'
+import { CalendarDays, Clock, Users, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertCircle, Plus, Pencil, Trash2, FileCheck, Smartphone, Brain, Copy, Check } from 'lucide-react'
+import { useEmployees, useSchedules, useAttendance, useUnavailability, useSchedulingRules } from '@/hooks/useSupabaseData'
 import { usePermission } from '@/hooks/usePermission'
 import { useAuthStore } from '@/stores/auth'
 import { supabase } from '@/lib/supabase'
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isToday, addMonths, subMonths } from 'date-fns'
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isToday, addMonths, subMonths, startOfWeek, endOfWeek } from 'date-fns'
 import { zhHK } from 'date-fns/locale'
-import type { Employee, Schedule, Attendance as AttendanceType } from '@/types'
+import type { Employee, Schedule, Attendance as AttendanceType, UnavailabilityRecord, SchedulingRuleRecord } from '@/types'
+import { generateSchedule, formatScheduleToText, parseScheduleFromText } from '@/lib/schedulingEngine'
+import type { ShiftAssignment } from '@/lib/schedulingEngine'
 
 const TABS = [
   { key: 'schedules', label: '排班表', icon: CalendarDays },
   { key: 'attendance', label: '打卡記錄', icon: Clock },
   { key: 'employees', label: '員工名冊', icon: Users },
+  { key: 'smart_schedule', label: '智能排班', icon: Brain },
 ] as const
 
 type TabKey = (typeof TABS)[number]['key']
 
 // AM/PM preset times
 const SHIFTS = {
-  morning: { label: '早更', start: '09:00', end: '14:00', bg: 'bg-blue-500' },
+  morning: { label: '早更', start: '09:00', end: '14:00', bg: 'bg-sky-400' },
   evening: { label: '晚更', start: '14:00', end: '19:00', bg: 'bg-blue-900' },
 } as const
 
@@ -44,6 +47,24 @@ export function HRPage() {
   const [saving, setSaving] = useState(false)
   // AM/PM employee selection map per date: { employeeId: ShiftKey }
   const [shiftSelection, setShiftSelection] = useState<Record<string, ShiftKey>>({})
+
+  // === Smart Scheduling (智能排班) ===
+  const { records: unavailability, loading: unavailLoading, refetch: refetchUnavail, toggleUnavailability } = useUnavailability(undefined, format(new Date(), 'yyyy-MM'))
+  const { rules: schedRules, loading: rulesLoading, refetch: refetchRules, addRule, updateRule, deleteRule } = useSchedulingRules()
+  const [schedMonth, setSchedMonth] = useState(new Date())
+  const [morningCount, setMorningCount] = useState(2)
+  const [eveningCount, setEveningCount] = useState(2)
+  const [generatedResult, setGeneratedResult] = useState<ShiftAssignment[]>([])
+  const [resultText, setResultText] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [copySuccess, setCopySuccess] = useState(false)
+  const [showRulesEditor, setShowRulesEditor] = useState(false)
+  const [newRuleType, setNewRuleType] = useState<'no_same_shift' | 'priority' | 'balanced' | 'fixed_shift'>('no_same_shift')
+  const [newRuleEmpA, setNewRuleEmpA] = useState('')
+  const [newRuleEmpB, setNewRuleEmpB] = useState('')
+  const [showUnavailMark, setShowUnavailMark] = useState(false)
+  // Unavailable marking for schedules tab
+  const [unavailDate, setUnavailDate] = useState<string>('')
 
   // === Pending approvals ===
   const [pendingCount, setPendingCount] = useState(0)
@@ -110,6 +131,11 @@ export function HRPage() {
   }, [schedules])
 
   const getScheduleShift = (schedule: Schedule): ShiftKey => {
+    // Use shift_type from database if available
+    if (schedule.shift_type === 'morning' || schedule.shift_type === 'evening') {
+      return schedule.shift_type
+    }
+    // Fallback: guess by start_time
     const st = schedule.start_time
     if (st >= '12:00') return 'evening'
     return 'morning'
@@ -133,32 +159,40 @@ export function HRPage() {
     if (!selectedDate) return
     setSaving(true)
     try {
-      // Delete all existing schedules for this date
+      // Delete all existing schedules for this date (RLS 会自动按员工所属餐厅过滤)
       const { data: existing } = await supabase
         .from('schedules')
         .select('id')
         .eq('date', selectedDate)
       if (existing && existing.length > 0) {
-        await supabase.from('schedules').delete().in('id', existing.map(e => e.id))
+        const { error: delErr } = await supabase.from('schedules').delete().in('id', existing.map(e => e.id))
+        if (delErr) throw delErr
       }
       // Create new schedules based on selections
-      for (const [empId, shift] of Object.entries(shiftSelection)) {
-        const shiftDef = SHIFTS[shift]
-        await supabase.from('schedules').insert([{
-          restaurant_id: user?.restaurant_id,
-          employee_id: empId,
-          date: selectedDate,
-          start_time: shiftDef.start,
-          end_time: shiftDef.end,
-          shift_type: shift,
-          status: 'confirmed',
-          created_by: user?.id,
-        }])
+      const entries = Object.entries(shiftSelection)
+      if (entries.length > 0) {
+        const records = entries.map(([empId, shift]) => {
+          const shiftDef = SHIFTS[shift]
+          return {
+            employee_id: empId,
+            date: selectedDate,
+            start_time: shiftDef.start,
+            end_time: shiftDef.end,
+            shift_type: shift,
+            status: 'confirmed',
+            created_by: user?.id,
+          }
+        })
+        const { error: insErr } = await supabase.from('schedules').insert(records)
+        if (insErr) throw insErr
       }
       await refetchSched()
       setShowSchedModal(false)
     } catch (err) {
       console.error('Error saving schedules:', err)
+      const msg = (err as any)?.message || (err as any)?.error_description || JSON.stringify(err)
+      setMessage({ type: 'error', text: `儲存失敗: ${msg}` })
+      setTimeout(() => setMessage(null), 5000)
     } finally {
       setSaving(false)
     }
@@ -242,7 +276,7 @@ export function HRPage() {
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">員工與排班</h1>
-          <p className="text-sm text-gray-500">排班管理 · 打卡記錄 · 員工名冊</p>
+          <p className="text-sm text-gray-500">排班管理 · 打卡記錄 · 員工名冊 · 智能排班</p>
         </div>
         <div className="flex items-center gap-2">
           {/* Pending approvals */}
@@ -359,15 +393,15 @@ export function HRPage() {
                         <div className={`text-xs font-semibold mb-1 ${today ? 'text-blue-700' : 'text-gray-700'}`}>
                           {format(day, 'd')}
                         </div>
-                        <div className="space-y-0.5">
+                        <div className="flex flex-wrap gap-0.5">
                           {dayScheds.slice(0, 5).map(sc => {
                             const emp = activeEmps.find(e => e.id === sc.employee_id)
                             const shift = getScheduleShift(sc)
                             const shiftStyle = SHIFTS[shift]
                             return (
-                              <div key={sc.id} className={`text-[10px] text-white font-medium rounded px-1 py-[1px] truncate leading-tight ${shiftStyle.bg}`}>
-                                {emp?.name?.slice(0, 2) || '??'}
-                              </div>
+                              <span key={sc.id} className={`inline-block text-[10px] text-white font-medium rounded px-1 py-[1px] leading-tight ${shiftStyle.bg}`}>
+                                {emp?.name?.slice(0, 1) || '?'}
+                              </span>
                             )
                           })}
                           {dayScheds.length > 5 && (
@@ -518,6 +552,404 @@ export function HRPage() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* ===== TAB: SMART SCHEDULING ===== */}
+      {activeTab === 'smart_schedule' && (
+        <div className="space-y-4">
+          {/* Employee Unavailability Section (visible to all) */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <span className="inline-block w-3 h-3 rounded-full bg-red-400" />
+                無法上班標記
+              </CardTitle>
+              <div className="flex gap-1">
+                <Button variant="outline" size="icon" onClick={() => setSchedMonth(subMonths(schedMonth, 1))}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="icon" onClick={() => setSchedMonth(addMonths(schedMonth, 1))}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xs text-gray-500 mb-3">點擊日期標記為無法上班（紅色 = 已標記）</p>
+              {unavailLoading ? (
+                <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin" /></div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-7 gap-1 mb-1">
+                    {['日', '一', '二', '三', '四', '五', '六'].map((d, i) => (
+                      <div key={i} className="text-center text-xs font-medium text-gray-400 py-1">{d}</div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-7 gap-1">
+                    {(() => {
+                      const mStart = startOfMonth(schedMonth)
+                      const mEnd = endOfMonth(schedMonth)
+                      const days = eachDayOfInterval({ start: mStart, end: mEnd })
+                      const blanks = Array.from({ length: mStart.getDay() })
+                      return (
+                        <>
+                          {blanks.map((_, i) => (<div key={`b-${i}`} className="min-h-[40px]" />))}
+                          {days.map(day => {
+                            const dateStr = format(day, 'yyyy-MM-dd')
+                            const isMarked = unavailability.some(r => r.date === dateStr && r.employee_id === user?.id)
+                            const today = isToday(day)
+                            return (
+                              <button
+                                key={dateStr}
+                                onClick={() => toggleUnavailability(dateStr)}
+                                className={`min-h-[40px] rounded text-xs font-medium transition-colors ${
+                                  isMarked
+                                    ? 'bg-red-200 text-red-700 hover:bg-red-300'
+                                    : today
+                                      ? 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'
+                                      : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-100'
+                                }`}
+                              >
+                                {format(day, 'd')}
+                              </button>
+                            )
+                          })}
+                        </>
+                      )
+                    })()}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Admin: Scheduling Rules + Smart Generator */}
+          {can('schedule.manage') && (
+            <>
+              {/* Scheduling Rules Section */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle className="text-base">排班規則設定</CardTitle>
+                  <Button variant="outline" size="sm" onClick={() => setShowRulesEditor(!showRulesEditor)}>
+                    {showRulesEditor ? '關閉編輯' : '新增規則'}
+                  </Button>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {showRulesEditor && (
+                    <div className="bg-gray-50 rounded-lg p-3 space-y-2 mb-3">
+                      <p className="text-xs font-medium text-gray-600">新增排班規則</p>
+                      <div>
+                        <label className="text-xs text-gray-500">規則類型</label>
+                        <select
+                          className="flex h-9 w-full rounded border border-gray-200 bg-white px-2 text-sm mt-1"
+                          value={newRuleType}
+                          onChange={e => setNewRuleType(e.target.value as any)}
+                        >
+                          <option value="no_same_shift">不可同班（A與B不能同班）</option>
+                          <option value="priority">優先分配（指定員工優先排班）</option>
+                          <option value="balanced">平均分配（公平分配班次）</option>
+                          <option value="fixed_shift">固定班次（指定員工固定早/晚更）</option>
+                        </select>
+                      </div>
+                      {newRuleType === 'no_same_shift' && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs text-gray-500">員工 A</label>
+                            <select className="flex h-9 w-full rounded border border-gray-200 bg-white px-2 text-sm mt-1" value={newRuleEmpA} onChange={e => setNewRuleEmpA(e.target.value)}>
+                              <option value="">選擇員工</option>
+                              {activeEmps.map(e => (<option key={e.id} value={e.id}>{e.name}</option>))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500">員工 B</label>
+                            <select className="flex h-9 w-full rounded border border-gray-200 bg-white px-2 text-sm mt-1" value={newRuleEmpB} onChange={e => setNewRuleEmpB(e.target.value)}>
+                              <option value="">選擇員工</option>
+                              {activeEmps.map(e => (<option key={e.id} value={e.id}>{e.name}</option>))}
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                      {newRuleType === 'priority' && (
+                        <div>
+                          <label className="text-xs text-gray-500">優先安排的員工</label>
+                          <select className="flex h-9 w-full rounded border border-gray-200 bg-white px-2 text-sm mt-1" value={newRuleEmpA} onChange={e => setNewRuleEmpA(e.target.value)}>
+                            <option value="">選擇員工</option>
+                            {activeEmps.map(e => (<option key={e.id} value={e.id}>{e.name}</option>))}
+                          </select>
+                        </div>
+                      )}
+                      {newRuleType === 'fixed_shift' && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs text-gray-500">員工</label>
+                            <select className="flex h-9 w-full rounded border border-gray-200 bg-white px-2 text-sm mt-1" value={newRuleEmpA} onChange={e => setNewRuleEmpA(e.target.value)}>
+                              <option value="">選擇員工</option>
+                              {activeEmps.map(e => (<option key={e.id} value={e.id}>{e.name}</option>))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500">固定班次</label>
+                            <select
+                              className="flex h-9 w-full rounded border border-gray-200 bg-white px-2 text-sm mt-1"
+                              value={newRuleEmpB}
+                              onChange={e => setNewRuleEmpB(e.target.value)}
+                            >
+                              <option value="">選擇班次</option>
+                              <option value="morning">早更</option>
+                              <option value="evening">晚更</option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                      {newRuleType === 'balanced' && (
+                        <p className="text-xs text-gray-400">平均分配規則已啟用，系統會自動平衡每位員工的排班次數。</p>
+                      )}
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" size="sm" onClick={() => setShowRulesEditor(false)}>取消</Button>
+                        <Button size="sm" onClick={async () => {
+                          let config: Record<string, any> = {}
+                          let label = ''
+                          if (newRuleType === 'no_same_shift' && newRuleEmpA && newRuleEmpB) {
+                            config = { employee_ids: [newRuleEmpA, newRuleEmpB] }
+                            const a = activeEmps.find(e => e.id === newRuleEmpA)?.name || ''
+                            const b = activeEmps.find(e => e.id === newRuleEmpB)?.name || ''
+                            label = `${a} 與 ${b} 不可同班`
+                          } else if (newRuleType === 'priority' && newRuleEmpA) {
+                            config = { employee_ids: [newRuleEmpA] }
+                            const a = activeEmps.find(e => e.id === newRuleEmpA)?.name || ''
+                            label = `${a} 優先排班`
+                          } else if (newRuleType === 'balanced') {
+                            config = { target_shifts_per_week: 5 }
+                            label = '平均分配班次'
+                          } else if (newRuleType === 'fixed_shift' && newRuleEmpA && newRuleEmpB) {
+                            config = { employee_id: newRuleEmpA, shift: newRuleEmpB }
+                            const a = activeEmps.find(e => e.id === newRuleEmpA)?.name || ''
+                            label = `${a} 固定${newRuleEmpB === 'morning' ? '早更' : '晚更'}`
+                          }
+                          if (config && Object.keys(config).length > 0) {
+                            await addRule({
+                              rule_type: newRuleType,
+                              rule_config: config,
+                              label,
+                              is_active: true,
+                              sort_order: schedRules.length,
+                            })
+                            setNewRuleEmpA('')
+                            setNewRuleEmpB('')
+                          }
+                          setShowRulesEditor(false)
+                        }}>新增</Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {rulesLoading ? (
+                    <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin" /></div>
+                  ) : schedRules.length === 0 ? (
+                    <div className="text-center py-6 text-sm text-gray-400">尚未設定排班規則，點擊「新增規則」開始</div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {schedRules.map(rule => (
+                        <div key={rule.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <button
+                              onClick={() => updateRule(rule.id, { is_active: !rule.is_active })}
+                              className={`w-3 h-3 rounded-full shrink-0 ${rule.is_active ? 'bg-green-400' : 'bg-gray-300'}`}
+                            />
+                            <span className="text-sm text-gray-700 truncate">{rule.label || rule.rule_type}</span>
+                            <Badge variant="outline" className="text-[10px]">{rule.rule_type === 'no_same_shift' ? '不同班' : rule.rule_type === 'priority' ? '優先' : rule.rule_type === 'balanced' ? '平均' : '固定'}</Badge>
+                          </div>
+                          <button onClick={() => deleteRule(rule.id)} className="text-gray-400 hover:text-red-500 shrink-0 ml-2">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Smart Schedule Generator */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">智能排班生成</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex flex-wrap gap-3 items-end">
+                    <div>
+                      <label className="text-xs text-gray-500">排班月份</label>
+                      <Input
+                        type="month"
+                        value={format(schedMonth, 'yyyy-MM')}
+                        onChange={e => { const d = new Date(e.target.value + '-01'); setSchedMonth(d) }}
+                        className="w-40"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500">每班早更人數</label>
+                      <Input type="number" min={1} max={10} value={morningCount} onChange={e => setMorningCount(parseInt(e.target.value) || 2)} className="w-20" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500">每班晚更人數</label>
+                      <Input type="number" min={1} max={10} value={eveningCount} onChange={e => setEveningCount(parseInt(e.target.value) || 2)} className="w-20" />
+                    </div>
+                    <Button
+                      onClick={async () => {
+                        setGenerating(true)
+                        try {
+                          const year = schedMonth.getFullYear()
+                          const month = schedMonth.getMonth() + 1
+                          const schedEmployees = activeEmps.map(e => ({ id: e.id, name: e.name, role: e.role }))
+                          const unavailRecords: { employee_id: string; date: string; reason?: string }[] = unavailability.map(u => ({
+                            employee_id: u.employee_id,
+                            date: u.date,
+                            reason: u.reason,
+                          }))
+                          const activeRules = schedRules.filter(r => r.is_active).map(r => ({
+                            rule_type: r.rule_type,
+                            rule_config: r.rule_config,
+                            label: r.label,
+                            is_active: r.is_active,
+                            sort_order: r.sort_order,
+                          }))
+
+                          const result = generateSchedule({
+                            year,
+                            month,
+                            employees: schedEmployees,
+                            unavailability: unavailRecords,
+                            rules: activeRules,
+                            morningCount,
+                            eveningCount,
+                          })
+
+                          setGeneratedResult(result)
+
+                          const empNameMap: Record<string, string> = {}
+                          for (const e of activeEmps) { empNameMap[e.id] = e.name }
+
+                          const text = formatScheduleToText(result, empNameMap, year, month)
+                          setResultText(text)
+                        } catch (err) {
+                          console.error('Generate schedule error:', err)
+                        } finally {
+                          setGenerating(false)
+                        }
+                      }}
+                      disabled={generating}
+                    >
+                      {generating ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> 生成中...</> : '生成排班'}
+                    </Button>
+                  </div>
+
+                  {resultText && (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-gray-700">排班結果</p>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              navigator.clipboard.writeText(resultText)
+                              setCopySuccess(true)
+                              setTimeout(() => setCopySuccess(false), 2000)
+                            }}
+                          >
+                            {copySuccess ? <><Check className="h-3.5 w-3.5 mr-1 text-green-500" /> 已複製</> : <><Copy className="h-3.5 w-3.5 mr-1" /> 複製文字</>}
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={async () => {
+                              if (!generatedResult.length) return
+                              setSaving(true)
+                              try {
+                                const nameToId: Record<string, string> = {}
+                                for (const e of activeEmps) { nameToId[e.name] = e.id }
+
+                                let assignments = parseScheduleFromText(resultText)
+                                if (assignments.length === 0) {
+                                  assignments = generatedResult
+                                }
+
+                                const resolved = assignments.map(a => ({
+                                  date: a.date,
+                                  morning: a.morning.map(n => nameToId[n] || n),
+                                  evening: a.evening.map(n => nameToId[n] || n),
+                                }))
+
+                                const monthStr = format(schedMonth, 'yyyy-MM')
+                                const { data: existing } = await supabase
+                                  .from('schedules')
+                                  .select('id')
+                                  .gte('date', `${monthStr}-01`)
+                                  .lte('date', `${monthStr}-31`)
+                                if (existing && existing.length > 0) {
+                                  await supabase.from('schedules').delete().in('id', existing.map(e => e.id))
+                                }
+
+                                const records: any[] = []
+                                for (const a of resolved) {
+                                  for (const empId of a.morning) {
+                                    if (empId.length < 30) continue
+                                    records.push({
+                                      employee_id: empId,
+                                      date: a.date,
+                                      start_time: '09:00',
+                                      end_time: '14:00',
+                                      shift_type: 'morning',
+                                      status: 'confirmed',
+                                      created_by: user?.id,
+                                      notes: '智能排班生成',
+                                    })
+                                  }
+                                  for (const empId of a.evening) {
+                                    if (empId.length < 30) continue
+                                    records.push({
+                                      employee_id: empId,
+                                      date: a.date,
+                                      start_time: '14:00',
+                                      end_time: '19:00',
+                                      shift_type: 'evening',
+                                      status: 'confirmed',
+                                      created_by: user?.id,
+                                      notes: '智能排班生成',
+                                    })
+                                  }
+                                }
+
+                                if (records.length > 0) {
+                                  const { error } = await supabase.from('schedules').insert(records)
+                                  if (error) throw error
+                                }
+
+                                await refetchSched()
+                                refetchUnavail()
+                              } catch (err) {
+                                console.error('Error applying smart schedule:', err)
+                              } finally {
+                                setSaving(false)
+                              }
+                            }}
+                            disabled={saving}
+                          >
+                            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                            套用到日曆
+                          </Button>
+                        </div>
+                      </div>
+                      <textarea
+                        className="w-full h-64 font-mono text-xs leading-relaxed p-3 border border-gray-200 rounded-lg bg-gray-50 resize-y focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        value={resultText}
+                        onChange={e => setResultText(e.target.value)}
+                      />
+                      <p className="text-[10px] text-gray-400">可直接編輯上方文字，修改後點擊「套用到日曆」更新排班</p>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </div>
       )}
 
       {/* ===== MODAL: Schedule Edit ===== */}

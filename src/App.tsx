@@ -24,6 +24,7 @@ import { AttendancePage } from '@/pages/AttendancePage'
 import AttendanceDevicePage from '@/pages/AttendanceDevicePage'
 import { SchedulesPage } from '@/pages/SchedulesPage'
 import { HRPage } from '@/pages/HRPage'
+import { SecretRecipesPage } from '@/pages/SecretRecipesPage'
 import ReportsPage from '@/pages/ReportsPage'
 import { useState, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
@@ -171,6 +172,7 @@ export default function App() {
                 {renderProtectedRoute('/inventory', <InventoryPage />)}
                 {renderProtectedRoute('/hr', <HRPage />)}
                 {renderProtectedRoute('/attendance-device', <AttendanceDevicePage />)}
+                <Route path="/secret-recipes" element={<SecretRecipesPage />} />
                 {renderProtectedRoute('/settings', <SettingsPage />)}
               </Routes>
             </AppLayout>

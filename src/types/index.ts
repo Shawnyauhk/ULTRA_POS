@@ -28,8 +28,47 @@ export interface Schedule {
   date: string
   start_time: string
   end_time: string
+  shift_type: 'morning' | 'evening' | 'afternoon' | 'night' | 'full_day' | 'split'
+  status: 'scheduled' | 'confirmed' | 'absent' | 'day_off' | 'cancelled'
+  created_by?: string
+  notes?: string
   created_at: string
   employee?: Employee
+}
+
+// 员工不可用日期
+export interface UnavailabilityRecord {
+  id: string
+  restaurant_id: string
+  employee_id: string
+  date: string
+  reason?: string
+  created_at: string
+}
+
+// 排班规则
+export interface SchedulingRuleRecord {
+  id: string
+  restaurant_id: string
+  rule_type: 'no_same_shift' | 'priority' | 'balanced' | 'min_rest' | 'max_consecutive' | 'fixed_shift' | 'custom'
+  rule_config: Record<string, any>
+  label?: string
+  is_active: boolean
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+// 秘傳配方
+export interface Recipe {
+  id: string
+  restaurant_id: string
+  product_name: string
+  ingredients: string
+  method: string
+  notes: string
+  created_at: string
+  updated_at: string
 }
 
 export interface Attendance {

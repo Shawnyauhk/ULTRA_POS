@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Calculator, ShoppingBag, Package, Coffee,
   Receipt, Users, MessageSquare, Star, Settings, Shield,
-  BarChart3, Clock, CalendarDays, DollarSign, Store, Smartphone, X, UserCog
+  BarChart3, Clock, CalendarDays, DollarSign, Store, Smartphone, X, UserCog, ChefHat
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 import { useRestaurant } from '@/hooks/useSupabaseData'
@@ -92,6 +92,23 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               </li>
             )
           })}
+          {/* 秘傳配方 - 僅店主可見 */}
+          {user?.role === 'owner' && (
+            <li>
+              <Link
+                to="/secret-recipes"
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  location.pathname === '/secret-recipes'
+                    ? 'bg-amber-600 text-white'
+                    : 'text-amber-700 hover:bg-amber-50'
+                )}
+              >
+                <ChefHat className="h-5 w-5 shrink-0" />
+                <span className="truncate">秘傳配方</span>
+              </Link>
+            </li>
+          )}
         </ul>
       </nav>
 
