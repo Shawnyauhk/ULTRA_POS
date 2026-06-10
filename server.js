@@ -2108,24 +2108,27 @@ app.get('/api/email/diag', async (req, res) => {
   }
 });
 
-// =========== 生產環境：提供前端靜態文件（不使用 express.static） ===========
+// =========== 生產環境：提供前端靜態文件 ===========
 const distPath = resolve(__dirname, 'dist');
 const MIME_MAP = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2' };
 if (process.env.NODE_ENV === 'production' && existsSync(distPath)) {
   console.log('📁 提供靜態文件從:', distPath);
-  // 靜態檔案服務（先於 SPA fallback）
-  app.use((req, res, next) => {
-    if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
-    const filePath = resolve(distPath, req.path.replace(/^\//, ''));
-    if (!filePath.startsWith(distPath)) return next(); // 防止路徑穿越
-    if (existsSync(filePath)) {
+  // 使用 Express 內建 static 中間件（正確處理 MIME 類型、緩存等）
+  app.use(express.static(distPath, {
+    setHeaders: (res, filePath) => {
       const ext = filePath.substring(filePath.lastIndexOf('.'));
-      res.type(MIME_MAP[ext] || 'application/octet-stream');
-      return res.sendFile(filePath);
-    }
-    next();
-  });
-  // SPA fallback（非 API 的 GET 請求全部回傳 index.html）
+      if (MIME_MAP[ext]) {
+        res.setHeader('Content-Type', MIME_MAP[ext]);
+      }
+      // JS/CSS/HTML 文件不緩存（避免部署更新後 Service Worker 用舊 cache）
+      if (ext === '.html') {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      } else if (ext === '.js' || ext === '.css') {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    },
+  }));
+  // SPA fallback（所有非 API 的 GET 請求回傳 index.html）
   app.use((req, res, next) => {
     if (req.method === 'GET' && !req.path.startsWith('/api')) {
       return res.sendFile(resolve(distPath, 'index.html'));
