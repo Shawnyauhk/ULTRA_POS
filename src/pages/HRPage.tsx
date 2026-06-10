@@ -159,40 +159,64 @@ export function HRPage() {
     if (!selectedDate) return
     setSaving(true)
     try {
-      // Delete all existing schedules for this date (RLS 会自动按员工所属餐厅过滤)
+      // 1) 获取当前日期的所有排班
       const { data: existing } = await supabase
         .from('schedules')
-        .select('id')
+        .select('id, employee_id')
         .eq('date', selectedDate)
-      if (existing && existing.length > 0) {
-        const { error: delErr } = await supabase.from('schedules').delete().in('id', existing.map(e => e.id))
+
+      // 2) 用户选择的排班
+      const entries = Object.entries(shiftSelection)
+      const selectedEmpIds = new Set(entries.map(([empId]) => empId))
+
+      // 3) 删除"不再选中"的排班，保留"仍然选中"的排班（后续更新或跳过）
+      const existingMap = new Map((existing || []).map(e => [e.employee_id, e.id]))
+      const toDeleteIds = (existing || [])
+        .filter(e => !selectedEmpIds.has(e.employee_id))
+        .map(e => e.id)
+
+      if (toDeleteIds.length > 0) {
+        const { error: delErr } = await supabase.from('schedules').delete().in('id', toDeleteIds)
         if (delErr) throw delErr
       }
-      // Create new schedules based on selections
-      const entries = Object.entries(shiftSelection)
-      if (entries.length > 0) {
-        const records = entries.map(([empId, shift]) => {
-          const shiftDef = SHIFTS[shift]
-          return {
-            employee_id: empId,
-            date: selectedDate,
-            start_time: shiftDef.start,
-            end_time: shiftDef.end,
-            shift_type: shift,
-            status: 'confirmed',
-            created_by: user?.id,
-          }
-        })
-        const { error: insErr } = await supabase.from('schedules').insert(records)
-        if (insErr) throw insErr
+
+      // 4) 对每个选中员工：已存在则 UPDATE，不存在则 INSERT
+      for (const [empId, shift] of entries) {
+        const shiftDef = SHIFTS[shift]
+        const recordData = {
+          employee_id: empId,
+          date: selectedDate,
+          start_time: shiftDef.start,
+          end_time: shiftDef.end,
+          shift_type: shift,
+          status: 'confirmed' as const,
+          created_by: user?.id,
+        }
+
+        const existingId = existingMap.get(empId)
+        if (existingId) {
+          // 已存在 → 更新
+          const { error: updErr } = await supabase
+            .from('schedules')
+            .update(recordData)
+            .eq('id', existingId)
+          if (updErr) throw updErr
+        } else {
+          // 不存在 → 新增
+          const { error: insErr } = await supabase
+            .from('schedules')
+            .insert([recordData])
+          if (insErr) throw insErr
+        }
       }
+
       await refetchSched()
       setShowSchedModal(false)
     } catch (err) {
       console.error('Error saving schedules:', err)
       const msg = (err as any)?.message || (err as any)?.error_description || JSON.stringify(err)
-      setMessage({ type: 'error', text: `儲存失敗: ${msg}` })
-      setTimeout(() => setMessage(null), 5000)
+      setMessage({ type: 'error', text: `儲存失敗 (資料未遺失): ${msg}` })
+      // 错误消息持久显示，不自动消失
     } finally {
       setSaving(false)
     }
@@ -877,50 +901,76 @@ export function HRPage() {
                                   evening: a.evening.map(n => nameToId[n] || n),
                                 }))
 
-                                const monthStr = format(schedMonth, 'yyyy-MM')
-                                const { data: existing } = await supabase
-                                  .from('schedules')
-                                  .select('id')
-                                  .gte('date', `${monthStr}-01`)
-                                  .lte('date', `${monthStr}-31`)
-                                if (existing && existing.length > 0) {
-                                  await supabase.from('schedules').delete().in('id', existing.map(e => e.id))
-                                }
-
-                                const records: any[] = []
+                                // 构建新排班映射：key = empId_date
+                                const newRecordsMap = new Map<string, { date: string; start_time: string; end_time: string; shift_type: string; employee_id: string }>()
                                 for (const a of resolved) {
                                   for (const empId of a.morning) {
                                     if (empId.length < 30) continue
-                                    records.push({
+                                    newRecordsMap.set(`${empId}_${a.date}`, {
                                       employee_id: empId,
                                       date: a.date,
                                       start_time: '09:00',
                                       end_time: '14:00',
                                       shift_type: 'morning',
-                                      status: 'confirmed',
-                                      created_by: user?.id,
-                                      notes: '智能排班生成',
                                     })
                                   }
                                   for (const empId of a.evening) {
                                     if (empId.length < 30) continue
-                                    records.push({
+                                    newRecordsMap.set(`${empId}_${a.date}`, {
                                       employee_id: empId,
                                       date: a.date,
                                       start_time: '14:00',
                                       end_time: '19:00',
                                       shift_type: 'evening',
-                                      status: 'confirmed',
-                                      created_by: user?.id,
-                                      notes: '智能排班生成',
                                     })
                                   }
                                 }
 
-                                if (records.length > 0) {
-                                  const { error } = await supabase.from('schedules').insert(records)
-                                  if (error) throw error
+                                // 获取当前月份所有现有排班
+                                const monthStr = format(schedMonth, 'yyyy-MM')
+                                const { data: existingSchedules } = await supabase
+                                  .from('schedules')
+                                  .select('id, employee_id, date')
+                                  .gte('date', `${monthStr}-01`)
+                                  .lte('date', `${monthStr}-31`)
+
+                                // 按 empId_date 建立现有排班映射
+                                const existingMap = new Map<string, string>() // key → id
+                                for (const s of existingSchedules || []) {
+                                  existingMap.set(`${s.employee_id}_${s.date}`, s.id)
                                 }
+
+                                // 删除：现有但不在新计划中
+                                const toDeleteIds: string[] = []
+                                for (const [key, id] of existingMap) {
+                                  if (!newRecordsMap.has(key)) {
+                                    toDeleteIds.push(id)
+                                  }
+                                }
+                                if (toDeleteIds.length > 0) {
+                                  const { error: delErr } = await supabase.from('schedules').delete().in('id', toDeleteIds)
+                                  if (delErr) throw delErr
+                                }
+
+                                // 新增或更新：遍历新排班
+                                const commonFields = { status: 'confirmed' as const, created_by: user?.id, notes: '智能排班生成' }
+                                for (const [key, record] of newRecordsMap) {
+                                  const existingId = existingMap.get(key)
+                                  const data = { ...record, ...commonFields }
+                                  if (existingId) {
+                                    // 更新
+                                    const { error: updErr } = await supabase.from('schedules').update(data).eq('id', existingId)
+                                    if (updErr) throw updErr
+                                  } else {
+                                    // 新增
+                                    const { error: insErr } = await supabase.from('schedules').insert([data])
+                                    if (insErr) throw insErr
+                                  }
+                                }
+
+                                setMessage({ type: 'success', text: `已套用 ${newRecordsMap.size} 筆排班到日曆` })
+                                setTimeout(() => setMessage(null), 3000)
+                                await refetchSched()
 
                                 await refetchSched()
                                 refetchUnavail()
