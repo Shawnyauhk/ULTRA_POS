@@ -94,9 +94,9 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       <ToastContainer />
       <UpdatePrompt />
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 safe-area-top">
         <TopBar onMenuClick={() => setSidebarOpen(true)} />
-        <main className="flex-1 overflow-y-auto" style={{ scrollbarGutter: 'auto' }}>
+        <main className="flex-1 overflow-y-auto safe-area-bottom" style={{ scrollbarGutter: 'auto' }}>
           {children}
         </main>
       </div>

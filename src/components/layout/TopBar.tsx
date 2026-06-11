@@ -24,7 +24,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
   }
 
   return (
-    <header className="h-14 md:h-16 bg-white border-b border-gray-200 flex items-center justify-between px-3 md:px-6 shrink-0">
+    <header className="h-14 md:h-16 bg-white border-b border-gray-200 flex items-center justify-between px-3 md:px-6 shrink-0 safe-area-top">
       <div className="flex items-center gap-2 min-w-0">
         {/* 漢堡選單（手機） */}
         <button

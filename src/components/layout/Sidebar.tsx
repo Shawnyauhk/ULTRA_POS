@@ -58,7 +58,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const sidebarContent = (
     <>
       {/* 頂部標題 */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200">
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 safe-area-top">
         <div>
           <h1 className="text-lg font-bold text-primary">ULTRA_POS</h1>
           <p className="text-xs text-gray-500">餐廳後台管理系統</p>
@@ -155,7 +155,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       {/* 手機版：滑出的側邊欄 */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 w-72 bg-white shadow-xl flex flex-col transition-transform duration-300 md:hidden',
+          'fixed inset-y-0 left-0 z-50 w-72 bg-white shadow-xl flex flex-col transition-transform duration-300 md:hidden safe-area-bottom',
           open ? 'translate-x-0' : '-translate-x-full'
         )}
       >
