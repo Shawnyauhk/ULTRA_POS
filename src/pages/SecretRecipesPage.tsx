@@ -21,6 +21,23 @@ interface ParsedRecipe {
   notes: string
 }
 
+/** 判斷文字是否為純食材列表（無標題/章節） */
+function isIngredientList(text: string): boolean {
+  // 匹配「中文 + 數字」的重複模式（食材名稱後接數量的典型格式）
+  // 範例：榴槤蓉200 牛奶200 煉奶60 淡忌廉30 咖奶30
+  const ingredientPattern = /[\u4e00-\u9fff\w\-]+\s*[\d]+\.?[\d]*(?:g|ml|cc|oz|斤|両|包|粒|條|棵|隻|根|片|瓣|匙|杯|碗|湯匙|茶匙)?/g
+  const matches = text.match(ingredientPattern)
+  if (!matches) return false
+
+  // 至少命中 2 筆才算食材列表
+  if (matches.length < 2) return false
+
+  // 檢查匹配部分是否佔了文字大部分內容（> 50%）
+  const matchedLen = matches.join('').length
+  const totalLen = text.replace(/\s/g, '').length
+  return matchedLen / totalLen > 0.5
+}
+
 function smartParseRecipe(text: string): ParsedRecipe {
   const result: ParsedRecipe = {
     product_name: '',
@@ -69,6 +86,21 @@ function smartParseRecipe(text: string): ParsedRecipe {
   )
   if (notesSection) {
     result.notes = notesSection[1].trim()
+  }
+
+  // 如果沒有任何結構化 section 被識別，且文字看起來像食材列表
+  if (!result.ingredients && !result.method && isIngredientList(text)) {
+    // 拆分行，沒有被當作產品名稱的行就是食材
+    const lines = text.trim().split('\n').filter(l => l.trim())
+    const ingLines = lines.filter(l => {
+      const trimmed = l.trim()
+      // 跳過已經是產品名稱的行
+      if (trimmed === result.product_name) return false
+      // 跳過明顯是標題的行
+      if (/^(?:產品|名稱|材料|食材|做法|步驟|備註|注意)/i.test(trimmed)) return false
+      return true
+    })
+    result.ingredients = ingLines.join('\n')
   }
 
   // 如果沒有找到結構化標題，嘗試從第一行提取產品名稱
