@@ -90,6 +90,12 @@ p, [class*="CardDescription"],
   letter-spacing: 0.02em;
 }
 
+/* ===== 防止 iOS Safari 自動縮放 ===== */
+/* 當 input/textarea 字體小於 16px，iOS 16+ 會在聚焦時自動放大頁面 */
+input, textarea, select, button {
+  font-size: max(16px, 0.875rem);
+}
+
 /* ===== 安全区域工具类 ===== */
 .safe-area-top {
   padding-top: var(--sat);
