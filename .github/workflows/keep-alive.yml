@@ -1,0 +1,17 @@
+name: Keep Alive - 每5分鐘保活
+
+on:
+  schedule:
+    # 每 5 分鐘執行一次（Render 15分鐘休眠，5分鐘冗餘足夠）
+    - cron: '*/5 * * * *'
+  # 也可手動觸發
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render 伺服器
+        run: |
+          curl -s -o /dev/null -w "HTTP %{http_code}, 耗時 %{time_total}s\n" \
+            "https://ultra-pos.onrender.com/api/health"
