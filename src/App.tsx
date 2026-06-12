@@ -23,6 +23,7 @@ import { EmployeesPage } from '@/pages/EmployeesPage'
 import { AttendancePage } from '@/pages/AttendancePage'
 import AttendanceDevicePage from '@/pages/AttendanceDevicePage'
 import { SchedulesPage } from '@/pages/SchedulesPage'
+import PWAUpdatePrompt from '@/components/PWAUpdatePrompt'
 import { HRPage } from '@/pages/HRPage'
 import { SecretRecipesPage } from '@/pages/SecretRecipesPage'
 import ReportsPage from '@/pages/ReportsPage'
@@ -145,6 +146,7 @@ export default function App() {
 
   return (
     <>
+      <PWAUpdatePrompt />
       <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />

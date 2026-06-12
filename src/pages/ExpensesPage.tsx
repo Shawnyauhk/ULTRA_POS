@@ -451,9 +451,15 @@ export default function ExpensesPage() {
           let expense_date = new Date().toISOString().split('T')[0];
           let invoice = '';
 
+          let category = '進貨成本';
+
           for (const line of lines) {
             // 清理 markdown 格式（**粗體**）
             const cleanLine = line.replace(/\*\*/g, '').trim();
+
+            // 提取分類（新增）
+            const cm = cleanLine.match(/^分類[：:]\s*(.+)/);
+            if (cm) { category = cm[1].trim(); continue; }
 
             // 提取供應商
             const sm = cleanLine.match(/^供應商[：:]\s*(.+)/);
@@ -503,7 +509,7 @@ export default function ExpensesPage() {
           setOcrResult({
             amount,
             expense_date,
-            category: '進貨成本',
+            category,
             description: parts.join(' | ') || text.slice(0, 200),
             handler: 'AI',
             payment_status: '',

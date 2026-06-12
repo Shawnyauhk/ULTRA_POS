@@ -5,6 +5,7 @@ const API_KEY = 'rnd_Fc7YvGi4nFYY1EdrB3VXdvcOz7rQ';
 const SERVICE_ID = 'srv-d8eiq1sp3tds738kin8g';
 
 const envVars = [
+  { key: 'VITE_NVIDIA_NIM_API_KEY', value: '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' },
   { key: 'EMAIL_USER', value: 'handmadetarohk813@gmail.com' },
   { key: 'EMAIL_PASS', value: 'aivc hozo vkqm ejsg' },
   { key: 'ADMIN_EMAIL', value: 'Berryenna@yahoo.com.hk,shawnyauws@gmail.com' },
