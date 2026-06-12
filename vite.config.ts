@@ -43,10 +43,11 @@ export default defineConfig({
   server: {
     proxy: {
       // 代理 NVIDIA NIM API 請求，避免 CORS 問題
+      // 注意：前端用 /api/nvidia/chat/completions，Vite 代理到 NVIDIA
       '/api/nvidia': {
         target: 'https://integrate.api.nvidia.com',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/nvidia/, ''),
+        rewrite: (path) => path.replace(/^\/api\/nvidia/, '/v1'),
       },
       // 代理其他後端 API 請求
       '/api': {
