@@ -456,7 +456,7 @@ export function ProductsPage() {
                             <tr>
                               <th className="px-4 py-2 whitespace-nowrap">名稱</th>
                               <th className="px-4 py-2 whitespace-nowrap">價格</th>
-                              <th className="px-4 py-2 whitespace-nowrap">狀態</th>
+                              <th className="px-4 py-2 whitespace-nowrap hidden md:table-cell">狀態</th>
                               <th className="px-4 py-2 whitespace-nowrap hidden md:table-cell">描述</th>
                               <th className="px-4 py-2 whitespace-nowrap">操作</th>
                             </tr>
@@ -466,7 +466,7 @@ export function ProductsPage() {
                               <tr key={product.id} className="border-t hover:bg-gray-50">
                                 <td className="px-4 py-2.5 font-medium whitespace-nowrap max-w-[160px] sm:max-w-none overflow-hidden text-ellipsis">{product.name}</td>
                                 <td className="px-4 py-2.5 whitespace-nowrap">${product.price}</td>
-                                <td className="px-4 py-2.5 whitespace-nowrap">
+                                <td className="px-4 py-2.5 whitespace-nowrap hidden md:table-cell">
                                   <Badge variant={product.status === 'available' ? 'default' : 'secondary'}>
                                     {product.status === 'available' ? '供應中' : product.status === 'sold_out' ? '售罄' : '已下架'}
                                   </Badge>
