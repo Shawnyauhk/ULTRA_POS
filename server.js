@@ -2527,29 +2527,51 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3) {
 日期: 2026-04-10, 項目: 糖, 支出: $170
 日期: 2026-04-10, 項目: 油, 支出: $165
 總支出: $706`
-    : `你是收據結構化提取助手。分析收據圖片，嚴格按以下格式輸出，每行一個欄位：
+    : `你是收據/帳單結構化提取助手。分析圖片，嚴格按以下格式輸出，每行一個欄位：
 
 【必輸欄位】
-1. 日期: YYYY-MM-DD（必須單獨一行）
-2. 供應商: XXX（必須單獨一行，只保留商號核心名稱，去掉「有限公司」「食品」「國際」「貿易」「企業」「股份」等後綴）
-3. 品項: 品名1 $價格1, 品名2 $價格2, ...（所有品項用逗號分隔放在同一行，只保留核心品名，移除規格/包裝/重量）
-4. 總價: $總金額（必須單獨一行，只輸出數字）
+1. 日期: YYYY-MM-DD（帳單日期，必須單獨一行）
+2. 供應商: XXX（必須單獨一行，**從帳單抬頭/標誌識別真正的供應商**，不要用地址或店名）
+   - 如看到「CLP 中電」「中華電力」→ 供應商: 中電
+   - 如看到「港燈」「HKE」→ 供應商: 港燈
+   - 如看到煤氣公司 → 供應商: 煤氣公司
+   - 一般收據則用商號名稱，去掉「有限公司」「食品」等後綴
+3. 分類: XXX（根據帳單/收據內容判斷類別，支援以下分類之一）:
+   - 電費（中電/港燈/電力帳單）
+   - 水費（水務署帳單）
+   - 煤氣費（煤氣公司帳單）
+   - 租金（租金收據）
+   - 進貨成本（食材/貨物進貨單）
+   - 薪金（員工薪金/強積金）
+   - 雜項（其他）
+4. 品項: 品名1 $價格1, 品名2 $價格2, ...（所有品項用逗號分隔放在同一行；電費單則寫「電費(XX度) $金額」）
+5. 總價: $總金額（必須單獨一行，只輸出數字）
 
 【可選欄位】
-5. 發票: 編號（如有，單獨一行）
+6. 發票: 編號（如有，單獨一行）
 
 重要規則：
 - 每個欄位必須獨立一行，以「欄位名:」開頭
-- 品項欄位必須包含所有貨品，用逗號分隔
+- 供應商必須用**帳單抬頭的公用事業公司名稱**，不是店名或地址
+- 分類必須從上列分類中選擇
 - 只輸出以上欄位，不要任何其他文字或 markdown 格式
 - 不要輸出「**」「-」等符號
 
-範例輸出：
+範例輸出1（進貨收據）：
 日期: 2026-05-18
 供應商: 炳記行
+分類: 進貨成本
 發票: INV-20260518
 品項: 蛋 $270, 淡忌廉 $630, 椰漿 $280
-總價: $1180`;
+總價: $1180
+
+範例輸出2（電費帳單）：
+日期: 2026-04-15
+供應商: 中電
+分類: 電費
+發票: 82866-28188-0
+品項: 電費(2605度) $4136
+總價: $4136`;
 
   let lastError;
 
@@ -2687,6 +2709,73 @@ app.post('/api/ocr/receipt', async (req, res) => {
   } catch (error) {
     console.error('[OCR] 辨識失敗:', error.message);
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =========== NVIDIA NIM 代理（供前端好評生成等串流調用）============
+// 在生產環境代理 NVIDIA API 請求，繞過 CORS 和 import.meta.env 限制
+app.post('/api/nvidia/chat/completions', async (req, res) => {
+  try {
+    if (!NVIDIA_API_KEY) {
+      return res.status(500).json({ success: false, message: 'NVIDIA API Key 未配置' });
+    }
+
+    const body = req.body;
+
+    console.log(`[NVIDIA Proxy] 調用模型: ${body.model || NVIDIA_MODEL}, stream: ${!!body.stream}`);
+
+    const response = await fetch(NVIDIA_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${NVIDIA_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: body.model || NVIDIA_MODEL,
+        messages: body.messages,
+        max_tokens: body.max_tokens || 128,
+        temperature: body.temperature ?? 0.9,
+        top_p: body.top_p ?? 0.95,
+        stream: body.stream ?? false,
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      console.error(`[NVIDIA Proxy] API 錯誤: ${response.status}`, errText.slice(0, 200));
+      return res.status(response.status).json({ success: false, message: `NVIDIA API 錯誤: ${response.status}` });
+    }
+
+    if (body.stream) {
+      // 串流模式：直接 pipe 回客戶端
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) { res.end(); break; }
+          const chunk = decoder.decode(value, { stream: true });
+          res.write(chunk);
+        }
+      } catch (err) {
+        console.error('[NVIDIA Proxy] 串流中斷:', err.message);
+        if (!res.writableEnded) res.end();
+      }
+    } else {
+      // 非串流模式：返回 JSON
+      const data = await response.json();
+      res.json(data);
+    }
+  } catch (error) {
+    console.error('[NVIDIA Proxy] 錯誤:', error.message);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: error.message });
+    }
   }
 });
 

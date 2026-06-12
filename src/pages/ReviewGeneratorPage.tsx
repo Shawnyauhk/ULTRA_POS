@@ -18,7 +18,7 @@ import {
 
 const NVIDIA_API_KEY = import.meta.env.VITE_NVIDIA_NIM_API_KEY;
 const NVIDIA_MODEL = import.meta.env.VITE_NVIDIA_NIM_MODEL || 'qwen/qwen3.5-122b-a10b';
-const NVIDIA_API_URL = '/api/nvidia/v1/chat/completions';
+const NVIDIA_API_URL = '/api/nvidia/chat/completions';
 
 const DEFAULT_CONFIG: ReviewConfig = {
   system_prompt: '你是香港食客，用廣東話寫短評。',
@@ -80,7 +80,6 @@ async function generateReviewStreaming(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${NVIDIA_API_KEY}`,
     },
     body: JSON.stringify({
       model: NVIDIA_MODEL,
