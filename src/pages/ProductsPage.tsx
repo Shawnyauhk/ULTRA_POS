@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
-import { Coffee, Image as ImageIcon, FileSpreadsheet, Loader2, Plus, Edit2, Save, X, Search, RefreshCw, ChevronRight, ChevronDown, FolderOpen, FlaskConical } from 'lucide-react';
+import { Coffee, Image as ImageIcon, FileSpreadsheet, Loader2, Plus, Edit2, Save, X, Search, RefreshCw, ChevronRight, ChevronDown, FolderOpen, FlaskConical, MoreVertical } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/auth';
 import { usePermission } from '@/hooks/usePermission';
@@ -33,6 +33,7 @@ export function ProductsPage() {
 
   // AI 導入狀態
   const [aiImporting, setAiImporting] = useState(false);
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
@@ -487,16 +488,26 @@ export function ProductsPage() {
                                     )}
                                   </div>
                                 </td>
-                                <td className="px-4 py-2.5 flex gap-2">
+                                <td className="px-4 py-2.5">
                                   {can('product.manage') && (
-                                    <>
-                                      <Button size="icon" variant="ghost" onClick={() => openEditModal(product)}>
-                                        <Edit2 className="w-4 h-4" />
+                                    <div className="relative">
+                                      <Button size="icon" variant="ghost" onClick={() => setActiveMenuId(activeMenuId === product.id ? null : product.id)}>
+                                        <MoreVertical className="w-4 h-4" />
                                       </Button>
-                                      <Button size="icon" variant="ghost" onClick={() => handleDeleteProduct(product.id)}>
-                                        <X className="w-4 h-4 text-red-500" />
-                                      </Button>
-                                    </>
+                                      {activeMenuId === product.id && (
+                                        <>
+                                          <div className="fixed inset-0 z-10" onClick={() => setActiveMenuId(null)} />
+                                          <div className="absolute right-0 top-full mt-1 z-20 bg-white border rounded-lg shadow-xl py-1 min-w-[130px]">
+                                            <button onClick={() => { openEditModal(product); setActiveMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-gray-700">
+                                              <Edit2 className="w-3.5 h-3.5" /> 編輯
+                                            </button>
+                                            <button onClick={() => { handleDeleteProduct(product.id); setActiveMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-red-600">
+                                              <X className="w-3.5 h-3.5" /> 刪除
+                                            </button>
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
                                   )}
                                 </td>
                               </tr>
