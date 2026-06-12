@@ -16,7 +16,6 @@ import {
   History, Edit3, Trash2, Brain, Copy, AlertCircle,
 } from 'lucide-react';
 
-const NVIDIA_API_KEY = import.meta.env.VITE_NVIDIA_NIM_API_KEY;
 const NVIDIA_MODEL = import.meta.env.VITE_NVIDIA_NIM_MODEL || 'qwen/qwen3.5-122b-a10b';
 const NVIDIA_API_URL = '/api/nvidia/chat/completions';
 
@@ -64,9 +63,7 @@ async function generateReviewStreaming(
   config: ReviewConfig,
   onToken: (token: string) => void
 ): Promise<string> {
-  if (!NVIDIA_API_KEY) {
-    throw new Error('未配置 NVIDIA NIM API Key');
-  }
+  // API Key 改由服務端代理處理，前端不再需要檢查
 
   const randomStyle = config.styles[Math.floor(Math.random() * config.styles.length)];
 
