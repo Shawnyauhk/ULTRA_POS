@@ -16,22 +16,26 @@ import {
   History, Edit3, Trash2, Brain, Copy, AlertCircle,
 } from 'lucide-react';
 
-const NVIDIA_MODEL = import.meta.env.VITE_NVIDIA_NIM_MODEL || 'qwen/qwen3.5-122b-a10b';
 const NVIDIA_API_URL = '/api/nvidia/chat/completions';
 
+// 好評生成專用模型（比視覺模型快 3-5 倍，文字能力更強）
+const REVIEW_MODEL = 'meta/llama-3.1-8b-instruct';
+
 const DEFAULT_CONFIG: ReviewConfig = {
-  system_prompt: '你是香港食客，用廣東話寫短評。',
-  rules: '粵語口語、描述味道口感、5星、30-80字、不用emoji',
+  system_prompt: '你是香港本地食客，用地道廣東話寫 Google 地圖食評。',
+  rules: '繁體中文粵語口語、描述味道+口感+賣相、30-80字、5星、零emoji、似真人',
   styles: [
-    '朋友聚餐後寫的，語氣開心雀躍',
-    '一個人路過試食，語氣真實自然',
-    '同屋企人一齊食，語氣溫馨',
-    '幫襯咗好多次嘅熟客，語氣親切',
-    '第一次幫襯被驚艷到，語氣驚喜',
-    '外賣自取嘅體驗，語氣實在',
+    '收工攰到爆，路過試新嘢，食完精神返晒，勁驚喜',
+    '同班 friend 星期五晚 happy hour 之後嚟醫肚，吹水開心',
+    '帶阿媽嚟食生日飯，佢讚不絕口，話下次要帶埋老豆嚟',
+    '一個人落街買宵夜，諗住試下，點知一試上癮返唔到轉頭',
+    '成日經過都冇入去，今日終於的起心肝試，後悔點解唔早D嚟',
+    '帶同事嚟 team lunch，老闆都話好食，全公司一致通過下次再嚟',
+    '星期六瞓醒想搵好嘢食，上網見到推薦就嚟咗，冇介紹錯',
+    '同另一半拍拖紀念日，專登揀間地道小店慶祝，好浪漫',
   ],
-  max_tokens: 128,
-  temperature: 0.9,
+  max_tokens: 96,
+  temperature: 1.0,
 };
 
 interface ReviewConfig {
@@ -63,15 +67,42 @@ async function generateReviewStreaming(
   config: ReviewConfig,
   onToken: (token: string) => void
 ): Promise<string> {
-  // API Key 改由服務端代理處理，前端不再需要檢查
 
-  const randomStyle = config.styles[Math.floor(Math.random() * config.styles.length)];
+  const style = config.styles[Math.floor(Math.random() * config.styles.length)];
 
-  const prompt = `你是香港食客，用廣東話為「${productName}」寫一段好評。
-情境：${randomStyle}
-要求：${config.rules}
+  // 隨機語氣強化多樣性（每次生成都會隨機變化）
+  const tones = ['超好味', '真係正', '冇得輸', '好驚喜', '極力推薦', '一定要試', '會再幫襯', '性價比高', '街坊之選'];
+  const shuffled = [...tones].sort(() => Math.random() - 0.5);
+  const toneA = shuffled[0];
+  const toneB = shuffled[1];
 
-直接回覆好評內容：`;
+  // 隨機禁詞表（防止千篇一律的開場/結尾）
+  const bannedOpenings = ['必試', '極力推介', '好味道', '食得飽齊', '味道甜甜的'];
+  const bannedEndings = ['一定要試試', '不可錯過', '百分百推薦'];
+  const bannedOpening = bannedOpenings[Math.floor(Math.random() * bannedOpenings.length)];
+  const bannedEnding = bannedEndings[Math.floor(Math.random() * bannedEndings.length)];
+
+  const prompt = `【任務】用香港地道廣東話為「${productName}」寫一段 Google 食評。
+
+【情境】${style}
+
+【格式要求】
+- 只用繁體中文粵語口語
+- 30-80字，不要超過
+- 必須具體描述：味道（甜/咸/香/辣等）、口感（脆/軟/滑/彈牙等）、賣相
+- 唔要 emoji
+- 千萬不要用「${bannedOpening}」開頭
+- 千萬不要用「${bannedEnding}」結尾
+- 語氣似真人食客，唔似 AI
+
+【關鍵詞提示】可以自然融入：${toneA}、${toneB}
+
+【參考範例】（只學風格，唔好照抄內容）
+例1：「啱啱搬嚟呢頭第一次食，個煲仔飯真係絕！飯粒粒分明，臘味香到隔離枱都望過嚟，鍋底仲有飯焦添！」
+例2：「星期五晚同friend去，full晒要等位，但等得值！個豆腐花滑到震，薑汁夠辣，食完成身暖晒。」
+例3：「行街行到餓餓地求其入咗嚟，結果個撈麵驚為天人！醬汁濃得嚟唔漏，麵底爽彈，加埋杯凍檸茶perfect。」
+
+直接回覆食評（淨係內容，唔好加任何標題或多餘字）：`;
 
   const response = await fetch(NVIDIA_API_URL, {
     method: 'POST',
@@ -79,7 +110,7 @@ async function generateReviewStreaming(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: NVIDIA_MODEL,
+      model: REVIEW_MODEL,
       messages: [
         { role: 'system', content: config.system_prompt },
         { role: 'user', content: prompt }
@@ -455,7 +486,7 @@ function ConfigPanel({ config, setConfig, saving, onSave, onAddStyle, onRemoveSt
             placeholder="設定生成規則，用逗號分隔..."
             className="min-h-[60px]"
           />
-          <p className="text-xs text-gray-400 mt-1">例如：粵語口語、描述味道口感、5星、30-80字、不用emoji</p>
+          <p className="text-xs text-gray-400 mt-1">例如：繁體粵語口語、描述味道+口感+賣相、30-80字、5星、零emoji、似真人</p>
         </div>
 
         <div>
@@ -508,12 +539,12 @@ function ConfigPanel({ config, setConfig, saving, onSave, onAddStyle, onRemoveSt
             <label className="text-sm font-medium mb-1 block text-gray-700">
               Max Tokens <span className="text-gray-400 font-normal">({config.max_tokens})</span>
             </label>
-            <input type="range" min={32} max={512} step={16}
+            <input type="range" min={24} max={256} step={8}
               value={config.max_tokens}
               onChange={(e) => setConfig(prev => ({ ...prev, max_tokens: parseInt(e.target.value) }))}
               className="w-full" />
             <div className="flex justify-between text-xs text-gray-400 mt-0.5">
-              <span>32（短）</span><span>512（長）</span>
+              <span>24（短）</span><span>256（長）</span>
             </div>
           </div>
           <div>
