@@ -454,24 +454,24 @@ export function ProductsPage() {
                         <table className="w-full text-sm text-left">
                           <thead className="text-xs text-gray-700 uppercase bg-gray-50/50">
                             <tr>
-                              <th className="px-4 py-2">名稱</th>
-                              <th className="px-4 py-2">價格</th>
-                              <th className="px-4 py-2">狀態</th>
-                              <th className="px-4 py-2">描述</th>
-                              <th className="px-4 py-2">操作</th>
+                              <th className="px-4 py-2 whitespace-nowrap">名稱</th>
+                              <th className="px-4 py-2 whitespace-nowrap">價格</th>
+                              <th className="px-4 py-2 whitespace-nowrap">狀態</th>
+                              <th className="px-4 py-2 whitespace-nowrap hidden md:table-cell">描述</th>
+                              <th className="px-4 py-2 whitespace-nowrap">操作</th>
                             </tr>
                           </thead>
                           <tbody>
                             {group.products.map(product => (
                               <tr key={product.id} className="border-t hover:bg-gray-50">
-                                <td className="px-4 py-2.5 font-medium">{product.name}</td>
-                                <td className="px-4 py-2.5">${product.price}</td>
-                                <td className="px-4 py-2.5">
+                                <td className="px-4 py-2.5 font-medium whitespace-nowrap max-w-[160px] sm:max-w-none overflow-hidden text-ellipsis">{product.name}</td>
+                                <td className="px-4 py-2.5 whitespace-nowrap">${product.price}</td>
+                                <td className="px-4 py-2.5 whitespace-nowrap">
                                   <Badge variant={product.status === 'available' ? 'default' : 'secondary'}>
                                     {product.status === 'available' ? '供應中' : product.status === 'sold_out' ? '售罄' : '已下架'}
                                   </Badge>
                                 </td>
-                                <td className="px-4 py-2.5 text-gray-500 max-w-xs">
+                                <td className="px-4 py-2.5 text-gray-500 max-w-xs hidden md:table-cell">
                                   <div className="flex items-center gap-1.5 truncate">
                                     <span className="truncate">{product.description || '—'}</span>
                                     {product.composition && (
