@@ -64,6 +64,7 @@ function loadConfig(raw: string): ReviewConfig {
 
 async function generateReviewStreaming(
   productName: string,
+  composition: string,
   config: ReviewConfig,
   onToken: (token: string) => void
 ): Promise<string> {
@@ -82,9 +83,14 @@ async function generateReviewStreaming(
   const bannedOpening = bannedOpenings[Math.floor(Math.random() * bannedOpenings.length)];
   const bannedEnding = bannedEndings[Math.floor(Math.random() * bannedEndings.length)];
 
+  // 如果有配料組成，加入 prompt 讓 AI 產生更準確的評語
+  const compositionSection = composition
+    ? `\n【實際配料】這款產品的真實配料包括：${composition}。請根據這些配料描述味道和口感，唔好作冇嘅嘢。`
+    : '';
+
   const prompt = `【任務】用香港地道廣東話為「${productName}」寫一段 Google 食評。
 
-【情境】${style}
+【情境】${style}${compositionSection}
 
 【格式要求】
 - 只用繁體中文粵語口語
@@ -730,7 +736,9 @@ export default function ReviewGeneratorPage() {
 
     try {
       const review = await generateReviewStreaming(
-        product.name, config,
+        product.name,
+        product.composition || '',
+        config,
         (partialText) => setGeneratedReview(partialText)
       );
       createReview({

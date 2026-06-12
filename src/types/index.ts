@@ -182,6 +182,7 @@ export interface Product {
   name_en?: string
   price: number
   description?: string
+  composition?: string
   image_url?: string
   status: 'available' | 'sold_out' | 'discontinued'
   created_at: string

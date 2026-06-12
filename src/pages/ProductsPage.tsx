@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
-import { Coffee, Image as ImageIcon, FileSpreadsheet, Loader2, Plus, Edit2, Save, X, Search, RefreshCw, ChevronRight, ChevronDown, FolderOpen } from 'lucide-react';
+import { Coffee, Image as ImageIcon, FileSpreadsheet, Loader2, Plus, Edit2, Save, X, Search, RefreshCw, ChevronRight, ChevronDown, FolderOpen, FlaskConical } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/auth';
 import { usePermission } from '@/hooks/usePermission';
@@ -221,6 +221,7 @@ export function ProductsPage() {
         price: editingProduct.price || 0,
         category_id: editingProduct.category_id || null,
         description: editingProduct.description || '',
+        composition: editingProduct.composition || '',
         status: (editingProduct.status || 'available') as Product['status'],
         updated_at: new Date().toISOString(),
       };
@@ -266,7 +267,7 @@ export function ProductsPage() {
   };
 
   const openAddModal = () => {
-    setEditingProduct({ name: '', price: 0, category_id: null, description: '', status: 'available' });
+    setEditingProduct({ name: '', price: 0, category_id: null, description: '', composition: '', status: 'available' });
     setShowAddModal(true);
   };
 
@@ -368,6 +369,19 @@ export function ProductsPage() {
                 <Input value={editingProduct?.description || ''}
                   onChange={e => setEditingProduct(prev => prev ? { ...prev, description: e.target.value } : null)} />
               </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  配料組成
+                  <span className="ml-2 text-xs text-gray-400 font-normal">用於 AI 生成好評、客服回答、員工考核</span>
+                </label>
+                <textarea
+                  value={editingProduct?.composition || ''}
+                  onChange={e => setEditingProduct(prev => prev ? { ...prev, composition: e.target.value } : null)}
+                  placeholder="例：芋頭 100g、西米 50g、椰漿 200ml、花奶 3湯匙、冰糖 80g、水 500ml"
+                  className="w-full min-h-[80px] px-3 py-2 border rounded-lg text-sm resize-y focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+                <p className="text-xs text-gray-400 mt-1">寫清楚份量比例，AI 會根據配料生成獨特評語</p>
+              </div>
               <div className="flex gap-2 justify-end pt-2">
                 <Button variant="outline" onClick={() => { setShowAddModal(false); setEditingProduct(null); }}>取消</Button>
                 <Button onClick={handleSaveProduct} disabled={saving}>
@@ -457,8 +471,21 @@ export function ProductsPage() {
                                     {product.status === 'available' ? '供應中' : product.status === 'sold_out' ? '售罄' : '已下架'}
                                   </Badge>
                                 </td>
-                                <td className="px-4 py-2.5 text-gray-500 max-w-xs truncate">
-                                  {product.description || '—'}
+                                <td className="px-4 py-2.5 text-gray-500 max-w-xs">
+                                  <div className="flex items-center gap-1.5 truncate">
+                                    <span className="truncate">{product.description || '—'}</span>
+                                    {product.composition && (
+                                      <span className="group relative inline-flex shrink-0">
+                                        <FlaskConical className="w-3.5 h-3.5 text-purple-400 cursor-help" />
+                                        <div className="absolute left-0 bottom-full mb-1.5 hidden group-hover:block z-10">
+                                          <div className="bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap max-w-[250px] overflow-hidden text-ellipsis">
+                                            <div className="font-medium mb-0.5">配料組成</div>
+                                            <div className="text-gray-300 font-normal">{product.composition}</div>
+                                          </div>
+                                        </div>
+                                      </span>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="px-4 py-2.5 flex gap-2">
                                   {can('product.manage') && (
