@@ -2714,13 +2714,15 @@ app.post('/api/ocr/receipt', async (req, res) => {
 
 // =========== NVIDIA NIM 代理（供前端好評生成等串流調用）============
 // 在生產環境代理 NVIDIA API 請求，繞過 CORS 和 import.meta.env 限制
+app.use('/api/nvidia', express.json({ limit: '10mb' }));
 app.post('/api/nvidia/chat/completions', async (req, res) => {
   try {
     if (!NVIDIA_API_KEY) {
       return res.status(500).json({ success: false, message: 'NVIDIA API Key 未配置' });
     }
 
-    const body = req.body;
+    const body = req.body || {};
+    console.log(`[NVIDIA Proxy] 收到請求 - model: ${body.model || NVIDIA_MODEL}, stream: ${!!body.stream}, messages: ${body.messages?.length || 0}`);
 
     console.log(`[NVIDIA Proxy] 調用模型: ${body.model || NVIDIA_MODEL}, stream: ${!!body.stream}`);
 
