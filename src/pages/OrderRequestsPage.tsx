@@ -51,6 +51,8 @@ export function OrderRequestsPage() {
   const [editDate, setEditDate] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [completedExpanded, setCompletedExpanded] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [batchSelectedIds, setBatchSelectedIds] = useState<Set<string>>(new Set());
 const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragState, setDragState] = useState<{
@@ -656,8 +658,33 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                 >
                   <div
                     className="p-2.5 cursor-pointer hover:bg-gray-50/60 transition-colors"
-                    onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
+                    onClick={() => {
+                      if (selectMode) {
+                        setBatchSelectedIds(prev => {
+                          const next = new Set(prev);
+                          if (next.has(order.id)) next.delete(order.id); else next.add(order.id);
+                          return next;
+                        });
+                      } else {
+                        setExpandedOrder(isExpanded ? null : order.id);
+                      }
+                    }}
                   >
+                    {/* 選擇模式勾選框 */}
+                    {selectMode && (
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <input type="checkbox" checked={batchSelectedIds.has(order.id)}
+                          onChange={() => {
+                            setBatchSelectedIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(order.id)) next.delete(order.id); else next.add(order.id);
+                              return next;
+                            });
+                          }}
+                          className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer" />
+                        <span className="text-xs text-gray-400 font-normal">選擇</span>
+                      </div>
+                    )}
                     {/* 預設只顯示貨物名 + 數量（緊密排列） */}
                     <div className="text-sm font-medium text-gray-800 leading-snug flex items-baseline gap-1">
                       <span className="truncate">{firstItem?.inventory?.name || order.notes || '未知貨物'}</span>
@@ -871,6 +898,28 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
           <p className="text-sm text-muted-foreground">點擊卡片檢視詳細內容</p>
         </div>
         <div className="flex items-center gap-2">
+          {can('order.approve') && (
+            <Button variant={selectMode ? 'default' : 'outline'} size="sm"
+              onClick={() => { setSelectMode(!selectMode); setBatchSelectedIds(new Set()); }}>
+              <Trash2 className="h-4 w-4 mr-1.5" />
+              {selectMode ? '取消選擇' : '批量刪除'}
+            </Button>
+          )}
+          {selectMode && batchSelectedIds.size > 0 && (
+            <Button variant="destructive" size="sm"
+              onClick={async () => {
+                if (!confirm(`確定刪除已選的 ${batchSelectedIds.size} 項訂貨請求？`)) return;
+                for (const id of batchSelectedIds) {
+                  await supabase.from('order_request_items').delete().eq('order_request_id', id);
+                  await supabase.from('order_requests').delete().eq('id', id);
+                }
+                setBatchSelectedIds(new Set());
+                setSelectMode(false);
+                refetch();
+              }}>
+              刪除 {batchSelectedIds.size} 項
+            </Button>
+          )}
           {can('order.create') && (
             <Button onClick={() => setShowRequestModal(true)}>
               <Plus className="h-4 w-4 mr-2" />
