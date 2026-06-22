@@ -1,9 +1,8 @@
-import { LogOut, Store, Menu } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Store, Menu } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 import { useRestaurant } from '@/hooks/useSupabaseData'
-import { supabase } from '@/lib/supabase'
 import PermissionBell from './PermissionBell'
+import UserMenu from './UserMenu'
 
 const roleLabels: Record<string, string> = {
   owner: '店主',
@@ -16,13 +15,8 @@ interface TopBarProps {
 }
 
 export function TopBar({ onMenuClick }: TopBarProps) {
-  const { user, logout } = useAuthStore()
+  const { user } = useAuthStore()
   const { restaurant } = useRestaurant()
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    logout()
-  }
 
   return (
     <header className="h-14 md:h-16 bg-white border-b border-gray-200 flex items-center justify-between px-3 md:px-6 shrink-0">
@@ -47,17 +41,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
 
       <div className="flex items-center gap-1 md:gap-3 shrink-0">
         <PermissionBell />
-        <Button variant="ghost" size="icon" onClick={handleLogout} title="登出" className="h-9 w-9">
-          <LogOut className="h-4 w-4 md:h-5 md:w-5" />
-        </Button>
-        <div className="flex items-center gap-2 ml-1">
-          <div className="h-7 w-7 md:h-8 md:w-8 rounded-full bg-primary flex items-center justify-center text-white text-xs md:text-sm font-medium shrink-0">
-            {user?.name?.charAt(0) || 'U'}
-          </div>
-          <span className="text-sm font-medium text-gray-700 hidden md:block truncate max-w-[100px]">
-            {user?.name}
-          </span>
-        </div>
+        <UserMenu />
       </div>
     </header>
   )
