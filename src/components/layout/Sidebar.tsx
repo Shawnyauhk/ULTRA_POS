@@ -3,7 +3,8 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Calculator, ShoppingBag, Package, Coffee,
   Receipt, Users, MessageSquare, Star, Settings, Shield,
-  BarChart3, Clock, CalendarDays, DollarSign, Store, Smartphone, X, UserCog, ChefHat
+  BarChart3, Clock, CalendarDays, DollarSign, Store, Smartphone, X, UserCog, ChefHat,
+  ClipboardList, Box, Wallet
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 import { useRestaurant } from '@/hooks/useSupabaseData'
@@ -20,14 +21,29 @@ interface MenuItem {
 
 const menuItems: MenuItem[] = [
   { path: '/', label: '控制面板與AI分析', icon: LayoutDashboard, permission: 'dashboard.view' },
+
+  // POS / 銷售
   { path: '/pos-order', label: 'POS 點餐系統', icon: ShoppingBag, permission: 'pos.create_order' },
   { path: '/orders', label: '訂貨管理', icon: Receipt, permission: 'order.view' },
+
+  // 產品 / 庫存
+  { path: '/products', label: '產品管理', icon: ClipboardList, permission: 'product.view' },
+  { path: '/inventory', label: '庫存管理', icon: Box, permission: 'inventory.view' },
+
+  // 人事
   { path: '/hr', label: '員工與排班', icon: UserCog, permission: 'employee.view' },
   { path: '/attendance', label: '打卡系統', icon: Clock, permission: 'attendance.view' },
+  { path: '/payroll', label: '薪酬管理', icon: Wallet, permission: 'payroll.view' },
+
+  // 財務
   { path: '/expenses', label: '門店支出', icon: Calculator, permission: 'expense.view' },
   { path: '/settlement', label: '營業額結算', icon: DollarSign, permission: 'expense.view' },
+
+  // AI / 評價
   { path: '/ai-marketing', label: 'AI 客服管理', icon: MessageSquare, permission: 'ai.customer_service' },
   { path: '/review-generator', label: 'Google 好評', icon: Star, permission: 'review.view' },
+
+  // 設定
   { path: '/settings', label: '系統設置', icon: Settings, permission: 'setting.view' },
 ]
 
