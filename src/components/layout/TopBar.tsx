@@ -1,8 +1,9 @@
-import { Bell, LogOut, Store, Menu } from 'lucide-react'
+import { LogOut, Store, Menu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth'
 import { useRestaurant } from '@/hooks/useSupabaseData'
 import { supabase } from '@/lib/supabase'
+import PermissionBell from './PermissionBell'
 
 const roleLabels: Record<string, string> = {
   owner: '店主',
@@ -45,10 +46,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
       </div>
 
       <div className="flex items-center gap-1 md:gap-3 shrink-0">
-        <Button variant="ghost" size="icon" className="relative h-9 w-9">
-          <Bell className="h-4 w-4 md:h-5 md:w-5" />
-          <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-red-500 rounded-full" />
-        </Button>
+        <PermissionBell />
         <Button variant="ghost" size="icon" onClick={handleLogout} title="登出" className="h-9 w-9">
           <LogOut className="h-4 w-4 md:h-5 md:w-5" />
         </Button>
