@@ -14,7 +14,7 @@ import DateRangeFilter from '@/components/ui/DateRangeFilter';
 const initialSettlement = {
   cash: '', octopus: '', foodpanda: '', payme: '', alipay_hk: '', wechat_hk: '',
   meituan_keeta: '', openrice: '',
-  total_amount: '', actual_revenue: '', total_transactions: '',
+  total_amount: '', total_transactions: '',
 };
 
 const WEEKDAY_CN = ['日', '一', '二', '三', '四', '五', '六'];
@@ -22,6 +22,110 @@ const formatDateWithWeekday = (dateStr: string) => {
   const d = new Date(dateStr);
   return `${dateStr}(${WEEKDAY_CN[d.getDay()]})`;
 };
+
+// ====== 年區塊（點擊展開收起）=======
+function YearBlock({ year, total, transactions, count, children }: {
+  year: string; total: number; transactions: number; count: number; children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="border rounded-xl overflow-hidden">
+      <button onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-gray-100 hover:bg-gray-200 transition-colors">
+        <div className="flex items-center gap-2">
+          <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${open ? '' : '-rotate-90'}`} />
+          <span className="font-bold text-gray-800 text-sm">{year} 年</span>
+          <span className="text-xs text-gray-500">（{count} 日）</span>
+        </div>
+        <div className="flex items-center gap-4 text-xs">
+          <span className="text-blue-700 font-semibold">${total.toFixed(2)}</span>
+          <span className="text-purple-700 font-semibold">{transactions} 筆</span>
+        </div>
+      </button>
+      {open && <div className="divide-y divide-gray-100">{children}</div>}
+    </div>
+  );
+}
+
+// ====== 月區塊 ======
+function MonthBlock({ year, month, total, transactions, count, children }: {
+  year: string; month: string; total: number; transactions: number; count: number; children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const monthNames = ['', '一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
+  return (
+    <div>
+      <button onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-5 py-2.5 hover:bg-gray-50 transition-colors">
+        <div className="flex items-center gap-2">
+          <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? '' : '-rotate-90'}`} />
+          <span className="font-medium text-gray-700 text-sm">{monthNames[parseInt(month)]}</span>
+          <span className="text-xs text-gray-400">（{count} 日）</span>
+        </div>
+        <div className="flex items-center gap-3 text-xs">
+          <span className="text-blue-600 font-medium">${total.toFixed(2)}</span>
+          <span className="text-purple-600 font-medium">{transactions} 筆</span>
+        </div>
+      </button>
+      {open && <div className="divide-y divide-gray-50">{children}</div>}
+    </div>
+  );
+}
+
+// ====== 日區塊（單日結算明細） ======
+function DayBlock({ record, online, ePayment, onEdit }: {
+  record: any; online: string; ePayment: string; onEdit: (r: any) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const { can } = usePermission();
+  return (
+    <div>
+      <button onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-6 py-2 hover:bg-blue-50/50 transition-colors text-xs">
+        <div className="flex items-center gap-3 min-w-0">
+          <ChevronDown className={`w-3 h-3 text-gray-300 transition-transform shrink-0 ${open ? '' : '-rotate-90'}`} />
+          <span className="font-medium text-gray-800">{formatDateWithWeekday(record.settlement_date)}</span>
+          <Badge variant={record.source === 'pospal_crawler' ? 'default' : 'secondary'} className="text-[10px] px-1.5">
+            {record.source === 'pospal_crawler' ? 'POSPAL' : '手動'}
+          </Badge>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <span>現金 ${record.cash || 0}</span>
+          <span>八達通 ${record.octopus || 0}</span>
+          <span className="text-blue-700 font-semibold">合計 ${record.total_amount || 0}</span>
+          <span className="text-purple-700 font-medium">{record.total_transactions || 0} 筆</span>
+        </div>
+      </button>
+      {open && (
+        <div className="px-6 py-3 bg-gray-50 border-t border-gray-100">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-gray-600">付款方式明細</span>
+            {can('expense.manage') && (
+              <button onClick={(e) => { e.stopPropagation(); onEdit(record); }}
+                className="text-xs text-primary hover:underline flex items-center gap-1">
+                <Edit2 className="w-3 h-3" /> 載入編輯
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">現金</span><br /><span className="font-medium">${record.cash || 0}</span></div>
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">八達通</span><br /><span className="font-medium">${record.octopus || 0}</span></div>
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">Foodpanda</span><br /><span className="font-medium">${record.foodpanda || 0}</span></div>
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">Payme</span><br /><span className="font-medium">${record.payme || 0}</span></div>
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">支付寶香港</span><br /><span className="font-medium">${record.alipay_hk || 0}</span></div>
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">WeChat 香港</span><br /><span className="font-medium">${record.wechat_hk || 0}</span></div>
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">美團 KEETA</span><br /><span className="font-medium">${record.meituan_keeta || 0}</span></div>
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">OpenRice</span><br /><span className="font-medium">${record.openrice || 0}</span></div>
+            <div className="col-span-2 sm:col-span-4 bg-blue-50 rounded px-2.5 py-1.5 border border-blue-100 flex justify-between">
+              <span className="text-blue-700 font-medium">總金額：${record.total_amount || 0}</span>
+              <span className="text-purple-700 font-medium">總筆數：{record.total_transactions || 0}</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function SettlementPage() {
   const { can } = usePermission();
@@ -41,7 +145,6 @@ export default function SettlementPage() {
   const today = new Date().toISOString().split('T')[0];
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
   const [historyRange, setHistoryRange] = useState({ start: thirtyDaysAgo, end: today });
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
   // Load settlement when date changes
   useEffect(() => {
@@ -73,7 +176,6 @@ export default function SettlementPage() {
           meituan_keeta: s.meituan_keeta?.toString() || '',
           openrice: s.openrice?.toString() || '',
           total_amount: s.total_amount?.toString() || '',
-          actual_revenue: s.actual_revenue?.toString() || '',
           total_transactions: s.total_transactions?.toString() || '',
         });
       } else {
@@ -171,7 +273,6 @@ export default function SettlementPage() {
       meituan_keeta: record.meituan_keeta?.toString() || '',
       openrice: record.openrice?.toString() || '',
       total_amount: record.total_amount?.toString() || '',
-      actual_revenue: record.actual_revenue?.toString() || '',
       total_transactions: record.total_transactions?.toString() || '',
     });
   };
@@ -248,16 +349,11 @@ export default function SettlementPage() {
 
               {/* 分隔線 */}
               <div className="border-t pt-4 mt-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium mb-1 text-blue-700">📊 總金額</label>
                     <Input type="number" step="0.01" placeholder="0.00" value={settlement.total_amount || ''}
                       onChange={e => setSettlement({ ...settlement, total_amount: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1 text-green-700">📊 營業實收</label>
-                    <Input type="number" step="0.01" placeholder="0.00" value={settlement.actual_revenue || ''}
-                      onChange={e => setSettlement({ ...settlement, actual_revenue: e.target.value })} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1 text-purple-700">📊 總筆數</label>
@@ -288,23 +384,20 @@ export default function SettlementPage() {
         </CardContent>
       </Card>
 
-      {/* ====== 結算歷史紀錄 ====== */}
+      {/* ====== 結算歷史紀錄（按年/月分類）====== */}
       <Card className="max-w-4xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Calendar className="w-5 h-5" /> 歷史紀錄</CardTitle>
-          <CardDescription>瀏覽過往的每日營業額結算記錄</CardDescription>
+          <CardDescription>按年/月分類瀏覽每日營業額結算記錄</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* 日期範圍篩選 */}
           <DateRangeFilter
             startDate={historyRange.start}
             endDate={historyRange.end}
-            onChange={(start, end) => {
-              setHistoryRange({ start, end });
-            }}
+            onChange={(start, end) => { setHistoryRange({ start, end }); }}
           />
 
-          {/* 歷史表格 */}
           {historyLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -316,88 +409,71 @@ export default function SettlementPage() {
               <p className="text-sm">暫無結算記錄</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                  <tr>
-                    <th className="px-3 py-2 w-8"></th>
-                    <th className="px-3 py-2">日期</th>
-                    <th className="px-3 py-2">來源</th>
-                    <th className="px-3 py-2 text-right">現金</th>
-                    <th className="px-3 py-2 text-right">八達通</th>
-                    <th className="px-3 py-2 text-right">外送平台</th>
-                    <th className="px-3 py-2 text-right">電子支付</th>
-                    <th className="px-3 py-2 text-right">總金額</th>
-                    <th className="px-3 py-2 text-right">營業實收</th>
-                    <th className="px-3 py-2 text-right">筆數</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {settlementHistory.map((record, idx) => {
-                    const isExpanded = expandedRow === record.settlement_date;
-                    const online = (parseFloat(record.foodpanda || 0) + parseFloat(record.meituan_keeta || 0) + parseFloat(record.openrice || 0)).toFixed(2);
-                    const ePayment = (parseFloat(record.alipay_hk || 0) + parseFloat(record.wechat_hk || 0) + parseFloat(record.octopus || 0)).toFixed(2);
-                    return (
-                      <tr key={record.settlement_date || idx}
-                        className={`border-b hover:bg-gray-50 cursor-pointer ${isExpanded ? 'bg-blue-50' : ''}`}
-                        onClick={() => setExpandedRow(isExpanded ? null : record.settlement_date)}>
-                        <td className="px-3 py-2">
-                          <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
-                        </td>
-                        <td className="px-3 py-2 font-medium">{formatDateWithWeekday(record.settlement_date)}</td>
-                        <td className="px-3 py-2">
-                          <Badge variant={record.source === 'pospal_crawler' ? 'default' : 'secondary'} className="text-xs">
-                            {record.source === 'pospal_crawler' ? 'POSPAL' : '手動'}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-2 text-right">{record.cash ? `$${record.cash}` : '—'}</td>
-                        <td className="px-3 py-2 text-right">{record.octopus ? `$${record.octopus}` : '—'}</td>
-                        <td className="px-3 py-2 text-right">{online !== '0.00' ? `$${online}` : '—'}</td>
-                        <td className="px-3 py-2 text-right">{ePayment !== '0.00' ? `$${ePayment}` : '—'}</td>
-                        <td className="px-3 py-2 text-right font-semibold text-blue-700">${record.total_amount || 0}</td>
-                        <td className="px-3 py-2 text-right font-semibold text-green-700">${record.actual_revenue || 0}</td>
-                        <td className="px-3 py-2 text-right">{record.total_transactions || 0}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="space-y-2">
+              {(() => {
+                // 按年分組
+                const yearMap = new Map<string, any[]>();
+                for (const r of settlementHistory) {
+                  const year = r.settlement_date.slice(0, 4);
+                  if (!yearMap.has(year)) yearMap.set(year, []);
+                  yearMap.get(year)!.push(r);
+                }
+                const years = Array.from(yearMap.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+
+                return years.map(([year, yearRecords]) => {
+                  // 按月分組
+                  const monthMap = new Map<string, any[]>();
+                  for (const r of yearRecords) {
+                    const m = r.settlement_date.slice(5, 7);
+                    if (!monthMap.has(m)) monthMap.set(m, []);
+                    monthMap.get(m)!.push(r);
+                  }
+                  const months = Array.from(monthMap.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+                  const yearTotal = yearRecords.reduce((s, r) => s + parseFloat(r.total_amount || 0), 0);
+                  const yearTx = yearRecords.reduce((s, r) => s + parseInt(r.total_transactions || 0), 0);
+
+                  return (
+                    <YearBlock
+                      key={year}
+                      year={year}
+                      total={yearTotal}
+                      transactions={yearTx}
+                      count={yearRecords.length}
+                    >
+                      {months.map(([month, monthRecords]) => {
+                        const monthTotal = monthRecords.reduce((s, r) => s + parseFloat(r.total_amount || 0), 0);
+                        const monthTx = monthRecords.reduce((s, r) => s + parseInt(r.total_transactions || 0), 0);
+                        return (
+                          <MonthBlock
+                            key={month}
+                            year={year}
+                            month={month}
+                            total={monthTotal}
+                            transactions={monthTx}
+                            count={monthRecords.length}
+                          >
+                            {monthRecords.map((record) => {
+                              const online = (parseFloat(record.foodpanda || 0) + parseFloat(record.meituan_keeta || 0) + parseFloat(record.openrice || 0)).toFixed(2);
+                              const ePayment = (parseFloat(record.alipay_hk || 0) + parseFloat(record.wechat_hk || 0)).toFixed(2);
+                              return (
+                                <DayBlock
+                                  key={record.settlement_date}
+                                  record={record}
+                                  online={online}
+                                  ePayment={ePayment}
+                                  onEdit={loadHistoryToForm}
+                                />
+                              );
+                            })}
+                          </MonthBlock>
+                        );
+                      })}
+                    </YearBlock>
+                  );
+                });
+              })()}
             </div>
           )}
-
-          {/* 展開的詳細資訊 */}
-          {settlementHistory.map((record) => {
-            if (expandedRow !== record.settlement_date) return null;
-            return (
-              <div key={`detail-${record.settlement_date}`} className="border rounded-lg p-4 bg-gray-50 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-medium text-sm">{formatDateWithWeekday(record.settlement_date)} 詳細數據</h4>
-                  {can('expense.manage') && (
-                    <Button size="sm" variant="outline" onClick={() => loadHistoryToForm(record)}>
-                      <Edit2 className="w-3 h-3 mr-1" /> 載入編輯
-                    </Button>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                  <div><span className="text-gray-500">現金：</span><span className="font-medium">${record.cash || 0}</span></div>
-                  <div><span className="text-gray-500">八達通：</span><span className="font-medium">${record.octopus || 0}</span></div>
-                  <div><span className="text-gray-500">Foodpanda：</span><span className="font-medium">${record.foodpanda || 0}</span></div>
-                  <div><span className="text-gray-500">Payme：</span><span className="font-medium">${record.payme || 0}</span></div>
-                  <div><span className="text-gray-500">支付寶香港：</span><span className="font-medium">${record.alipay_hk || 0}</span></div>
-                  <div><span className="text-gray-500">WeChat 香港：</span><span className="font-medium">${record.wechat_hk || 0}</span></div>
-                  <div><span className="text-gray-500">美團 KEETA：</span><span className="font-medium">${record.meituan_keeta || 0}</span></div>
-                  <div><span className="text-gray-500">OpenRice：</span><span className="font-medium">${record.openrice || 0}</span></div>
-                  <div className="col-span-2 md:col-span-4 border-t pt-2 mt-1">
-                    <div className="grid grid-cols-3 gap-3">
-                      <div><span className="text-blue-700 font-medium">總金額：</span><span className="font-semibold">${record.total_amount || 0}</span></div>
-                      <div><span className="text-green-700 font-medium">營業實收：</span><span className="font-semibold">${record.actual_revenue || 0}</span></div>
-                      <div><span className="text-purple-700 font-medium">總筆數：</span><span className="font-semibold">{record.total_transactions || 0}</span></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
         </CardContent>
       </Card>
     </div>
