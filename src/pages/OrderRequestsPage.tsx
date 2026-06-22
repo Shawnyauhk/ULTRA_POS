@@ -513,6 +513,37 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     setEditItems(prev => [{ ...prev[0], quantity: qty }]);
   };
 
+  const handleBatchDelete = async () => {
+    if (batchSelectedIds.size === 0) return;
+    if (!confirm(`確定刪除已選的 ${batchSelectedIds.size} 項訂貨請求？此操作無法復原。`)) return;
+    let hasError = false;
+    for (const id of batchSelectedIds) {
+      try {
+        await supabase.from('order_request_items').delete().eq('order_request_id', id);
+        await supabase.from('order_requests').delete().eq('id', id);
+      } catch (err) {
+        console.error('批量刪除失敗 id:', id, err);
+        hasError = true;
+      }
+    }
+    if (hasError) alert('部分項目刪除失敗，請查看控制台');
+    setBatchSelectedIds(new Set());
+    setSelectMode(false);
+    refetch();
+  };
+
+  const handleDeleteSingleCard = async (order: OrderRequest) => {
+    if (!confirm('確定刪除此訂貨請求？此操作無法復原。')) return;
+    try {
+      await supabase.from('order_request_items').delete().eq('order_request_id', order.id);
+      await supabase.from('order_requests').delete().eq('id', order.id);
+      refetch();
+    } catch (err) {
+      console.error('Delete error:', err);
+      alert('刪除失敗');
+    }
+  };
+
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString('zh-TW', { 
@@ -716,17 +747,9 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                               </button>
                               <button
                                 className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                onClick={async (e) => {
+                                onClick={(e) => {
                                   e.stopPropagation();
-                                  if (!confirm('確定刪除此訂貨請求？此操作無法復原。')) return;
-                                  try {
-                                    await supabase.from('order_request_items').delete().eq('order_request_id', order.id);
-                                    await supabase.from('order_requests').delete().eq('id', order.id);
-                                    refetch();
-                                  } catch (err) {
-                                    console.error('Delete error:', err);
-                                    alert('刪除失敗');
-                                  }
+                                  handleDeleteSingleCard(order);
                                 }}
                               >
                                 <Trash2 className="h-3 w-3" />
@@ -906,17 +929,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
             </Button>
           )}
           {selectMode && batchSelectedIds.size > 0 && (
-            <Button variant="destructive" size="sm"
-              onClick={async () => {
-                if (!confirm(`確定刪除已選的 ${batchSelectedIds.size} 項訂貨請求？`)) return;
-                for (const id of batchSelectedIds) {
-                  await supabase.from('order_request_items').delete().eq('order_request_id', id);
-                  await supabase.from('order_requests').delete().eq('id', id);
-                }
-                setBatchSelectedIds(new Set());
-                setSelectMode(false);
-                refetch();
-              }}>
+            <Button variant="destructive" size="sm" onClick={handleBatchDelete}>
               刪除 {batchSelectedIds.size} 項
             </Button>
           )}
