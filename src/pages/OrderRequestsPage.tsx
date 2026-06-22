@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Clock, CheckCircle, AlertCircle, Loader2, Plus, Search, X, Pencil, Calendar, ChevronDown, ChevronRight, PackageCheck, FileCheck, Package } from 'lucide-react';
+import { Clock, CheckCircle, AlertCircle, Loader2, Plus, Search, X, Pencil, Calendar, ChevronDown, ChevronRight, PackageCheck, FileCheck, Package, Trash2 } from 'lucide-react';
 import { useOrderRequests, useInventory } from '@/hooks/useSupabaseData';
 import { FALLBACK_RESTAURANT_ID } from '@/hooks/useSupabaseData';
 import { usePermission } from '@/hooks/usePermission';
@@ -679,13 +679,33 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                             </span>
                           )}
                           {can('order.approve') && (
-                            <button
-                              className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
-                              onClick={(e) => { e.stopPropagation(); handleEditRequest(order); }}
-                            >
-                              <Pencil className="h-3 w-3" />
-                              編輯
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                                onClick={(e) => { e.stopPropagation(); handleEditRequest(order); }}
+                              >
+                                <Pencil className="h-3 w-3" />
+                                編輯
+                              </button>
+                              <button
+                                className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (!confirm('確定刪除此訂貨請求？此操作無法復原。')) return;
+                                  try {
+                                    await supabase.from('order_request_items').delete().eq('order_request_id', order.id);
+                                    await supabase.from('order_requests').delete().eq('id', order.id);
+                                    refetch();
+                                  } catch (err) {
+                                    console.error('Delete error:', err);
+                                    alert('刪除失敗');
+                                  }
+                                }}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                刪除
+                              </button>
+                            </div>
                           )}
                         </div>
 
