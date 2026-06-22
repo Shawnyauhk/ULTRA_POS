@@ -449,6 +449,10 @@ export const ALL_PERMISSIONS = {
   'expense.view': '查看支出',
   'expense.manage': '管理支出',
 
+  // 营业額結算
+  'settlement.view': '查看營業額結算',
+  'settlement.manage': '管理營業額結算',
+
   // 报表
   'report.view': '查看報表',
   'report.export': '匯出報表',
@@ -487,10 +491,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Employee['role'], PermissionKey[]>
     'schedule.view', 'schedule.manage',
     'payroll.view', 'payroll.manage',
     'expense.view', 'expense.manage',
+    'settlement.view', 'settlement.manage',
     'report.view', 'report.export',
     'ai.marketing', 'ai.customer_service', 'ai.knowledge_base',
     'review.view', 'review.manage',
     'setting.view',
+    'safe.view',
   ],
   staff: [
     'dashboard.view',

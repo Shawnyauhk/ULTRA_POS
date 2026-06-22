@@ -37,7 +37,8 @@ const menuItems: MenuItem[] = [
 
   // 財務
   { path: '/expenses', label: '門店支出', icon: Calculator, permission: 'expense.view' },
-  { path: '/settlement', label: '營業額結算', icon: DollarSign, permission: 'expense.view' },
+  { path: '/settlement', label: '營業額結算', icon: DollarSign, permission: 'settlement.view' },
+  { path: '/reports', label: '報表', icon: BarChart3, permission: 'report.view' },
 
   // AI / 評價
   { path: '/ai-marketing', label: 'AI 客服管理', icon: MessageSquare, permission: 'ai.customer_service' },

@@ -25,6 +25,8 @@ const PERMISSION_GROUPS: { group: string; permissions: PermissionKey[] }[] = [
   { group: '排班管理', permissions: ['schedule.view', 'schedule.manage'] },
   { group: '薪酬管理', permissions: ['payroll.view', 'payroll.manage'] },
   { group: '財務支出', permissions: ['expense.view', 'expense.manage'] },
+  { group: '營業額結算', permissions: ['settlement.view', 'settlement.manage'] },
+  { group: '保險箱', permissions: ['safe.view', 'safe.manage'] },
   { group: '報表', permissions: ['report.view', 'report.export'] },
   { group: 'AI 功能', permissions: ['ai.marketing', 'ai.customer_service', 'ai.knowledge_base'] },
   { group: '評價管理', permissions: ['review.view', 'review.manage'] },

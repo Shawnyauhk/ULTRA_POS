@@ -80,7 +80,7 @@ const routePermissions: Record<string, PermissionKey> = {
   '/schedules': 'schedule.view',
   '/payroll': 'payroll.view',
   '/expenses': 'expense.view',
-  '/settlement': 'expense.view',
+  '/settlement': 'settlement.view',
   '/reports': 'report.view',
   '/ai-marketing': 'ai.customer_service',
   '/review-generator': 'review.view',
@@ -171,7 +171,6 @@ export default function App() {
                 {renderProtectedRoute('/payroll', <PayrollPage />)}
                 {renderProtectedRoute('/ai-marketing', <AIChatPage />)}
                 {renderProtectedRoute('/review-generator', <ReviewGeneratorPage />)}
-                {renderProtectedRoute('/inventory', <InventoryPage />)}
                 {renderProtectedRoute('/hr', <HRPage />)}
                 {renderProtectedRoute('/attendance-device', <AttendanceDevicePage />)}
                 <Route path="/secret-recipes" element={<SecretRecipesPage />} />
