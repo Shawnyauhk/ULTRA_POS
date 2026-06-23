@@ -2,7 +2,7 @@ import https from 'https';
 
 const envVars = [
   { key: 'VITE_NVIDIA_NIM_API_KEY', value: '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' },
-  { key: 'VITE_NVIDIA_NIM_MODEL', value: 'meta/llama-3.2-11b-vision-instruct' },
+  { key: 'VITE_NVIDIA_NIM_MODEL', value: 'qwen/qwen3.5-122b-a10b' },
   { key: 'VITE_SUPABASE_URL', value: 'https://amiceplfaeofaofoveun.supabase.co' },
   { key: 'VITE_SUPABASE_ANON_KEY', value: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFtaWNlcGxmYWVvZmFvZm92ZXVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyMjQ4ODksImV4cCI6MjA5MzgwMDg4OX0.XdDhi2eGCcMthUpoueCktsxaTV-t5z69iQZUi3t1xis' },
   { key: 'SUPABASE_SERVICE_ROLE_KEY', value: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFtaWNlcGxmYWVvZmFvZm92ZXVuIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODIyNDg4OSwiZXhwIjoyMDkzODAwODg5fQ.e9AZ-Ak_FGcETLSYr0Dqz2UY0tru7NFt3Fl5IuAtZQ4' },

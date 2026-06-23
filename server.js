@@ -1443,7 +1443,7 @@ app.all('/api/whatsapp/auth-status', async (req, res) => {
 
 // NVIDIA NIM 配置
 const NVIDIA_API_KEY = process.env.VITE_NVIDIA_NIM_API_KEY || '';
-const NVIDIA_MODEL = process.env.VITE_NVIDIA_NIM_MODEL || 'meta/llama-3.2-11b-vision-instruct';
+const NVIDIA_MODEL = process.env.VITE_NVIDIA_NIM_MODEL || 'qwen/qwen3.5-122b-a10b';
 const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
 /**
@@ -2499,7 +2499,7 @@ app.use('/api/ocr', express.json({ limit: '10mb' }));
  * @param {number} maxRetries - 最大重試次數
  * @returns {Promise<{success: boolean, text?: string, error?: string}>}
  */
-async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3) {
+async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3, customModel = null) {
   const prompt = isHandwritten
     ? `你是餐廳記賬本精確辨識助手。分析這張手寫記賬本圖片，**仔細查看每一個欄位**，提取每一筆支出記錄。
 
@@ -2527,7 +2527,13 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3) {
 日期: 2026-04-10, 項目: 糖, 支出: $170
 日期: 2026-04-10, 項目: 油, 支出: $165
 總支出: $706`
-    : `你是收據/帳單結構化提取助手。分析圖片，嚴格按以下格式輸出，每行一個欄位：
+    : `你是收據/帳單精確 OCR 辨識專家。逐字仔細閱讀這張圖片中的**每個中文字元**，特別留意小字和模糊的字跡。
+
+【重要辨識規則】
+- 圖片可能經過壓縮或光線不均，請根據上下文**推測**不清晰的字元
+- 注意中文字形相似易混淆的字（如「巳/已/己」、「午/牛」、「未/末」、「士/土」、「日/曰」）
+- 金額數字要注意小數點位置（$10.50 ≠ $1050）
+- 日期要注意年月日的數字順序
 
 【必輸欄位】
 1. 日期: YYYY-MM-DD（帳單日期，必須單獨一行）
@@ -2577,8 +2583,8 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3) {
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const controller = new AbortController();
-    // 每次嘗試都用 120 秒（手寫模式需要更多時間解析多筆）
-    const timeoutMs = 120000;
+    // 每次嘗試都用 75 秒
+    const timeoutMs = 75000;
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
@@ -2592,7 +2598,7 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3) {
           'Authorization': `Bearer ${NVIDIA_API_KEY}`,
         },
         body: JSON.stringify({
-          model: NVIDIA_MODEL,
+          model: customModel || NVIDIA_MODEL,
           messages: [
             {
               role: 'user',
@@ -2602,7 +2608,7 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3) {
               ]
             }
           ],
-          max_tokens: isHandwritten ? 768 : 512,
+          max_tokens: isHandwritten ? 640 : 384,
           temperature: 0.1,
         }),
       });
@@ -2618,8 +2624,8 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3) {
           lastError = new Error(`NVIDIA API 504 Gateway Timeout (attempt ${attempt})`);
           console.warn(`[OCR] ⚠️ 504 超時，第 ${attempt} 次失敗`);
           if (attempt < maxRetries) {
-            // 重試前等待 3 秒
-            await new Promise(r => setTimeout(r, 3000));
+            // 重試前等待 1.5 秒
+            await new Promise(r => setTimeout(r, 1500));
             continue;
           }
           throw lastError;
@@ -2640,7 +2646,7 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3) {
         if (parseErr.message?.includes('API')) {
           lastError = parseErr;
           if (attempt < maxRetries) {
-            await new Promise(r => setTimeout(r, 2000));
+            await new Promise(r => setTimeout(r, 1500));
             continue;
           }
           throw parseErr;
@@ -2660,8 +2666,9 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3) {
         });
       }
 
-      console.log(`[OCR] ✅ 第 ${attempt} 次成功`);
-      return { success: true, text };
+      const usedModel = data.model || (customModel || NVIDIA_MODEL);
+      console.log(`[OCR] ✅ 第 ${attempt} 次成功 (模型: ${usedModel})`);
+      return { success: true, text, model: usedModel };
     } catch (err) {
       clearTimeout(timeout);
 
@@ -2674,7 +2681,7 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3) {
 
       if (attempt < maxRetries) {
         // 指數退避：2s, 4s, 8s...
-        const backoffMs = Math.min(2000 * Math.pow(2, attempt - 1), 10000);
+        const backoffMs = Math.min(1500 * Math.pow(2, attempt - 1), 5000);
         console.log(`[OCR] ⏳ ${backoffMs}ms 後重試...`);
         await new Promise(r => setTimeout(r, backoffMs));
       }
@@ -2690,24 +2697,67 @@ app.post('/api/ocr/receipt', async (req, res) => {
       return res.status(500).json({ success: false, message: 'NVIDIA API Key 未配置，请在 .env 中设置 VITE_NVIDIA_NIM_API_KEY' });
     }
 
-    const { image, mode } = req.body;
+    const { image, mode, model } = req.body;
     if (!image) {
       return res.status(400).json({ success: false, message: '請提供圖片' });
     }
 
     const isHandwritten = mode === 'handwritten';
 
-    console.log(`[OCR] 開始處理圖片 (mode=${mode}, base64長度=${image.length})`);
+    console.log(`[OCR] 開始處理圖片 (mode=${mode}, model=${model || NVIDIA_MODEL}, base64長度=${image.length})`);
 
-    const result = await callNVIDIAOCR(image, isHandwritten, 3);
+    const result = await callNVIDIAOCR(image, isHandwritten, 2, model || null);
 
     if (!result.success) {
       return res.status(504).json({ success: false, message: result.error });
     }
 
-    res.json({ success: true, data: { text: result.text } });
+    res.json({ success: true, data: { text: result.text, model: result.model } });
   } catch (error) {
     console.error('[OCR] 辨識失敗:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =========== OCR 收據圖片上傳（儲存到 Supabase Storage）============
+app.post('/api/ocr/upload-image', async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return res.status(400).json({ success: false, message: '請提供圖片' });
+    }
+
+    // 生成唯一檔名
+    const timestamp = Date.now();
+    const randomStr = crypto.randomUUID().slice(0, 8);
+    const fileName = `receipt_${timestamp}_${randomStr}.jpg`;
+
+    // Base64 解碼
+    const base64Data = image.includes('base64,') ? image.split('base64,')[1] : image;
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // 上傳到 Supabase Storage
+    const { data, error } = await supabaseAdmin.storage
+      .from('receipt-images')
+      .upload(fileName, buffer, {
+        contentType: 'image/jpeg',
+        upsert: false,
+      });
+
+    if (error) {
+      console.error('[OCR] 圖片上傳失敗:', error);
+      return res.status(500).json({ success: false, message: '圖片上傳失敗: ' + error.message });
+    }
+
+    // 取得公開 URL
+    const { data: urlData } = supabaseAdmin.storage
+      .from('receipt-images')
+      .getPublicUrl(fileName);
+
+    console.log(`[OCR] 圖片已上傳: ${urlData.publicUrl}`);
+    res.json({ success: true, data: { url: urlData.publicUrl } });
+  } catch (error) {
+    console.error('[OCR] 圖片上傳錯誤:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 });

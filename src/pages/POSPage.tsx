@@ -2,14 +2,12 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { useNavigate } from 'react-router-dom';import { Camera, ShoppingCart, MessageSquare, Plus, Minus, Globe, ChevronRight, X, Loader2, Package, CheckCircle2, Coffee } from 'lucide-react';
+import { Camera, ShoppingCart, MessageSquare, Plus, Minus, Globe, ChevronRight, X, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { useProducts, useOrders, useInventory } from '@/hooks/useSupabaseData';
-import { useRealtimeInventory } from '@/hooks/useRealtime';
+import { useProducts, useOrders } from '@/hooks/useSupabaseData';
 import type { Product } from '@/types';
 
 export function POSPage() {
-  const navigate = useNavigate();
   const [lang, setLang] = useState<'zh' | 'en'>('zh');
   
   // Order State
@@ -22,10 +20,6 @@ export function POSPage() {
   // Fetch products from Supabase
   const { products, categories, loading } = useProducts();
   const { createOrder } = useOrders();
-  const { inventory, refetch: refetchInventory } = useInventory();
-  useRealtimeInventory(refetchInventory);
-
-  const [orderSuccess, setOrderSuccess] = useState(false);
 
   // Convert Supabase products to local format
   const convertToCartProduct = (product: Product) => ({
@@ -56,104 +50,12 @@ export function POSPage() {
     }
   };
 
-  const handleAIOrder = async () => {
+  const handleAIOrder = () => {
     if (!aiOrderText.trim()) return;
-    
-    try {
-      const response = await fetch('/api/nvidia/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_NVIDIA_NIM_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: import.meta.env.VITE_NVIDIA_NIM_MODEL || 'qwen/qwen3.5-122b-a10b',
-          messages: [{
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `你是一個餐廳點餐助手。請解析以下顧客點餐文字，輸出JSON陣列。
-
-可選產品清單（name + price）：
-${products.map(p => `- ${p.name} ($${p.price})`).join('\n')}
-
-顧客點餐：${aiOrderText}
-
-請輸出 JSON 陣列，每個項目包含：
-{"name": "產品名稱", "quantity": 數量, "options": ["客製選項陣列"]}
-
-範例輸出：
-[{"name": "原味雞蛋仔", "quantity": 2, "options": []}, {"name": "凍檸茶", "quantity": 1, "options": ["少甜"]}]
-
-只回覆 JSON 陣列，不要有其他文字。`
-              }
-            ]
-          }],
-          max_tokens: 1024,
-          temperature: 0.1
-        })
-      });
-
-      if (!response.ok) throw new Error(`API 錯誤: ${response.status}`);
-
-      const data = await response.json();
-      const text = data.choices?.[0]?.message?.reasoning_content ||
-                   data.choices?.[0]?.message?.content || '';
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) throw new Error('無法解析 AI 回覆');
-
-      const parsedItems = JSON.parse(jsonMatch[0]);
-      if (!Array.isArray(parsedItems) || parsedItems.length === 0) {
-        alert('AI 未能解析您的點餐，請重新輸入');
-        return;
-      }
-
-      // Match parsed items to available products
-      const newCartItems: typeof cart = [];
-      for (const item of parsedItems) {
-        const product = products.find(p => 
-          p.name.includes(item.name) || item.name.includes(p.name)
-        );
-        if (product) {
-          const existing = cart.find(c => c.id === product.id);
-          if (existing) {
-            // Will be merged below with existing cart
-          }
-          newCartItems.push({
-            id: product.id,
-            name: product.name,
-            price: product.price,
-            quantity: item.quantity || 1,
-            options: item.options || ['預設'],
-          });
-        }
-      }
-
-      if (newCartItems.length === 0) {
-        alert('未能識別出對應的產品，請重新輸入');
-        return;
-      }
-
-      // Merge with existing cart
-      const mergedCart = [...cart];
-      for (const newItem of newCartItems) {
-        const existing = mergedCart.find(c => c.id === newItem.id);
-        if (existing) {
-          existing.quantity += newItem.quantity;
-        } else {
-          mergedCart.push(newItem);
-        }
-      }
-      setCart(mergedCart);
-      setIsCartOpen(true);
-      alert(`✅ AI 已解析您的點餐：${newCartItems.map(i => `${i.name}×${i.quantity}`).join('、')}`);
-    } catch (err) {
-      console.error('AI 點餐失敗:', err);
-      alert('AI 點餐服務暫時不可用，請手動選擇產品');
-    }
-    
+    alert(`AI 正在解析您的點餐: "${aiOrderText}"...`);
+    // TODO: Implement AI order parsing with Gemini API
     setAiOrderText('');
+    setIsCartOpen(true);
   };
 
   const handleCheckout = async () => {
@@ -182,15 +84,9 @@ ${products.map(p => `- ${p.name} ($${p.price})`).join('\n')}
         }))
       );
       
-      setOrderSuccess(true);
+      alert('結帳成功！');
       setCart([]);
-      
-      // 2 秒後自動關閉成功提示並關閉購物車
-      setTimeout(() => {
-        setOrderSuccess(false);
-        setIsCartOpen(false);
-      }, 2000);
-      
+      setIsCartOpen(false);
     } catch (err) {
       console.error('Checkout error:', err);
       alert('結帳失敗，請重試');
@@ -207,16 +103,12 @@ ${products.map(p => `- ${p.name} ($${p.price})`).join('\n')}
   return (
     <div className="p-6 h-[calc(100vh-2rem)] flex flex-col space-y-4 relative overflow-hidden">
       {/* Header */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between shrink-0">
-        <div className="min-w-0">
-          <h1 className="text-lg md:text-2xl font-bold text-gray-900">{lang === 'zh' ? 'POS 點餐系統' : 'POS Ordering'}</h1>
-          <p className="text-sm text-muted-foreground">{lang === 'zh' ? '支援多模態點餐與快速客製化' : 'Multimodal Ordering & Customization'}</p>
+      <div className="flex items-center justify-between shrink-0">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{lang === 'zh' ? 'POS 點餐系統' : 'POS Ordering'}</h1>
+          <p className="text-muted-foreground">{lang === 'zh' ? '支援多模態點餐與快速客製化' : 'Multimodal Ordering & Customization'}</p>
         </div>
         <div className="flex gap-4 items-center">
-          <Button variant="outline" size="sm" onClick={() => navigate('/products')}>
-            <Coffee className="w-4 h-4 mr-1.5" />
-            管理產品
-          </Button>
           <Button variant="outline" size="icon" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}>
             <Globe className="w-4 h-4" />
           </Button>
@@ -253,24 +145,14 @@ ${products.map(p => `- ${p.name} ($${p.price})`).join('\n')}
           {/* Categories and Products */}
           {!activeCategory ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {loading ? (
-                <div className="col-span-3 flex items-center justify-center py-12">
-                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : localCategories.length > 0 ? (
-                localCategories.map(cat => (
-                  <Card key={cat.id} className="cursor-pointer hover:border-primary transition-all hover:shadow-md" onClick={() => setActiveCategory(cat.id)}>
-                    <CardContent className="p-8 flex items-center justify-between">
-                      <span className="text-xl font-bold">{cat.name}</span>
-                      <ChevronRight className="text-gray-400" />
-                    </CardContent>
-                  </Card>
-                ))
-              ) : (
-                <div className="col-span-3 text-center py-12 text-gray-400">
-                  請先在 Supabase 執行遷移腳本以載入產品分類
-                </div>
-              )}
+              {CATEGORIES.map(cat => (
+                <Card key={cat.id} className="cursor-pointer hover:border-primary transition-all hover:shadow-md" onClick={() => setActiveCategory(cat.id)}>
+                  <CardContent className="p-8 flex items-center justify-between">
+                    <span className="text-xl font-bold">{cat.name}</span>
+                    <ChevronRight className="text-gray-400" />
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           ) : (
             <div className="flex flex-col h-full">
@@ -279,25 +161,20 @@ ${products.map(p => `- ${p.name} ($${p.price})`).join('\n')}
                   {lang === 'zh' ? '← 返回全部分類' : '← Back to Categories'}
                 </Button>
                 <h2 className="text-xl font-bold ml-2">
-                  {localCategories.find(c => c.id === activeCategory)?.name}
+                  {CATEGORIES.find(c => c.id === activeCategory)?.name}
                 </h2>
               </div>
               <div className="flex-1 overflow-y-auto grid grid-cols-3 gap-4 content-start pr-2">
-                {loading ? (
-                  <div className="col-span-3 flex items-center justify-center py-12">
-                    <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-                  </div>
-                ) : displayedProducts.length > 0 ? (
-                  displayedProducts.map(product => (
-                    <Card key={product.id} className="cursor-pointer hover:border-primary transition-all hover:shadow-md" onClick={() => handleAddToCart(product)}>
-                      <CardContent className="p-4 flex flex-col items-center justify-center aspect-square text-center">
-                        <div className="w-16 h-16 bg-gray-50 rounded-full mb-3 flex items-center justify-center text-3xl">{product.emoji}</div>
-                        <p className="font-bold">{product.name}</p>
-                        <p className="text-primary font-medium mt-1">${product.price}</p>
-                      </CardContent>
-                    </Card>
-                  ))
-                ) : (
+                {displayedProducts.map(product => (
+                  <Card key={product.id} className="cursor-pointer hover:border-primary transition-all hover:shadow-md" onClick={() => handleAddToCart(product)}>
+                    <CardContent className="p-4 flex flex-col items-center justify-center aspect-square text-center">
+                      <div className="w-16 h-16 bg-gray-50 rounded-full mb-3 flex items-center justify-center text-3xl">{product.emoji}</div>
+                      <p className="font-bold">{product.name}</p>
+                      <p className="text-primary font-medium mt-1">${product.price}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+                {displayedProducts.length === 0 && (
                   <div className="col-span-3 text-center py-12 text-gray-400">
                     此分類暫無產品
                   </div>
@@ -342,39 +219,17 @@ ${products.map(p => `- ${p.name} ($${p.price})`).join('\n')}
               )}
             </CardContent>
             <div className="p-4 border-t shrink-0 bg-gray-50 rounded-b-xl">
-              {orderSuccess ? (
-                <div className="flex items-center justify-center gap-2 text-green-600 font-bold text-lg py-4">
-                  <CheckCircle2 className="w-6 h-6" />
-                  {lang === 'zh' ? '✓ 結帳成功！庫存已自動更新' : '✓ Checkout success! Inventory updated'}
-                </div>
-              ) : (
-                <>
-                  <div className="flex justify-between font-bold text-xl mb-4">
-                    <span>{lang === 'zh' ? '總計金額' : 'Total'}:</span>
-                    <span className="text-primary">${totalAmount}</span>
-                  </div>
-                  <Button 
-                    className="w-full h-14 text-lg rounded-xl shadow-md" 
-                    disabled={cart.length === 0 || processingOrder} 
-                    onClick={handleCheckout}
-                  >
-                    {processingOrder ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        處理中...
-                      </>
-                    ) : (
-                      lang === 'zh' ? '確認結帳 (Checkout)' : 'Checkout'
-                    )}
-                  </Button>
-                </>
-              )}
-              <div className="flex items-center justify-center gap-1 mt-2 text-xs text-gray-400">
-                <Package className="w-3 h-3" />
-                {lang === 'zh'
-                  ? `庫存物品: ${inventory.length} 項（結帳後自動扣減）`
-                  : `Inventory: ${inventory.length} items (auto-deducted on checkout)`}
+              <div className="flex justify-between font-bold text-xl mb-4">
+                <span>{lang === 'zh' ? '總計金額' : 'Total'}:</span>
+                <span className="text-primary">${totalAmount}</span>
               </div>
+              <Button className="w-full h-14 text-lg rounded-xl shadow-md" disabled={cart.length === 0} onClick={() => {
+                alert('結帳成功！');
+                setCart([]);
+                setIsCartOpen(false);
+              }}>
+                {lang === 'zh' ? '確認結帳 (Checkout)' : 'Checkout'}
+              </Button>
             </div>
           </Card>
         )}

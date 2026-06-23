@@ -2,7 +2,7 @@ const https = require('https');
 
 // 測試 Render 上 server.js 的 /api/nvidia/chat/completions
 const body = JSON.stringify({
-  model: 'meta/llama-3.2-11b-vision-instruct',
+  model: 'qwen/qwen3.5-122b-a10b',
   messages: [{ role: 'user', content: '用廣東話寫一個關於芋頭西米露的好評' }],
   max_tokens: 100,
   stream: false,

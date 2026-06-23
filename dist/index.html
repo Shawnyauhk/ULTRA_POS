@@ -12,7 +12,6 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="application-name" content="家傳芋曉" />
 
     <!-- OG / 社群預覽 -->
@@ -31,11 +30,23 @@
     <link rel="apple-touch-icon" href="/ios/180.png" />
 
     <title>家傳芋曉 POS</title>
-    <script type="module" crossorigin src="/assets/index-pMEl-Dsx.js"></script>
-    <link rel="modulepreload" crossorigin href="/assets/vendor-react-DW5cYt1_.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-utils-HjwdE1dq.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-ui-EclDBf6i.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-Cb7-abIq.css">
+    <script>
+      // 強制清除舊版 Service Worker，避免緩存導致 OCR 設定不生效
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for (let registration of registrations) {
+            registration.unregister();
+          }
+        });
+        if ('caches' in window) {
+          caches.keys().then(function(names) {
+            for (let name of names) caches.delete(name);
+          });
+        }
+      }
+    </script>
+    <script type="module" crossorigin src="/assets/index-CNT-c43D.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DlRjVHqt.css">
   <link rel="manifest" href="/manifest.webmanifest"></head>
   <body>
     <div id="root"></div>

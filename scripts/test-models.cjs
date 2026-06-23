@@ -43,8 +43,7 @@ async function testModel(modelName) {
 
 (async () => {
   const models = [
-    'qwen/qwen3.5-122b-a10b',           // 之前的 OCR 模型
-    'meta/llama-3.2-11b-vision-instruct', // 目前的文字模型（其實是視覺）
+    'qwen/qwen3.5-122b-a10b',           // 目前的 OCR / 視覺模型
     'meta/llama-3.1-70b-instruct',
     'meta/llama-3.1-8b-instruct',
     'mistralai/mistral-large-2-instruct',

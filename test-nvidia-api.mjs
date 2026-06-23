@@ -1,6 +1,6 @@
 // NVIDIA NIM API 测试脚本
 const NVIDIA_API_KEY = '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';
-const NVIDIA_MODEL = 'meta/llama-3.2-11b-vision-instruct';
+const NVIDIA_MODEL = 'qwen/qwen3.5-122b-a10b';
 const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
 async function testNVIDIAAPI() {
@@ -47,20 +47,9 @@ async function testNVIDIAAPI() {
 
     const data = await response.json();
     console.log('\n✅ API 連接成功！\n');
-    console.log('📦 完整回應:');
-    console.log(JSON.stringify(data, null, 2));
-    
-    // 尝试多种可能的路径获取内容
-    const content = 
-      data.choices?.[0]?.message?.content ||
-      data.choices?.[0]?.text ||
-      data.output?.text ||
-      data.output?.choices?.[0]?.message?.content ||
-      '無法解析回應';
-    
-    console.log('\n🤖 AI 回覆:');
+    console.log('🤖 AI 回覆:');
     console.log('─'.repeat(50));
-    console.log(content);
+    console.log(data.choices?.[0]?.message?.content || '無回覆');
     console.log('─'.repeat(50));
     
   } catch (error) {

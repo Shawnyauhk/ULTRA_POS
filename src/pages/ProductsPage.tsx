@@ -1,28 +1,20 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
-import { Coffee, Image as ImageIcon, FileSpreadsheet, Loader2, Plus, Edit2, Save, X, Search, RefreshCw, ChevronRight, ChevronDown, FolderOpen, FlaskConical, MoreVertical } from 'lucide-react';
+import { Coffee, Upload, Image as ImageIcon, FileSpreadsheet, Loader2, Plus, Edit2, Save, X, Search, RefreshCw } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { useAuthStore } from '@/stores/auth';
-import { usePermission } from '@/hooks/usePermission';
 import * as XLSX from 'xlsx';
 import { useProducts } from '@/hooks/useSupabaseData';
-import { FALLBACK_RESTAURANT_ID } from '@/hooks/useSupabaseData';
 import { useRealtimeProducts } from '@/hooks/useRealtime';
 import type { Product, Category } from '@/types';
 
-
-function getRestaurantId(): string {
-  const user = useAuthStore.getState().user;
-  return user?.restaurant_id || FALLBACK_RESTAURANT_ID;
-}
+const DEMO_RESTAURANT_ID = '00000000-0000-0000-0000-000000000001';
 
 export function ProductsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { can } = usePermission();
   const { products, categories, loading, refetch } = useProducts();
   useRealtimeProducts(refetch);
 
@@ -33,38 +25,14 @@ export function ProductsPage() {
 
   // AI 導入狀態
   const [aiImporting, setAiImporting] = useState(false);
-  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
   const filteredProducts = products.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = selectedCategory === 'all' || p.category_id === selectedCategory;
     return matchesSearch && matchesCategory;
   });
-
-  // 按分類分組產品
-  const categoryMap = new Map<string, { categoryId: string; categoryName: string; products: Product[] }>();
-  for (const p of filteredProducts) {
-    const catId = p.category_id || 'uncategorized';
-    const catName = p.category?.name || '未分類';
-    if (!categoryMap.has(catId)) {
-      categoryMap.set(catId, { categoryId: catId, categoryName: catName, products: [] });
-    }
-    categoryMap.get(catId)!.products.push(p);
-  }
-  // 按分類排序（有產品數量多的在前）
-  const sortedGroups = Array.from(categoryMap.values()).sort((a, b) => b.products.length - a.products.length);
-
-  const toggleCategory = (catId: string) => {
-    setExpandedCategories(prev => {
-      const next = new Set(prev);
-      if (next.has(catId)) next.delete(catId);
-      else next.add(catId);
-      return next;
-    });
-  };
 
   // =========== Excel 導入 ===========
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -76,7 +44,7 @@ export function ProductsPage() {
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows: any[] = XLSX.utils.sheet_to_json(firstSheet);
       const parsed = rows.map(r => ({
-        restaurant_id: getRestaurantId(),
+        restaurant_id: DEMO_RESTAURANT_ID,
         name: r['name'] ?? r['product_name'] ?? '未命名',
         price: Number(r['price'] ?? r['price_hkd'] ?? 0),
         category_id: r['category_id'] || null,
@@ -169,7 +137,7 @@ export function ProductsPage() {
           if (!existingCat) {
             const { data: newCat, error: catError } = await supabase
               .from('categories')
-              .insert([{ restaurant_id: getRestaurantId(), name: catName, sort_order: 99 }])
+              .insert([{ restaurant_id: DEMO_RESTAURANT_ID, name: catName, sort_order: 99 }])
               .select()
               .single();
             if (!catError && newCat) {
@@ -184,7 +152,7 @@ export function ProductsPage() {
 
       // 批量插入產品
       const productsToInsert = aiProducts.map((item: any) => ({
-        restaurant_id: getRestaurantId(),
+        restaurant_id: DEMO_RESTAURANT_ID,
         name: item.name || '未命名',
         price: Number(item.price) || 0,
         category_id: categoryMap[item.category] || null,
@@ -222,7 +190,6 @@ export function ProductsPage() {
         price: editingProduct.price || 0,
         category_id: editingProduct.category_id || null,
         description: editingProduct.description || '',
-        composition: editingProduct.composition || '',
         status: (editingProduct.status || 'available') as Product['status'],
         updated_at: new Date().toISOString(),
       };
@@ -238,7 +205,7 @@ export function ProductsPage() {
         // 新增
         const { error } = await supabase
           .from('products')
-          .insert([{ ...productData, restaurant_id: getRestaurantId() }]);
+          .insert([{ ...productData, restaurant_id: DEMO_RESTAURANT_ID }]);
         if (error) throw error;
       }
 
@@ -268,16 +235,16 @@ export function ProductsPage() {
   };
 
   const openAddModal = () => {
-    setEditingProduct({ name: '', price: 0, category_id: null, description: '', composition: '', status: 'available' });
+    setEditingProduct({ name: '', price: 0, category_id: null, description: '', status: 'available' });
     setShowAddModal(true);
   };
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-xl md:text-2xl font-bold text-gray-900">產品管理</h1>
-          <p className="text-sm text-muted-foreground">管理菜單產品與客製化選項</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">產品管理</h1>
+          <p className="text-muted-foreground">管理菜單產品與客製化選項</p>
         </div>
         <div className="flex gap-2">
           <input
@@ -287,26 +254,20 @@ export function ProductsPage() {
             accept=".xlsx,.xls,.csv,image/*"
             onChange={handleFileUpload}
           />
-          {can('product.manage') && (
-            <>
-              <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-                <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel 導入
-              </Button>
-              <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={aiImporting}>
-                {aiImporting ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <ImageIcon className="w-4 h-4 mr-2" />
-                )}
-                {aiImporting ? 'AI 識別中...' : '圖片 AI 導入'}
-              </Button>
-            </>
-          )}
-          {can('product.manage') && (
-            <Button onClick={openAddModal}>
-              <Plus className="w-4 h-4 mr-2" /> 新增產品
-            </Button>
-          )}
+          <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+            <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel 導入
+          </Button>
+          <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={aiImporting}>
+            {aiImporting ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <ImageIcon className="w-4 h-4 mr-2" />
+            )}
+            {aiImporting ? 'AI 識別中...' : '圖片 AI 導入'}
+          </Button>
+          <Button onClick={openAddModal}>
+            <Plus className="w-4 h-4 mr-2" /> 新增產品
+          </Button>
         </div>
       </div>
 
@@ -333,6 +294,9 @@ export function ProductsPage() {
         <Button variant="ghost" size="sm" onClick={refetch}>
           <RefreshCw className="w-4 h-4" />
         </Button>
+        <Badge variant="secondary" className="text-sm">
+          共 {filteredProducts.length} 項產品
+        </Badge>
       </div>
 
       {/* 新增/編輯 Modal */}
@@ -370,19 +334,6 @@ export function ProductsPage() {
                 <Input value={editingProduct?.description || ''}
                   onChange={e => setEditingProduct(prev => prev ? { ...prev, description: e.target.value } : null)} />
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  配料組成
-                  <span className="ml-2 text-xs text-gray-400 font-normal">用於 AI 生成好評、客服回答、員工考核</span>
-                </label>
-                <textarea
-                  value={editingProduct?.composition || ''}
-                  onChange={e => setEditingProduct(prev => prev ? { ...prev, composition: e.target.value } : null)}
-                  placeholder="例：芋頭 100g、西米 50g、椰漿 200ml、花奶 3湯匙、冰糖 80g、水 500ml"
-                  className="w-full min-h-[80px] px-3 py-2 border rounded-lg text-sm resize-y focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                />
-                <p className="text-xs text-gray-400 mt-1">寫清楚份量比例，AI 會根據配料生成獨特評語</p>
-              </div>
               <div className="flex gap-2 justify-end pt-2">
                 <Button variant="outline" onClick={() => { setShowAddModal(false); setEditingProduct(null); }}>取消</Button>
                 <Button onClick={handleSaveProduct} disabled={saving}>
@@ -395,16 +346,10 @@ export function ProductsPage() {
         </div>
       )}
 
-      {/* 產品列表 - 分類展開式 */}
+      {/* 產品列表 */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FolderOpen className="w-5 h-5" />
-            產品列表
-            <Badge variant="secondary" className="ml-2 text-sm">
-              共 {filteredProducts.length} 項產品
-            </Badge>
-          </CardTitle>
+          <CardTitle className="flex items-center gap-2"><Coffee className="w-5 h-5" /> 產品列表</CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -412,113 +357,53 @@ export function ProductsPage() {
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
               <span className="ml-2">載入中...</span>
             </div>
-          ) : filteredProducts.length === 0 ? (
+          ) : filteredProducts.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3">名稱</th>
+                    <th className="px-4 py-3">分類</th>
+                    <th className="px-4 py-3">價格</th>
+                    <th className="px-4 py-3">狀態</th>
+                    <th className="px-4 py-3">描述</th>
+                    <th className="px-4 py-3">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredProducts.map(product => (
+                    <tr key={product.id} className="border-b hover:bg-gray-50">
+                      <td className="px-4 py-3 font-medium">{product.name}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant="outline">{product.category?.name || '未分類'}</Badge>
+                      </td>
+                      <td className="px-4 py-3">${product.price}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant={product.status === 'available' ? 'default' : 'secondary'}>
+                          {product.status === 'available' ? '供應中' : product.status === 'sold_out' ? '售罄' : '已下架'}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 max-w-xs truncate">{product.description || '—'}</td>
+                      <td className="px-4 py-3 flex gap-2">
+                        <Button size="icon" variant="ghost" onClick={() => openEditModal(product)}>
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" onClick={() => handleDeleteProduct(product.id)}>
+                          <X className="w-4 h-4 text-red-500" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
             <div className="text-center py-12 text-gray-400">
               <Coffee className="w-12 h-12 mx-auto mb-4 opacity-20" />
               <p>目前沒有產品，請點擊上方按鈕導入或手動新增。</p>
               <p className="text-sm mt-2">
                 支援 Excel 導入 或 使用 AI 從圖片自動識別產品
               </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {sortedGroups.map(group => {
-                const isExpanded = expandedCategories.has(group.categoryId);
-                return (
-                  <div key={group.categoryId} className="border rounded-lg overflow-hidden">
-                    {/* 分類標題 */}
-                    <button
-                      onClick={() => toggleCategory(group.categoryId)}
-                      className="w-full flex items-center justify-between px-5 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
-                    >
-                      <div className="flex items-center gap-3">
-                        {isExpanded ? (
-                          <ChevronDown className="w-5 h-5 text-gray-400" />
-                        ) : (
-                          <ChevronRight className="w-5 h-5 text-gray-400" />
-                        )}
-                        <span className="font-semibold text-gray-800">{group.categoryName}</span>
-                        <Badge variant="secondary" className="text-xs">
-                          {group.products.length} 項
-                        </Badge>
-                      </div>
-                      <ChevronRight
-                        className={`w-4 h-4 text-gray-400 transition-transform ${
-                          isExpanded ? 'rotate-90' : ''
-                        }`}
-                      />
-                    </button>
-
-                    {/* 展開後的產品列表 */}
-                    {isExpanded && (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                          <thead className="text-xs text-gray-700 uppercase bg-gray-50/50">
-                            <tr>
-                              <th className="px-4 py-2 whitespace-nowrap">名稱</th>
-                              <th className="px-4 py-2 whitespace-nowrap">價格</th>
-                              <th className="px-4 py-2 whitespace-nowrap hidden md:table-cell">狀態</th>
-                              <th className="px-4 py-2 whitespace-nowrap hidden md:table-cell">描述</th>
-                              <th className="px-4 py-2 whitespace-nowrap">操作</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {group.products.map(product => (
-                              <tr key={product.id} className="border-t hover:bg-gray-50">
-                                <td className="px-4 py-2.5 font-medium whitespace-nowrap max-w-[160px] sm:max-w-none overflow-hidden text-ellipsis">{product.name}</td>
-                                <td className="px-4 py-2.5 whitespace-nowrap">${product.price}</td>
-                                <td className="px-4 py-2.5 whitespace-nowrap hidden md:table-cell">
-                                  <Badge variant={product.status === 'available' ? 'default' : 'secondary'}>
-                                    {product.status === 'available' ? '供應中' : product.status === 'sold_out' ? '售罄' : '已下架'}
-                                  </Badge>
-                                </td>
-                                <td className="px-4 py-2.5 text-gray-500 max-w-xs hidden md:table-cell">
-                                  <div className="flex items-center gap-1.5 truncate">
-                                    <span className="truncate">{product.description || '—'}</span>
-                                    {product.composition && (
-                                      <span className="group relative inline-flex shrink-0">
-                                        <FlaskConical className="w-3.5 h-3.5 text-purple-400 cursor-help" />
-                                        <div className="absolute left-0 bottom-full mb-1.5 hidden group-hover:block z-10">
-                                          <div className="bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap max-w-[250px] overflow-hidden text-ellipsis">
-                                            <div className="font-medium mb-0.5">配料組成</div>
-                                            <div className="text-gray-300 font-normal">{product.composition}</div>
-                                          </div>
-                                        </div>
-                                      </span>
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="px-4 py-2.5">
-                                  {can('product.manage') && (
-                                    <div className="relative">
-                                      <Button size="icon" variant="ghost" onClick={() => setActiveMenuId(activeMenuId === product.id ? null : product.id)}>
-                                        <MoreVertical className="w-4 h-4" />
-                                      </Button>
-                                      {activeMenuId === product.id && (
-                                        <>
-                                          <div className="fixed inset-0 z-10" onClick={() => setActiveMenuId(null)} />
-                                          <div className="absolute right-0 top-full mt-1 z-20 bg-white border rounded-lg shadow-xl py-1 min-w-[130px]">
-                                            <button onClick={() => { openEditModal(product); setActiveMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-gray-700">
-                                              <Edit2 className="w-3.5 h-3.5" /> 編輯
-                                            </button>
-                                            <button onClick={() => { handleDeleteProduct(product.id); setActiveMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-red-600">
-                                              <X className="w-3.5 h-3.5" /> 刪除
-                                            </button>
-                                          </div>
-                                        </>
-                                      )}
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
             </div>
           )}
         </CardContent>

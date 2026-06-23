@@ -20,5 +20,5 @@ const req = https.request({
   });
 });
 
-req.write(JSON.stringify({ value: 'meta/llama-3.1-70b-instruct' }));
+req.write(JSON.stringify({ value: 'qwen/qwen3.5-122b-a10b' }));
 req.end();

@@ -2,7 +2,7 @@
 const https = require('https');
 
 const postData = JSON.stringify({
-  model: 'meta/llama-3.2-11b-vision-instruct',
+  model: 'qwen/qwen3.5-122b-a10b',
   messages: [
     { role: 'system', content: '你是香港食客，用廣東話寫短評。' },
     { role: 'user', content: '你是香港食客，用廣東話為「芋頭西米露」寫一段好評。\n情境：朋友聚餐後寫的，語氣開心雀躍\n要求：粵語口語、描述味道口感、5星、30-80字、不用emoji\n\n直接回覆好評內容：' }

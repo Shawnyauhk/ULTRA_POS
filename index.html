@@ -12,7 +12,6 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="application-name" content="家傳芋曉" />
 
     <!-- OG / 社群預覽 -->
@@ -31,6 +30,21 @@
     <link rel="apple-touch-icon" href="/ios/180.png" />
 
     <title>家傳芋曉 POS</title>
+    <script>
+      // 強制清除舊版 Service Worker，避免緩存導致 OCR 設定不生效
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for (let registration of registrations) {
+            registration.unregister();
+          }
+        });
+        if ('caches' in window) {
+          caches.keys().then(function(names) {
+            for (let name of names) caches.delete(name);
+          });
+        }
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

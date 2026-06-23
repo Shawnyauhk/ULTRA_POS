@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Clock, CheckCircle, AlertCircle, Loader2, Plus, Search, X, Pencil, Calendar, ChevronDown, ChevronRight, PackageCheck, FileCheck, Package, Trash2 } from 'lucide-react';
+import { Clock, CheckCircle, AlertCircle, Loader2, Plus, Search, X, Pencil, Calendar, ChevronDown, ChevronRight, PackageCheck, FileCheck, Package } from 'lucide-react';
 import { useOrderRequests, useInventory } from '@/hooks/useSupabaseData';
 import { FALLBACK_RESTAURANT_ID } from '@/hooks/useSupabaseData';
 import { usePermission } from '@/hooks/usePermission';
@@ -51,8 +51,6 @@ export function OrderRequestsPage() {
   const [editDate, setEditDate] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [completedExpanded, setCompletedExpanded] = useState(false);
-  const [selectMode, setSelectMode] = useState(false);
-  const [batchSelectedIds, setBatchSelectedIds] = useState<Set<string>>(new Set());
 const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragState, setDragState] = useState<{
@@ -70,7 +68,6 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   // =========== 桌面同欄拖曳排序 ===========
   const [columnOrder, setColumnOrder] = useState<Record<ColumnType, string[]>>({ request: [], pending: [], received: [], completed: [] });
   const desktopDragRef = useRef<{ orderId: string; colType: ColumnType } | null>(null);
-  const [desktopDraggingId, setDesktopDraggingId] = useState<string | null>(null);
 
   // 當訂單載入時初始化排序
   useEffect(() => {
@@ -513,37 +510,6 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     setEditItems(prev => [{ ...prev[0], quantity: qty }]);
   };
 
-  const handleBatchDelete = async () => {
-    if (batchSelectedIds.size === 0) return;
-    if (!confirm(`確定刪除已選的 ${batchSelectedIds.size} 項訂貨請求？此操作無法復原。`)) return;
-    let hasError = false;
-    for (const id of batchSelectedIds) {
-      try {
-        await supabase.from('order_request_items').delete().eq('order_request_id', id);
-        await supabase.from('order_requests').delete().eq('id', id);
-      } catch (err) {
-        console.error('批量刪除失敗 id:', id, err);
-        hasError = true;
-      }
-    }
-    if (hasError) alert('部分項目刪除失敗，請查看控制台');
-    setBatchSelectedIds(new Set());
-    setSelectMode(false);
-    refetch();
-  };
-
-  const handleDeleteSingleCard = async (order: OrderRequest) => {
-    if (!confirm('確定刪除此訂貨請求？此操作無法復原。')) return;
-    try {
-      await supabase.from('order_request_items').delete().eq('order_request_id', order.id);
-      await supabase.from('order_requests').delete().eq('id', order.id);
-      refetch();
-    } catch (err) {
-      console.error('Delete error:', err);
-      alert('刪除失敗');
-    }
-  };
-
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString('zh-TW', { 
@@ -653,7 +619,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                   key={order.id}
                   draggable="true"
                   ref={el => { if (el) cardRefs.current.set(order.id, el); }}
-                  className={`overflow-hidden select-none transition-all duration-200 ${borderColor} ${isExpanded ? 'border-primary/50 ring-1 ring-primary/20' : ''} ${dragState?.order.id === order.id || desktopDraggingId === order.id ? 'opacity-70 scale-[0.98]' : ''} ${isDragging && dragState?.order.id === order.id ? 'shadow-2xl scale-[1.03] ring-2 ring-indigo-400 z-50 relative' : 'hover:shadow-md active:scale-[1.01]'}`}
+                  className={`overflow-hidden select-none transition-all duration-200 ${borderColor} ${isExpanded ? 'border-primary/50 ring-1 ring-primary/20' : ''} ${dragState?.order.id === order.id ? 'opacity-40 scale-95' : ''} ${isDragging && dragState?.order.id === order.id ? 'shadow-2xl scale-[1.03] ring-2 ring-indigo-400 z-50 relative' : 'hover:shadow-md active:scale-[1.01]'}`}
                   onTouchStart={(e) => handleTouchStart(order, e)}
                   onTouchMove={handleTouchMove}
                   onTouchEnd={handleTouchEnd}
@@ -662,7 +628,6 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                     e.dataTransfer.setData('text/plain', order.id);
                     desktopDragRef.current = { orderId: order.id, colType };
                     setDraggedOrder(order);
-                    setDesktopDraggingId(order.id);
                   }}
                   onDragOver={(e) => {
                     if (!desktopDragRef.current) return;
@@ -684,38 +649,12 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                   onDragEnd={() => {
                     desktopDragRef.current = null;
                     setDraggedOrder(null);
-                    setDesktopDraggingId(null);
                   }}
                 >
                   <div
                     className="p-2.5 cursor-pointer hover:bg-gray-50/60 transition-colors"
-                    onClick={() => {
-                      if (selectMode) {
-                        setBatchSelectedIds(prev => {
-                          const next = new Set(prev);
-                          if (next.has(order.id)) next.delete(order.id); else next.add(order.id);
-                          return next;
-                        });
-                      } else {
-                        setExpandedOrder(isExpanded ? null : order.id);
-                      }
-                    }}
+                    onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
                   >
-                    {/* 選擇模式勾選框 */}
-                    {selectMode && (
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <input type="checkbox" checked={batchSelectedIds.has(order.id)}
-                          onChange={() => {
-                            setBatchSelectedIds(prev => {
-                              const next = new Set(prev);
-                              if (next.has(order.id)) next.delete(order.id); else next.add(order.id);
-                              return next;
-                            });
-                          }}
-                          className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer" />
-                        <span className="text-xs text-gray-400 font-normal">選擇</span>
-                      </div>
-                    )}
                     {/* 預設只顯示貨物名 + 數量（緊密排列） */}
                     <div className="text-sm font-medium text-gray-800 leading-snug flex items-baseline gap-1">
                       <span className="truncate">{firstItem?.inventory?.name || order.notes || '未知貨物'}</span>
@@ -737,25 +676,13 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                             </span>
                           )}
                           {can('order.approve') && (
-                            <div className="flex items-center gap-1">
-                              <button
-                                className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
-                                onClick={(e) => { e.stopPropagation(); handleEditRequest(order); }}
-                              >
-                                <Pencil className="h-3 w-3" />
-                                編輯
-                              </button>
-                              <button
-                                className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteSingleCard(order);
-                                }}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                                刪除
-                              </button>
-                            </div>
+                            <button
+                              className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                              onClick={(e) => { e.stopPropagation(); handleEditRequest(order); }}
+                            >
+                              <Pencil className="h-3 w-3" />
+                              編輯
+                            </button>
                           )}
                         </div>
 
@@ -921,18 +848,6 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
           <p className="text-sm text-muted-foreground">點擊卡片檢視詳細內容</p>
         </div>
         <div className="flex items-center gap-2">
-          {can('order.approve') && (
-            <Button variant={selectMode ? 'default' : 'outline'} size="sm"
-              onClick={() => { setSelectMode(!selectMode); setBatchSelectedIds(new Set()); }}>
-              <Trash2 className="h-4 w-4 mr-1.5" />
-              {selectMode ? '取消選擇' : '批量刪除'}
-            </Button>
-          )}
-          {selectMode && batchSelectedIds.size > 0 && (
-            <Button variant="destructive" size="sm" onClick={handleBatchDelete}>
-              刪除 {batchSelectedIds.size} 項
-            </Button>
-          )}
           {can('order.create') && (
             <Button onClick={() => setShowRequestModal(true)}>
               <Plus className="h-4 w-4 mr-2" />

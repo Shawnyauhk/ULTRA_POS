@@ -16,10 +16,10 @@ import { generateSchedule, formatScheduleToText, parseScheduleFromText } from '@
 import type { ShiftAssignment } from '@/lib/schedulingEngine'
 
 const TABS = [
-  { key: 'schedules', label: '排班表', shortLabel: '排班', icon: CalendarDays },
-  { key: 'attendance', label: '打卡記錄', shortLabel: '打卡', icon: Clock },
-  { key: 'employees', label: '員工名冊', shortLabel: '員工', icon: Users },
-  { key: 'smart_schedule', label: '智能排班', shortLabel: '智能', icon: Brain },
+  { key: 'schedules', label: '排班表', icon: CalendarDays },
+  { key: 'attendance', label: '打卡記錄', icon: Clock },
+  { key: 'employees', label: '員工名冊', icon: Users },
+  { key: 'smart_schedule', label: '智能排班', icon: Brain },
 ] as const
 
 type TabKey = (typeof TABS)[number]['key']
@@ -347,7 +347,7 @@ export function HRPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-0 border-b border-gray-200 overflow-x-auto -mx-3 px-3">
+      <div className="flex gap-0 border-b border-gray-200">
         {TABS.map(tab => {
           const Icon = tab.icon
           const isActive = activeTab === tab.key
@@ -355,18 +355,16 @@ export function HRPage() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-1 px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 isActive ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              <Icon className="h-4 w-4 shrink-0" />
-              <span className="hidden sm:inline">{tab.label}</span>
-              <span className="sm:hidden">{tab.shortLabel || tab.label}</span>
+              <Icon className="h-4 w-4" />
+              {tab.label}
             </button>
           )
         })}
       </div>
-      <div className="text-[10px] text-gray-300 text-right px-2 py-0.5">v0620</div>
 
       {/* Toast */}
       {message && (
@@ -903,76 +901,50 @@ export function HRPage() {
                                   evening: a.evening.map(n => nameToId[n] || n),
                                 }))
 
-                                // 构建新排班映射：key = empId_date
-                                const newRecordsMap = new Map<string, { date: string; start_time: string; end_time: string; shift_type: string; employee_id: string }>()
+                                const monthStr = format(schedMonth, 'yyyy-MM')
+                                const { data: existing } = await supabase
+                                  .from('schedules')
+                                  .select('id')
+                                  .gte('date', `${monthStr}-01`)
+                                  .lte('date', `${monthStr}-31`)
+                                if (existing && existing.length > 0) {
+                                  await supabase.from('schedules').delete().in('id', existing.map(e => e.id))
+                                }
+
+                                const records: any[] = []
                                 for (const a of resolved) {
                                   for (const empId of a.morning) {
                                     if (empId.length < 30) continue
-                                    newRecordsMap.set(`${empId}_${a.date}`, {
+                                    records.push({
                                       employee_id: empId,
                                       date: a.date,
                                       start_time: '09:00',
                                       end_time: '14:00',
                                       shift_type: 'morning',
+                                      status: 'confirmed',
+                                      created_by: user?.id,
+                                      notes: '智能排班生成',
                                     })
                                   }
                                   for (const empId of a.evening) {
                                     if (empId.length < 30) continue
-                                    newRecordsMap.set(`${empId}_${a.date}`, {
+                                    records.push({
                                       employee_id: empId,
                                       date: a.date,
                                       start_time: '14:00',
                                       end_time: '19:00',
                                       shift_type: 'evening',
+                                      status: 'confirmed',
+                                      created_by: user?.id,
+                                      notes: '智能排班生成',
                                     })
                                   }
                                 }
 
-                                // 获取当前月份所有现有排班
-                                const monthStr = format(schedMonth, 'yyyy-MM')
-                                const { data: existingSchedules } = await supabase
-                                  .from('schedules')
-                                  .select('id, employee_id, date')
-                                  .gte('date', `${monthStr}-01`)
-                                  .lte('date', `${monthStr}-31`)
-
-                                // 按 empId_date 建立现有排班映射
-                                const existingMap = new Map<string, string>() // key → id
-                                for (const s of existingSchedules || []) {
-                                  existingMap.set(`${s.employee_id}_${s.date}`, s.id)
+                                if (records.length > 0) {
+                                  const { error } = await supabase.from('schedules').insert(records)
+                                  if (error) throw error
                                 }
-
-                                // 删除：现有但不在新计划中
-                                const toDeleteIds: string[] = []
-                                for (const [key, id] of existingMap) {
-                                  if (!newRecordsMap.has(key)) {
-                                    toDeleteIds.push(id)
-                                  }
-                                }
-                                if (toDeleteIds.length > 0) {
-                                  const { error: delErr } = await supabase.from('schedules').delete().in('id', toDeleteIds)
-                                  if (delErr) throw delErr
-                                }
-
-                                // 新增或更新：遍历新排班
-                                const commonFields = { status: 'confirmed' as const, created_by: user?.id, notes: '智能排班生成' }
-                                for (const [key, record] of newRecordsMap) {
-                                  const existingId = existingMap.get(key)
-                                  const data = { ...record, ...commonFields }
-                                  if (existingId) {
-                                    // 更新
-                                    const { error: updErr } = await supabase.from('schedules').update(data).eq('id', existingId)
-                                    if (updErr) throw updErr
-                                  } else {
-                                    // 新增
-                                    const { error: insErr } = await supabase.from('schedules').insert([data])
-                                    if (insErr) throw insErr
-                                  }
-                                }
-
-                                setMessage({ type: 'success', text: `已套用 ${newRecordsMap.size} 筆排班到日曆` })
-                                setTimeout(() => setMessage(null), 3000)
-                                await refetchSched()
 
                                 await refetchSched()
                                 refetchUnavail()

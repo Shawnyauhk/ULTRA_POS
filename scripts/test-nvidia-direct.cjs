@@ -4,7 +4,7 @@ const API_KEY = process.env.VITE_NVIDIA_NIM_API_KEY || 'nvapi-BHVkooM36v4Yrea83q
 const API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
 const body = JSON.stringify({
-  model: 'meta/llama-3.2-11b-vision-instruct',
+  model: 'qwen/qwen3.5-122b-a10b',
   messages: [{ role: 'user', content: '用廣東話寫一個關於芋頭西米露的好評' }],
   max_tokens: 200,
   stream: false,

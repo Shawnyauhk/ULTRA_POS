@@ -163,11 +163,17 @@ export default function ExpensesPage() {
   // AI OCR States
   const [showOCR, setShowOCR] = useState(false);
   const [ocrMode, setOcrMode] = useState<'receipt' | 'handwritten'>('receipt');
+  const [ocrModel, setOcrModel] = useState<'qwen' | 'llama'>('qwen');
+  const [ocrProcessingModel, setOcrProcessingModel] = useState<string>('');
+  const [ocrActualModel, setOcrActualModel] = useState<string>('');
   const [ocrPreview, setOcrPreview] = useState<string | null>(null);
   const [ocrResult, setOcrResult] = useState<FormExpense | null>(null);
   const [ocrHandwrittenEntries, setOcrHandwrittenEntries] = useState<FormExpense[]>([]);
   const [editingEntryIndex, setEditingEntryIndex] = useState(-1);
   const [expandedEntryIndex, setExpandedEntryIndex] = useState<number | null>(null);
+  const [ocrProcessing, setOcrProcessing] = useState(false);
+  const [ocrImageDataUrl, setOcrImageDataUrl] = useState<string | null>(null); // 壓縮後的 base64，用於上傳
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null); // 放大查看
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => {
     const now = new Date();
     const y = now.getFullYear();
@@ -175,6 +181,10 @@ export default function ExpensesPage() {
     return new Set([`year:${y}`, `month:${y}-${m}`]);
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  // 檢測是否為手機
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
   const [newExpense, setNewExpense] = useState<FormExpense>({
     category: '進貨成本',
@@ -234,65 +244,262 @@ export default function ExpensesPage() {
     if (!success) setErrorMessage('刪除支出失敗');
   };
 
-  /** 壓縮圖片：縮小到 maxDimension 以下，減少 base64 體積，避免 API 超時 */
-  const compressImage = (dataUrl: string, maxDimension = 1600, quality = 0.75): Promise<string> => {
+  /**
+   * 讀取圖片的 EXIF orientation，返回需要旋轉的角度
+   * 手機拍照後 EXIF orientation 可能是 1-8，需要正確處理
+   */
+  const getExifOrientation = (file: File): Promise<number> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const view = new DataView(e.target?.result as ArrayBuffer);
+          // 檢查是否為 JPEG
+          if (view.getUint16(0, false) !== 0xFFD8) { resolve(1); return; }
+          let offset = 2;
+          while (offset < view.byteLength) {
+            const marker = view.getUint16(offset, false);
+            offset += 2;
+            if (marker === 0xFFE1) { // APP1 (EXIF)
+              const length = view.getUint16(offset, false);
+              offset += 2;
+              // 檢查 EXIF 標識
+              const exifId = String.fromCharCode(
+                view.getUint8(offset), view.getUint8(offset+1),
+                view.getUint8(offset+2), view.getUint8(offset+3),
+                view.getUint8(offset+4)
+              );
+              if (exifId === 'Exif\0') {
+                // 找到 Orientation tag (tag 0x0112)
+                const tiffOffset = offset + 6;
+                const little = view.getUint16(tiffOffset, false) === 0x4949;
+                const ifdOffset = view.getUint32(tiffOffset + 4, little);
+                const numEntries = view.getUint16(tiffOffset + ifdOffset, little);
+                for (let i = 0; i < numEntries; i++) {
+                  const entryOffset = tiffOffset + ifdOffset + 2 + i * 12;
+                  const tag = view.getUint16(entryOffset, little);
+                  if (tag === 0x0112) { // Orientation
+                    const orientation = view.getUint16(entryOffset + 8, little);
+                    resolve(orientation || 1);
+                    return;
+                  }
+                }
+              }
+              offset += length - 2;
+            } else if (marker === 0xFFDA || marker === 0xFFD9) {
+              break;
+            } else {
+              offset += view.getUint16(offset, false) - 2;
+            }
+          }
+          resolve(1);
+        } catch {
+          resolve(1);
+        }
+      };
+      reader.onerror = () => resolve(1);
+      reader.readAsArrayBuffer(file.slice(0, 65536)); // 只讀前 64KB 找 EXIF
+    });
+  };
+
+  /**
+   * 根據 EXIF orientation 旋轉 canvas
+   * orientation: 1=正常, 3=180°, 6=90°CW, 8=90°CCW
+   */
+  const applyOrientation = (canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, orientation: number): void => {
+    const width = canvas.width, height = canvas.height;
+    if (orientation <= 1) return;
+
+    // 暫存原始圖片
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = width;
+    tempCanvas.height = height;
+    const tempCtx = tempCanvas.getContext('2d')!;
+    tempCtx.drawImage(canvas, 0, 0);
+
+    // 根據 orientation 變換 canvas 尺寸
+    if (orientation >= 5) {
+      canvas.width = height;
+      canvas.height = width;
+    } else {
+      canvas.width = width;
+      canvas.height = height;
+    }
+
+    ctx.save();
+    switch (orientation) {
+      case 2: ctx.transform(-1, 0, 0, 1, width, 0); break;
+      case 3: ctx.transform(-1, 0, 0, -1, width, height); break;
+      case 4: ctx.transform(1, 0, 0, -1, 0, height); break;
+      case 5: ctx.transform(0, 1, 1, 0, 0, 0); break;
+      case 6: ctx.transform(0, 1, -1, 0, height, 0); break;
+      case 7: ctx.transform(0, -1, -1, 0, height, width); break;
+      case 8: ctx.transform(0, -1, 1, 0, 0, width); break;
+    }
+    ctx.drawImage(tempCanvas, 0, 0, width, height);
+    ctx.restore();
+  };
+
+  /** 增強圖片對比度（手機拍照光線不均時很有用） */
+  const enhanceContrast = (canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D): void => {
+    try {
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      const len = data.length;
+
+      // === 步驟 1: 灰度化 + 自動色階 ===
+      let min = 255, max = 0;
+      for (let i = 0; i < len; i += 4) {
+        // 加权灰度化
+        const gray = data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114;
+        data[i] = data[i+1] = data[i+2] = gray;
+        if (gray < min) min = gray;
+        if (gray > max) max = gray;
+      }
+
+      // 自動色階拉伸（限制 1% 裁剪避免噪點干擾）
+      const range = max - min;
+      if (range > 10) {
+        const lowCut = min + range * 0.01;
+        const highCut = max - range * 0.01;
+        const factor = 255 / (highCut - lowCut + 1);
+        for (let i = 0; i < len; i += 4) {
+          const v = data[i];
+          const stretched = Math.min(255, Math.max(0, (v - lowCut) * factor));
+          data[i] = data[i+1] = data[i+2] = Math.round(stretched);
+        }
+      }
+
+      // === 步驟 2: Sharpen 銳化 ===
+      // 複製一份原始像素
+      const orig = new Uint8ClampedArray(data);
+      const w = canvas.width;
+      // 3x3 sharpen kernel
+      const kernel = [0, -1, 0, -1, 5, -1, 0, -1, 0];
+      for (let y = 1; y < canvas.height - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const idx = (y * w + x) * 4;
+          let r = 0, g = 0, b = 0;
+          for (let ky = -1; ky <= 1; ky++) {
+            for (let kx = -1; kx <= 1; kx++) {
+              const k = kernel[(ky + 1) * 3 + (kx + 1)];
+              const pixelIdx = ((y + ky) * w + (x + kx)) * 4;
+              r += orig[pixelIdx] * k;
+              g += orig[pixelIdx + 1] * k;
+              b += orig[pixelIdx + 2] * k;
+            }
+          }
+          data[idx]     = Math.min(255, Math.max(0, r));
+          data[idx + 1] = Math.min(255, Math.max(0, g));
+          data[idx + 2] = Math.min(255, Math.max(0, b));
+        }
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+    } catch (e) {
+      // 如果增強失敗，忽略（不影響主流程）
+      console.warn('[OCR] 圖片增強跳過:', e);
+    }
+  };
+
+  /** 壓縮圖片：處理 EXIF 方向 + 對比度增強 + 手機優化 */
+  const compressImageFromUrl = (objectUrl: string, orientation: number = 1): Promise<string> => {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
+        // 手機用 1000px/0.65 品質，桌機用 1280px/0.70（降低解析度加快識別速度）
+        const maxDimension = isMobile ? 1000 : 1280;
+        const quality = isMobile ? 0.65 : 0.70;
         let { width, height } = img;
-        if (width > maxDimension || height > maxDimension) {
-          if (width > height) {
-            height = Math.round(height * maxDimension / width);
-            width = maxDimension;
+
+        // 先根據 orientation 交換寬高（orientation >= 5 表示需要交換寬高）
+        let targetW = width, targetH = height;
+        if (orientation >= 5) { [targetW, targetH] = [targetH, targetW]; }
+
+        if (targetW > maxDimension || targetH > maxDimension) {
+          if (targetW > targetH) {
+            targetH = Math.round(targetH * maxDimension / targetW);
+            targetW = maxDimension;
           } else {
-            width = Math.round(width * maxDimension / height);
-            height = maxDimension;
+            targetW = Math.round(targetW * maxDimension / targetH);
+            targetH = maxDimension;
           }
         }
+
         const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = targetW;
+        canvas.height = targetH;
         const ctx = canvas.getContext('2d');
         if (!ctx) { reject(new Error('Canvas 不支援')); return; }
-        ctx.drawImage(img, 0, 0, width, height);
+
+        // 先繪製並壓縮
+        ctx.drawImage(img, 0, 0, targetW, targetH);
+
+        // 應用 EXIF 方向旋轉
+        if (orientation > 1) {
+          applyOrientation(canvas, ctx, orientation);
+        }
+
+        // 增強對比度
+        enhanceContrast(canvas, ctx);
+
         resolve(canvas.toDataURL('image/jpeg', quality));
       };
       img.onerror = () => reject(new Error('圖片加載失敗'));
-      img.src = dataUrl;
+      img.src = objectUrl;
     });
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // 清空 input value，允許重新選擇同一個檔案
+    e.target.value = '';
     setOcrResult(null);
     setOcrHandwrittenEntries([]);
     setOcrResult(null);
     setOcrHandwrittenEntries([]);
     setExpandedEntryIndex(null);
-    const reader = new FileReader();
-    reader.onerror = () => {
-      setErrorMessage('檔案讀取失敗，請重新上傳');
-      setOcrPreview(null);
-    };
-    reader.onload = async (event) => {
-      const imageData = event.target?.result as string;
-      setOcrPreview(imageData);
+    setOcrProcessing(true);
+    setErrorMessage('');
+
+    try {
+      // 使用 createObjectURL 避免超大 base64 記憶體問題（手機照片可達 20-50MB）
+      const objectUrl = URL.createObjectURL(file);
+      setOcrPreview(objectUrl);
+
+      // 讀取 EXIF orientation（手機拍照必須處理）
+      const orientation = await getExifOrientation(file);
+      console.log(`[OCR] EXIF orientation: ${orientation}`);
+
+      console.log(`[OCR] 開始壓縮圖片 (手機: ${isMobile}, 原始大小: ${(file.size/1024).toFixed(0)}KB, orientation: ${orientation})...`);
+
+      // 壓縮圖片再發送（傳入 orientation）
+      const compressed = await compressImageFromUrl(objectUrl, orientation);
+
+      // 釋放 object URL
+      URL.revokeObjectURL(objectUrl);
+
+      console.log(`[OCR] 壓縮完成: ${(compressed.length/1024).toFixed(0)}KB, 模式: ${ocrMode}, 模型: ${ocrModel}`);
+      // 保存壓縮後的圖片用於後續上傳儲存
+      setOcrImageDataUrl(compressed);
+
+      // === 開始 AI 識別 ===
       try {
-        console.log(`[OCR] 開始壓縮圖片 (原始: ${(imageData.length/1024).toFixed(0)}KB)...`);
-        // 壓縮圖片再發送
-        const compressed = await compressImage(imageData, 1600, 0.75);
-        console.log(`[OCR] 壓縮完成: ${(compressed.length/1024).toFixed(0)}KB, 模式: ${ocrMode}`);
 
-        // 增加 fetch 逾時控制（120秒）
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 120000);
+      // 映射模型 ID
+      const modelId = ocrModel === 'qwen' ? 'qwen/qwen3.5-122b-a10b' : 'meta/llama-3.2-11b-vision-instruct';
+      setOcrProcessingModel(ocrModel === 'qwen' ? 'Qwen 3.5-122B' : 'Llama 3.2 Vision');
 
-        console.log(`[OCR] 調用 API (${ocrMode} 模式)...`);
+      // 增加 fetch 逾時控制（75 秒）
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 75000);
+
+        console.log(`[OCR] 調用 API (${ocrMode} 模式, 模型 ${modelId})...`);
         const response = await fetch('/api/ocr/receipt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: compressed, mode: ocrMode }),
+          body: JSON.stringify({ image: compressed, mode: ocrMode, model: modelId }),
           signal: controller.signal,
         });
         clearTimeout(timeout);
@@ -304,6 +511,9 @@ export default function ExpensesPage() {
 
         const json = await response.json();
         if (!json.success) throw new Error(json.message || '識別失敗');
+
+        // 儲存後端實際使用的模型名稱（從 NVIDIA API 回傳的 model 字段）
+        setOcrActualModel(json.data.model || modelId);
 
         const text = json.data.text;
         const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -520,13 +730,21 @@ export default function ExpensesPage() {
         console.error('OCR 識別失敗:', err);
         if (err.name === 'AbortError') {
           setErrorMessage('OCR 請求逾時（超過120秒），請嘗試上傳較小的圖片');
+        } else if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+          setErrorMessage('网络連線失敗，手機請確認網路穩定後重試');
         } else {
           setErrorMessage('OCR 識別失敗: ' + (err.message || '請確認後端服務是否運行'));
         }
         setOcrPreview(null);
+      } finally {
+        setOcrProcessing(false);
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (outerErr: any) {
+      console.error('[OCR] 檔案處理錯誤:', outerErr);
+      setErrorMessage('照片處理失敗，請嘗試用較低解析度拍照或從相簿選擇');
+      setOcrPreview(null);
+      setOcrProcessing(false);
+    }
   };
 
   const handleOCRConfirm = async () => {
@@ -536,6 +754,25 @@ export default function ExpensesPage() {
       return;
     }
     setSaving(true);
+
+    // 上傳圖片到後台
+    let receiptUrl = '';
+    if (ocrImageDataUrl) {
+      try {
+        const uploadRes = await fetch('/api/ocr/upload-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: ocrImageDataUrl }),
+        });
+        const uploadJson = await uploadRes.json();
+        if (uploadJson.success) {
+          receiptUrl = uploadJson.data.url;
+        }
+      } catch (uploadErr) {
+        console.warn('[OCR] 圖片上傳失敗，不影響儲存:', uploadErr);
+      }
+    }
+
     const expenseData = {
       category: labelToCategory(ocrResult.category),
       amount: ocrResult.amount,
@@ -543,6 +780,7 @@ export default function ExpensesPage() {
       expense_date: ocrResult.expense_date,
       payment_status: ocrResult.payment_status,
       supplier: ocrResult.supplier || '',
+      receipt_url: receiptUrl || '',
     };
     const result = await createExpense(expenseData);
     if (!result.success) setErrorMessage('OCR 保存失敗：' + (result as any).error);
@@ -551,6 +789,7 @@ export default function ExpensesPage() {
     setOcrPreview(null);
     setOcrResult(null);
     setOcrHandwrittenEntries([]);
+    setOcrImageDataUrl(null);
     setEditingEntryIndex(-1);
     setExpandedEntryIndex(null);
   };
@@ -564,6 +803,25 @@ export default function ExpensesPage() {
       return;
     }
     setSaving(true);
+
+    // 上傳圖片到後台
+    let receiptUrl = '';
+    if (ocrImageDataUrl) {
+      try {
+        const uploadRes = await fetch('/api/ocr/upload-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: ocrImageDataUrl }),
+        });
+        const uploadJson = await uploadRes.json();
+        if (uploadJson.success) {
+          receiptUrl = uploadJson.data.url;
+        }
+      } catch (uploadErr) {
+        console.warn('[OCR] 圖片上傳失敗，不影響儲存:', uploadErr);
+      }
+    }
+
     let failed = 0;
     for (const entry of ocrHandwrittenEntries) {
       const result = await createExpense({
@@ -573,6 +831,7 @@ export default function ExpensesPage() {
         expense_date: entry.expense_date,
         payment_status: entry.payment_status,
         supplier: entry.supplier || '',
+        receipt_url: receiptUrl || '',
       });
       if (!result.success) failed++;
     }
@@ -584,6 +843,7 @@ export default function ExpensesPage() {
     setOcrPreview(null);
     setOcrResult(null);
     setOcrHandwrittenEntries([]);
+    setOcrImageDataUrl(null);
     setEditingEntryIndex(-1);
     setExpandedEntryIndex(null);
   };
@@ -961,25 +1221,65 @@ export default function ExpensesPage() {
                     >手寫記帳</button>
                   </div>
                 </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-xs text-gray-500">AI 模型：</span>
+                  <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg">
+                    <button
+                      onClick={() => setOcrModel('qwen')}
+                      className={`px-2.5 py-0.5 text-xs rounded-md transition-colors ${ocrModel === 'qwen' ? 'bg-white shadow-sm font-medium text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >Qwen 3.5-122B</button>
+                    <button
+                      onClick={() => setOcrModel('llama')}
+                      className={`px-2.5 py-0.5 text-xs rounded-md transition-colors ${ocrModel === 'llama' ? 'bg-white shadow-sm font-medium text-purple-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >Llama 3.2 Vision</button>
+                  </div>
+                  <span className="text-xs text-gray-400">（可對比兩個模型）</span>
+                </div>
                 <CardDescription>
                   {ocrMode === 'receipt' ? '上傳收據照片，AI 自動辨識品項與金額' : '上傳手寫記賬本照片，AI 自動提取多筆支出'}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
+                {isMobile && <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileUpload} />}
                 {!ocrPreview ? (
-                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-                    <Camera className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                    <p>{ocrMode === 'receipt' ? '點擊上傳收據照片' : '點擊上傳手寫記賬本照片'}</p>
-                  </div>
+                  <>
+                    {ocrProcessing ? (
+                      <div className="flex flex-col items-center justify-center p-8">
+                        <Loader2 className="w-12 h-12 animate-spin text-blue-500 mb-4" />
+                        <p className="text-sm text-gray-500">{ocrProcessingModel ? `${ocrProcessingModel} 識別中...` : '正在處理圖片，請稍候...'}</p>
+                        <p className="text-xs text-gray-400 mt-1">手機照片較大，壓縮可能需要幾秒鐘</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-blue-400 transition-colors" onClick={() => fileInputRef.current?.click()}>
+                          <Camera className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                          <p>{ocrMode === 'receipt' ? '從相簿選擇收據照片' : '從相簿選擇手寫記賬本照片'}</p>
+                          <p className="text-xs text-gray-400 mt-1">或</p>
+                        </div>
+                        {isMobile && (
+                          <div className="border-2 border-dashed border-green-300 rounded-lg p-6 text-center cursor-pointer hover:border-green-400 transition-colors bg-green-50/30" onClick={() => cameraInputRef.current?.click()}>
+                            <Camera className="w-10 h-10 mx-auto text-green-500 mb-2" />
+                            <p className="text-green-700 font-medium">📸 直接拍照</p>
+                            <p className="text-xs text-green-500 mt-1">使用相機拍攝收據</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="grid md:grid-cols-2 gap-4">
-                    <img src={ocrPreview} alt="Preview" className="w-full max-h-64 object-contain rounded-lg border" />
+                    <img
+                      src={ocrPreview}
+                      alt="Preview"
+                      className="w-full max-h-64 object-contain rounded-lg border cursor-pointer hover:opacity-90 transition-opacity"
+                      onClick={() => setLightboxImage(ocrPreview)}
+                    />
                     <div className="space-y-4">
                       {ocrHandwrittenEntries.length > 0 ? (
                         // === 手寫模式：按日期分組表格顯示，可編輯 ===
                         <>
-                          <p className="font-medium">識別到 {ocrHandwrittenEntries.length} 筆支出：</p>
+                          <p className="font-medium">識別到 {ocrHandwrittenEntries.length} 筆支出 <span className="text-xs text-gray-400 font-normal">（實際模型: {ocrActualModel || (ocrProcessingModel || (ocrModel === 'qwen' ? 'Qwen 3.5-122B' : 'Llama 3.2 Vision'))}）</span>：</p>
                           {(() => {
                             // 按日期分組
                             const groups: { date: string; entries: { entry: FormExpense; idx: number }[] }[] = [];
@@ -1160,7 +1460,7 @@ export default function ExpensesPage() {
                       ) : ocrResult ? (
                         // === 收據模式：單筆支出 ===
                         <>
-                          <p className="font-medium">解析結果：</p>
+                          <p className="font-medium">解析結果 <span className="text-xs text-gray-400 font-normal">（實際模型: {ocrActualModel || (ocrProcessingModel || (ocrModel === 'qwen' ? 'Qwen 3.5-122B' : 'Llama 3.2 Vision'))}）</span>：</p>
                           <p>金額：${ocrResult.amount}</p>
                           <p>分類：{ocrResult.category}</p>
                           <p>供應商：{ocrResult.supplier || '—'}</p>
@@ -1437,6 +1737,16 @@ export default function ExpensesPage() {
                                                   <div className="flex items-baseline gap-1 mb-2">
                                                     <span className="text-gray-400 shrink-0">記錄時間：</span>
                                                     <span className="text-gray-700">{new Date(exp.created_at).toLocaleString()}</span>
+                                                  </div>
+                                                )}
+                                                {exp.receipt_url && (
+                                                  <div className="mb-2">
+                                                    <button
+                                                      onClick={() => setLightboxImage(exp.receipt_url!)}
+                                                      className="text-xs text-blue-600 hover:text-blue-800 underline flex items-center gap-1"
+                                                    >
+                                                      <Receipt className="w-3 h-3" />查看收據照片
+                                                    </button>
                                                   </div>
                                                 )}
                                                 {/* 修改/儲存/刪除按鈕 */}
@@ -2021,6 +2331,29 @@ export default function ExpensesPage() {
               <p className="font-medium">{errorMessage}</p>
             </div>
             <Button variant="outline" className="mt-4 w-full" onClick={() => setErrorMessage(null)}>關閉</Button>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 圖片放大檢視（Lightbox） ===== */}
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 cursor-zoom-out"
+          onClick={() => setLightboxImage(null)}
+        >
+          <div className="relative max-w-full max-h-full flex items-center justify-center">
+            <img
+              src={lightboxImage}
+              alt="收據放大"
+              className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            />
+            <button
+              onClick={() => setLightboxImage(null)}
+              className="absolute top-2 right-2 bg-black/50 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-black/70 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
         </div>
       )}
