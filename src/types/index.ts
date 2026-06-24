@@ -248,6 +248,7 @@ export interface Expense {
   category: ExpenseCategory
   amount: number
   description?: string
+  invoice?: string
   receipt_url?: string
   expense_date: string
   handler?: string

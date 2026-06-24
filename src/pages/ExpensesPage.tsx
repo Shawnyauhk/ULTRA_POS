@@ -47,6 +47,7 @@ interface FormExpense {
   category: string;
   amount: number;
   description: string;
+  invoice: string;
   handler: string;
   expense_date: string;
   payment_status: string;
@@ -484,38 +485,55 @@ export default function ExpensesPage() {
       // 保存壓縮後的圖片用於後續上傳儲存
       setOcrImageDataUrl(compressed);
 
-      // === 開始 AI 識別 ===
-      try {
+      // === 開始 AI 識別（默認用 Qwen，失敗自動用 Llama 後備）===
+      let ocrResponse;
+      let usedModelId = 'qwen/qwen3.5-122b-a10b';
+      let lastError: any = null;
 
-      // 映射模型 ID
-      const modelId = ocrModel === 'qwen' ? 'qwen/qwen3.5-122b-a10b' : 'meta/llama-3.2-11b-vision-instruct';
-      setOcrProcessingModel(ocrModel === 'qwen' ? 'Qwen 3.5-122B' : 'Llama 3.2 Vision');
-
-      // 增加 fetch 逾時控制（75 秒）
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 75000);
-
-        console.log(`[OCR] 調用 API (${ocrMode} 模式, 模型 ${modelId})...`);
-        const response = await fetch('/api/ocr/receipt', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: compressed, mode: ocrMode, model: modelId }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-
-        if (!response.ok) {
-          const errText = await response.text().catch(() => '');
-          throw new Error(`OCR API 錯誤: ${response.status} - ${errText.slice(0, 100)}`);
+      for (const attemptModel of ['qwen/qwen3.5-122b-a10b', 'meta/llama-3.2-11b-vision-instruct']) {
+        if (lastError) {
+          console.log(`[OCR] ⚠️ Qwen 失敗，自動切換 Llama 作後備...`);
         }
+        setOcrProcessingModel(attemptModel.includes('qwen') ? 'Qwen 3.5-122B' : 'Llama 3.2 Vision');
 
-        const json = await response.json();
-        if (!json.success) throw new Error(json.message || '識別失敗');
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 75000);
 
-        // 儲存後端實際使用的模型名稱（從 NVIDIA API 回傳的 model 字段）
-        setOcrActualModel(json.data.model || modelId);
+        try {
+          console.log(`[OCR] 調用 API (${ocrMode} 模式, 模型 ${attemptModel})...`);
+          const resp = await fetch('/api/ocr/receipt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: compressed, mode: ocrMode, model: attemptModel }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
 
-        const text = json.data.text;
+          if (!resp.ok) {
+            const errText = await resp.text().catch(() => '');
+            throw new Error(`OCR API 錯誤: ${resp.status} - ${errText.slice(0, 100)}`);
+          }
+
+          const json = await resp.json();
+          if (!json.success) throw new Error(json.message || '識別失敗');
+
+          ocrResponse = json;
+          usedModelId = attemptModel;
+          setOcrActualModel(json.data.model || attemptModel);
+          break; // 成功，跳出循環
+        } catch (err) {
+          clearTimeout(timeout);
+          lastError = err;
+          if (attemptModel === 'meta/llama-3.2-11b-vision-instruct') {
+            throw err; // 兩個模型都失敗了
+          }
+          // Qwen 失敗，繼續用 Llama 嘗試
+        }
+      }
+
+      if (!ocrResponse) throw lastError || new Error('OCR 識別失敗');
+
+      const text = ocrResponse.data.text;
         const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
         if (ocrMode === 'handwritten') {
@@ -711,34 +729,18 @@ export default function ExpensesPage() {
             if (items.length > 0) description = items.join(', ');
           }
 
-          // 組合描述：發票號 + 品項
-          const parts: string[] = [];
-          if (invoice) parts.push(`發票: ${invoice}`);
-          if (description) parts.push(description);
-
+          // 描述只包含品項，不包含發票號
           setOcrResult({
             amount,
             expense_date,
             category,
-            description: parts.join(' | ') || text.slice(0, 200),
+            description: description || text.slice(0, 200),
+            invoice,
             handler: 'AI',
             payment_status: '',
             supplier,
           });
         }
-      } catch (err: any) {
-        console.error('OCR 識別失敗:', err);
-        if (err.name === 'AbortError') {
-          setErrorMessage('OCR 請求逾時（超過120秒），請嘗試上傳較小的圖片');
-        } else if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
-          setErrorMessage('网络連線失敗，手機請確認網路穩定後重試');
-        } else {
-          setErrorMessage('OCR 識別失敗: ' + (err.message || '請確認後端服務是否運行'));
-        }
-        setOcrPreview(null);
-      } finally {
-        setOcrProcessing(false);
-      }
     } catch (outerErr: any) {
       console.error('[OCR] 檔案處理錯誤:', outerErr);
       setErrorMessage('照片處理失敗，請嘗試用較低解析度拍照或從相簿選擇');
@@ -777,6 +779,7 @@ export default function ExpensesPage() {
       category: labelToCategory(ocrResult.category),
       amount: ocrResult.amount,
       description: ocrResult.description,
+      invoice: ocrResult.invoice || '',
       expense_date: ocrResult.expense_date,
       payment_status: ocrResult.payment_status,
       supplier: ocrResult.supplier || '',
@@ -828,6 +831,7 @@ export default function ExpensesPage() {
         category: labelToCategory(entry.category),
         amount: entry.amount,
         description: entry.description,
+        invoice: entry.invoice || '',
         expense_date: entry.expense_date,
         payment_status: entry.payment_status,
         supplier: entry.supplier || '',
@@ -1221,22 +1225,8 @@ export default function ExpensesPage() {
                     >手寫記帳</button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs text-gray-500">AI 模型：</span>
-                  <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg">
-                    <button
-                      onClick={() => setOcrModel('qwen')}
-                      className={`px-2.5 py-0.5 text-xs rounded-md transition-colors ${ocrModel === 'qwen' ? 'bg-white shadow-sm font-medium text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-                    >Qwen 3.5-122B</button>
-                    <button
-                      onClick={() => setOcrModel('llama')}
-                      className={`px-2.5 py-0.5 text-xs rounded-md transition-colors ${ocrModel === 'llama' ? 'bg-white shadow-sm font-medium text-purple-600' : 'text-gray-500 hover:text-gray-700'}`}
-                    >Llama 3.2 Vision</button>
-                  </div>
-                  <span className="text-xs text-gray-400">（可對比兩個模型）</span>
-                </div>
                 <CardDescription>
-                  {ocrMode === 'receipt' ? '上傳收據照片，AI 自動辨識品項與金額' : '上傳手寫記賬本照片，AI 自動提取多筆支出'}
+                  {ocrMode === 'receipt' ? '上傳收據照片，AI 自動辨識品項與金額（預設 Qwen 3.5-122B，失敗自動切換 Llama）' : '上傳手寫記賬本照片，AI 自動提取多筆支出'}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -1279,7 +1269,7 @@ export default function ExpensesPage() {
                       {ocrHandwrittenEntries.length > 0 ? (
                         // === 手寫模式：按日期分組表格顯示，可編輯 ===
                         <>
-                          <p className="font-medium">識別到 {ocrHandwrittenEntries.length} 筆支出 <span className="text-xs text-gray-400 font-normal">（實際模型: {ocrActualModel || (ocrProcessingModel || (ocrModel === 'qwen' ? 'Qwen 3.5-122B' : 'Llama 3.2 Vision'))}）</span>：</p>
+                          <p className="font-medium">識別到 {ocrHandwrittenEntries.length} 筆支出：</p>
                           {(() => {
                             // 按日期分組
                             const groups: { date: string; entries: { entry: FormExpense; idx: number }[] }[] = [];
@@ -1460,10 +1450,11 @@ export default function ExpensesPage() {
                       ) : ocrResult ? (
                         // === 收據模式：單筆支出 ===
                         <>
-                          <p className="font-medium">解析結果 <span className="text-xs text-gray-400 font-normal">（實際模型: {ocrActualModel || (ocrProcessingModel || (ocrModel === 'qwen' ? 'Qwen 3.5-122B' : 'Llama 3.2 Vision'))}）</span>：</p>
+                          <p className="font-medium">解析結果：</p>
                           <p>金額：${ocrResult.amount}</p>
                           <p>分類：{ocrResult.category}</p>
                           <p>供應商：{ocrResult.supplier || '—'}</p>
+                          {ocrResult.invoice && <p>發票號碼：{ocrResult.invoice}</p>}
                           <p>描述：{ocrResult.description}</p>
                           <div>
                             <label className="text-sm font-medium">付款狀態</label>
@@ -1737,6 +1728,12 @@ export default function ExpensesPage() {
                                                   <div className="flex items-baseline gap-1 mb-2">
                                                     <span className="text-gray-400 shrink-0">記錄時間：</span>
                                                     <span className="text-gray-700">{new Date(exp.created_at).toLocaleString()}</span>
+                                                  </div>
+                                                )}
+                                                {exp.invoice && (
+                                                  <div className="flex items-baseline gap-1 mb-2">
+                                                    <span className="text-gray-400 shrink-0">發票號碼：</span>
+                                                    <span className="text-gray-700">{exp.invoice}</span>
                                                   </div>
                                                 )}
                                                 {exp.receipt_url && (
