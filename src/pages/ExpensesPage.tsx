@@ -1226,7 +1226,7 @@ export default function ExpensesPage() {
                   </div>
                 </div>
                 <CardDescription>
-                  {ocrMode === 'receipt' ? '上傳收據照片，AI 自動辨識品項與金額（預設 Qwen 3.5-122B，失敗自動切換 Llama）' : '上傳手寫記賬本照片，AI 自動提取多筆支出'}
+                  {ocrMode === 'receipt' ? '上傳收據照片，AI 自動辨識品項與金額' : '上傳手寫記賬本照片，AI 自動提取多筆支出'}
                 </CardDescription>
               </CardHeader>
               <CardContent>
