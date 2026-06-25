@@ -2535,6 +2535,11 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3, customModel
 - 金額數字要注意小數點位置（$10.50 ≠ $1050）
 - 日期要注意年月日的數字順序
 
+【折扣處理 - 非常重要！】
+- 如果有「折扣」「減免」「優惠」「會員折」「全場折」等欄位，必須先識別折扣金額
+- 最終入帳金額必須是折扣後的「應付金額」「實付金額」「需付」「合計」，不是原價
+- 範例：原價 $155.20，折扣 -$31.00，則總價 = $124.20（不是 $155.20）
+
 【必輸欄位】
 1. 日期: YYYY-MM-DD（帳單日期，必須單獨一行）
 2. 供應商: XXX（必須單獨一行，**從帳單抬頭/標誌識別真正的供應商**，不要用地址或店名）
@@ -2551,10 +2556,16 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3, customModel
    - 薪金（員工薪金/強積金）
    - 雜項（其他）
 4. 品項: 品名1 $價格1, 品名2 $價格2, ...（所有品項用逗號分隔放在同一行；電費單則寫「電費(XX度) $金額」）
-5. 總價: $總金額（必須單獨一行，只輸出數字）
+5. 總價: $總金額（必須為折扣後的應付金額，不是折扣前的原價）
+
+   - 重要：如果收據上有「折扣」「減免」「優惠」「會員折」「全場折」等欄位，總價必須是折扣後的實付金額
+   - 優先使用「應付金額」「實付金額」「需付」「合計」「應付」欄位的數字作為總價
+   - 忽略「原價」「金額總計」「小計」「折扣前總額」等折扣前的數字
+
+6. 折扣: $-折扣金額（如有折扣欄位則單獨一行輸出；無折扣則不輸出）
 
 【可選欄位】
-6. 發票: 編號（如有，單獨一行）
+7. 發票: 編號（如有，單獨一行）
 
 重要規則：
 - 每個欄位必須獨立一行，以「欄位名:」開頭
@@ -2563,7 +2574,7 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3, customModel
 - 只輸出以上欄位，不要任何其他文字或 markdown 格式
 - 不要輸出「**」「-」等符號
 
-範例輸出1（進貨收據）：
+範例輸出1（進貨收據無折扣）：
 日期: 2026-05-18
 供應商: 炳記行
 分類: 進貨成本
@@ -2571,7 +2582,16 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3, customModel
 品項: 蛋 $270, 淡忌廉 $630, 椰漿 $280
 總價: $1180
 
-範例輸出2（電費帳單）：
+範例輸出2（有折扣的收據）：
+日期: 2026-06-25
+供應商: 永南食品
+分類: 進貨成本
+發票: INV-20260625
+品項: 椰漿 $100, 西米 $31, 芒果 $55, 糯米粉 $37
+總價: $124.20
+折扣: $-31.00
+
+範例輸出3（電費帳單）：
 日期: 2026-04-15
 供應商: 中電
 分類: 電費
@@ -2758,6 +2778,47 @@ app.post('/api/ocr/upload-image', async (req, res) => {
     res.json({ success: true, data: { url: urlData.publicUrl } });
   } catch (error) {
     console.error('[OCR] 圖片上傳錯誤:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =========== Storage 圖片代理（解決跨域載入問題）=============
+app.get('/api/storage/proxy', async (req, res) => {
+  try {
+    const { url } = req.query;
+    console.log('[Storage Proxy] 收到請求:', url);
+    if (!url || typeof url !== 'string') {
+      console.log('[Storage Proxy] 缺少 url 參數');
+      return res.status(400).json({ success: false, message: '缺少 url 參數' });
+    }
+    // 只允許 Supabase storage 的 URL（解析主機名與路徑，避免大小寫或空白問題）
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(url.trim());
+    } catch {
+      console.log('[Storage Proxy] 無效的 URL:', url);
+      return res.status(400).json({ success: false, message: '無效的 URL' });
+    }
+    if (!parsedUrl.hostname.toLowerCase().endsWith('.supabase.co') ||
+        !parsedUrl.pathname.startsWith('/storage/v1/object/public/')) {
+      console.log('[Storage Proxy] 不允許的來源:', url);
+      return res.status(403).json({ success: false, message: '不允許的來源：' + url });
+    }
+    console.log('[Storage Proxy] 正在從 Storage 取得:', url);
+    const response = await fetch(url);
+    console.log('[Storage Proxy] Storage 回應:', response.status, response.statusText);
+    if (!response.ok) {
+      return res.status(502).json({ success: false, message: '取得圖片失敗: ' + response.statusText });
+    }
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const buffer = Buffer.from(await response.arrayBuffer());
+    console.log('[Storage Proxy] 圖片大小:', buffer.length, 'Content-Type:', contentType);
+    res.set('Content-Type', contentType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(buffer);
+    console.log('[Storage Proxy] 已回傳圖片');
+  } catch (error) {
+    console.error('[Storage Proxy] 錯誤:', error.message, error.stack);
     res.status(500).json({ success: false, message: error.message });
   }
 });

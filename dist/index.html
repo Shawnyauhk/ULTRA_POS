@@ -44,9 +44,29 @@
           });
         }
       }
+
+      // 開發模式：監聽 Vite 熱更新連線，斷線時自動重載頁面
+      var viteCheckInterval = setInterval(function() {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', location.href, true);
+        xhr.timeout = 5000;
+        xhr.onload = function() {
+          if (xhr.status >= 400) {
+            console.warn('[AutoReload] 伺服器返回錯誤(' + xhr.status + ')，即將重新載入');
+            clearInterval(viteCheckInterval);
+            location.reload(true);
+          }
+        };
+        xhr.onerror = function() {
+          console.warn('[AutoReload] 無法連線到伺服器，即將重新載入');
+          clearInterval(viteCheckInterval);
+          setTimeout(function() { location.reload(true); }, 1000);
+        };
+        xhr.send();
+      }, 10000); // 每 10 秒檢查一次
     </script>
-    <script type="module" crossorigin src="/assets/index-DLVIFTjy.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DlRjVHqt.css">
+    <script type="module" crossorigin src="/assets/index-Cd74YSLO.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DtYo4Y6I.css">
   <link rel="manifest" href="/manifest.webmanifest"></head>
   <body>
     <div id="root"></div>

@@ -540,7 +540,7 @@ export default function ExpensesPage() {
           // === 手寫記賬本模式：解析多筆支出，支援日/月 與 YYYY-MM-DD 格式 ===
           const entries: FormExpense[] = [];
           let currentDate = '';
-          const thisYear = new Date().getFullYear(); // 2026
+          let lastYear = new Date().getFullYear(); // 預設今年，有完整年/月時更新
           let detectedMonth = -1; // 從第一個有月份的日期檢測
 
           for (const line of lines) {
@@ -552,6 +552,7 @@ export default function ExpensesPage() {
             if (m) {
               const y = m[1], mo = m[2].padStart(2, '0'), d = m[3].padStart(2, '0');
               currentDate = `${y}-${mo}-${d}`;
+              lastYear = parseInt(y);
               if (detectedMonth < 0) detectedMonth = parseInt(mo);
               entries.push({
                 amount: parseFloat(m[5].replace(/,/g, '')),
@@ -570,7 +571,7 @@ export default function ExpensesPage() {
             if (m) {
               const day = m[1].padStart(2, '0'), month = m[2].padStart(2, '0');
               if (detectedMonth < 0) detectedMonth = parseInt(month);
-              currentDate = `${thisYear}-${month}-${day}`;
+              currentDate = `${lastYear}-${month}-${day}`;
               entries.push({
                 amount: parseFloat(m[4].replace(/,/g, '')),
                 expense_date: currentDate,
@@ -588,7 +589,7 @@ export default function ExpensesPage() {
             if (m) {
               const day = m[1].padStart(2, '0'), month = m[2].padStart(2, '0');
               if (detectedMonth < 0) detectedMonth = parseInt(month);
-              currentDate = `${thisYear}-${month}-${day}`;
+              currentDate = `${lastYear}-${month}-${day}`;
               entries.push({
                 amount: parseFloat(m[3].replace(/,/g, '')),
                 expense_date: currentDate,
@@ -605,6 +606,7 @@ export default function ExpensesPage() {
             m = line.match(/^日期[：:]\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})[,\s]*支出[：:]\s*\$?\s*([\d,]+\.?\d*)/);
             if (m) {
               const y = m[1], mo = m[2].padStart(2, '0'), d = m[3].padStart(2, '0');
+              lastYear = parseInt(y);
               if (detectedMonth < 0) detectedMonth = parseInt(mo);
               currentDate = `${y}-${mo}-${d}`;
               entries.push({
@@ -624,7 +626,7 @@ export default function ExpensesPage() {
             if (m) {
               const day = m[1].padStart(2, '0'), month = m[2].padStart(2, '0');
               if (detectedMonth < 0) detectedMonth = parseInt(month);
-              currentDate = `${thisYear}-${month}-${day}`;
+              currentDate = `${lastYear}-${month}-${day}`;
               continue;
             }
 
@@ -632,6 +634,7 @@ export default function ExpensesPage() {
             m = line.match(/^日期[：:]\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
             if (m) {
               const y = m[1], mo = m[2].padStart(2, '0'), d = m[3].padStart(2, '0');
+              lastYear = parseInt(y);
               if (detectedMonth < 0) detectedMonth = parseInt(mo);
               currentDate = `${y}-${mo}-${d}`;
               continue;
@@ -658,7 +661,7 @@ export default function ExpensesPage() {
 
           // 如果全部未匹配到日期，使用第一個檢測到的月份作為當月 1 日
           if (entries.length === 0) {
-            const fallbackDate = `${thisYear}-${String(detectedMonth).padStart(2, '0')}-01`;
+            const fallbackDate = `${lastYear}-${String(detectedMonth).padStart(2, '0')}-01`;
             entries.push({
               amount: 0,
               expense_date: fallbackDate,
@@ -743,7 +746,7 @@ export default function ExpensesPage() {
         }
     } catch (outerErr: any) {
       console.error('[OCR] 檔案處理錯誤:', outerErr);
-      setErrorMessage('照片處理失敗，請嘗試用較低解析度拍照或從相簿選擇');
+      setErrorMessage('照片處理失敗: ' + (outerErr?.message || outerErr?.toString() || '未知錯誤'));
       setOcrPreview(null);
       setOcrProcessing(false);
     }
@@ -793,6 +796,8 @@ export default function ExpensesPage() {
     setOcrResult(null);
     setOcrHandwrittenEntries([]);
     setOcrImageDataUrl(null);
+    setOcrProcessing(false);
+    setOcrProcessingModel('');
     setEditingEntryIndex(-1);
     setExpandedEntryIndex(null);
   };
@@ -848,6 +853,8 @@ export default function ExpensesPage() {
     setOcrResult(null);
     setOcrHandwrittenEntries([]);
     setOcrImageDataUrl(null);
+    setOcrProcessing(false);
+    setOcrProcessingModel('');
     setEditingEntryIndex(-1);
     setExpandedEntryIndex(null);
   };
@@ -1263,7 +1270,7 @@ export default function ExpensesPage() {
                       src={ocrPreview}
                       alt="Preview"
                       className="w-full max-h-64 object-contain rounded-lg border cursor-pointer hover:opacity-90 transition-opacity"
-                      onClick={() => setLightboxImage(ocrPreview)}
+                      onClick={() => setLightboxImage(ocrImageDataUrl || ocrPreview)}
                     />
                     <div className="space-y-4">
                       {ocrHandwrittenEntries.length > 0 ? (
@@ -1448,28 +1455,63 @@ export default function ExpensesPage() {
                           </div>
                         </>
                       ) : ocrResult ? (
-                        // === 收據模式：單筆支出 ===
+                        // === 收據模式：單筆支出（所有欄位可即時編輯） ===
                         <>
-                          <p className="font-medium">解析結果：</p>
-                          <p>金額：${ocrResult.amount}</p>
-                          <p>分類：{ocrResult.category}</p>
-                          <p>供應商：{ocrResult.supplier || '—'}</p>
-                          {ocrResult.invoice && <p>發票號碼：{ocrResult.invoice}</p>}
-                          <p>描述：{ocrResult.description}</p>
-                          <div>
-                            <label className="text-sm font-medium">付款狀態</label>
-                            <select
-                              value={ocrResult.payment_status}
-                              onChange={(e) => setOcrResult({ ...ocrResult, payment_status: e.target.value })}
-                              className="w-full border rounded-md px-3 py-2 text-sm mt-1"
-                            >
-                              <option value="">-- 請選擇 --</option>
-                              <option value="cash">現金已付</option>
-                              <option value="bank">銀行已付</option>
-                              <option value="unpaid">未付</option>
-                            </select>
+                          <p className="font-medium mb-2">解析結果（可即時編輯）：</p>
+                          <div className="space-y-3">
+                            <div>
+                              <label className="text-sm font-medium">日期</label>
+                              <input type="date" value={ocrResult.expense_date}
+                                onChange={(e) => setOcrResult({ ...ocrResult, expense_date: e.target.value })}
+                                className="w-full border rounded-md px-3 py-2 text-sm mt-1" />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">金額</label>
+                              <input type="number" step="0.01" min="0" value={ocrResult.amount}
+                                onChange={(e) => setOcrResult({ ...ocrResult, amount: parseFloat(e.target.value) || 0 })}
+                                className="w-full border rounded-md px-3 py-2 text-sm mt-1" />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">分類</label>
+                              <select value={ocrResult.category}
+                                onChange={(e) => setOcrResult({ ...ocrResult, category: e.target.value })}
+                                className="w-full border rounded-md px-3 py-2 text-sm mt-1">
+                                {CATEGORY_DISPLAY.map(c => <option key={c.value} value={c.label}>{c.label}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">供應商</label>
+                              <input type="text" value={ocrResult.supplier || ''}
+                                onChange={(e) => setOcrResult({ ...ocrResult, supplier: e.target.value })}
+                                className="w-full border rounded-md px-3 py-2 text-sm mt-1" placeholder="輸入供應商名稱" />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">發票號碼</label>
+                              <input type="text" value={ocrResult.invoice || ''}
+                                onChange={(e) => setOcrResult({ ...ocrResult, invoice: e.target.value })}
+                                className="w-full border rounded-md px-3 py-2 text-sm mt-1" placeholder="無發票號碼則留空" />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">描述</label>
+                              <input type="text" value={ocrResult.description || ''}
+                                onChange={(e) => setOcrResult({ ...ocrResult, description: e.target.value })}
+                                className="w-full border rounded-md px-3 py-2 text-sm mt-1" placeholder="支出項目描述" />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">付款狀態</label>
+                              <select
+                                value={ocrResult.payment_status}
+                                onChange={(e) => setOcrResult({ ...ocrResult, payment_status: e.target.value })}
+                                className="w-full border rounded-md px-3 py-2 text-sm mt-1"
+                              >
+                                <option value="">-- 請選擇 --</option>
+                                <option value="cash">現金已付</option>
+                                <option value="bank">銀行已付</option>
+                                <option value="unpaid">未付</option>
+                              </select>
+                            </div>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 mt-4">
                             <Button onClick={handleOCRConfirm} disabled={saving} className="flex-1">
                               {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                               確認添加到資料庫
@@ -1736,22 +1778,22 @@ export default function ExpensesPage() {
                                                     <span className="text-gray-700">{exp.invoice}</span>
                                                   </div>
                                                 )}
-                                                {exp.receipt_url && (
-                                                  <div className="mb-2">
-                                                    <button
-                                                      onClick={() => setLightboxImage(exp.receipt_url!)}
-                                                      className="text-xs text-blue-600 hover:text-blue-800 underline flex items-center gap-1"
-                                                    >
-                                                      <Receipt className="w-3 h-3" />查看收據照片
-                                                    </button>
+                                                <div className="flex items-center justify-between min-h-[24px]">
+                                                  <div>
+                                                    {exp.receipt_url && (
+                                                      <button
+                                                        onClick={() => setLightboxImage(exp.receipt_url!)}
+                                                        className="text-xs text-blue-600 hover:text-blue-800 underline flex items-center gap-1"
+                                                      >
+                                                        <Receipt className="w-3 h-3" />查看收據照片
+                                                      </button>
+                                                    )}
                                                   </div>
-                                                )}
-                                                {/* 修改/儲存/刪除按鈕 */}
-                                                {can('expense.manage') && (
-                                                  <div className="border-t border-indigo-200 pt-2 mt-2 flex items-center justify-end gap-2">
+                                                  {can('expense.manage') && (
+                                                  <div className="flex items-center justify-end gap-1">
                                                     {deleteConfirmId === exp.id ? (
                                                       <>
-                                                        <span className="text-xs text-red-600 mr-2">確認刪除？</span>
+                                                        <span className="text-xs text-red-600">確認刪除？</span>
                                                         <Button size="sm" variant="destructive" onClick={() => handleDelete(exp.id)} className="h-6 text-xs px-3">刪除</Button>
                                                         <Button size="sm" variant="ghost" onClick={() => setDeleteConfirmId(null)} className="h-6 text-xs">取消</Button>
                                                       </>
@@ -1765,17 +1807,18 @@ export default function ExpensesPage() {
                                                         </Button>
                                                       </>
                                                     ) : (
-                                                      <div className="flex items-center gap-2">
-                                                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => setDeleteConfirmId(exp.id)}>
+                                                      <div className="flex items-center gap-1">
+                                                        <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => setDeleteConfirmId(exp.id)}>
                                                           <Trash2 className="w-3 h-3" />
                                                         </Button>
-                                                        <Button size="sm" variant="outline" className="h-7 px-3 text-xs text-indigo-600 border-indigo-200 hover:bg-indigo-100" onClick={() => { setEditingId(exp.id); setEditForm({ category: categoryToLabel(exp.category), amount: exp.amount, description: exp.description, expense_date: exp.expense_date, payment_status: exp.payment_status, supplier: exp.supplier }); setExpandedDetailId(exp.id); }}>
-                                                          <Edit2 className="w-3 h-3 mr-1" />修改
+                                                        <Button size="sm" variant="outline" className="h-6 px-2 text-xs text-indigo-600 border-indigo-200 hover:bg-indigo-100" onClick={() => { setEditingId(exp.id); setEditForm({ category: categoryToLabel(exp.category), amount: exp.amount, description: exp.description, expense_date: exp.expense_date, payment_status: exp.payment_status, supplier: exp.supplier }); setExpandedDetailId(exp.id); }}>
+                                                          <Edit2 className="w-3 h-3" />修改
                                                         </Button>
                                                       </div>
                                                     )}
                                                   </div>
-                                                )}
+                                                  )}
+                                                </div>
                                               </div>
                                             )}
                                           </div>
@@ -2332,28 +2375,59 @@ export default function ExpensesPage() {
         </div>
       )}
 
-      {/* ===== 圖片放大檢視（Lightbox） ===== */}
-      {lightboxImage && (
+      {/* ===== 圖片放大檢視（Lightbox）— 支援滾輪/拖曳/手勢縮放 ===== */}
+      {lightboxImage && (() => {
+        let z = 1, panX = 0, panY = 0, isPan = false, sx = 0, sy = 0, psx = 0, psy = 0, pinch = 0;
+        const apply = () => { const el = document.getElementById('lb-img'); if (el) el.style.transform = `translate(${panX}px,${panY}px) scale(${z})`; };
+        const setZ = (n: number) => { z = Math.min(5, Math.max(0.5, n)); if (z <= 1) { panX = 0; panY = 0; } apply(); };
+        const reset = () => { z = 1; panX = 0; panY = 0; apply(); };
+
+        return (
         <div
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 cursor-zoom-out"
-          onClick={() => setLightboxImage(null)}
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 select-none"
+          style={{ cursor: isPan ? 'grabbing' : z > 1 ? 'grab' : 'zoom-out' }}
+          onClick={(e) => { if (e.target === e.currentTarget) { reset(); setLightboxImage(null); } }}
+          onWheel={(e: any) => { e.preventDefault(); setZ(z + (e.deltaY > 0 ? -0.15 : 0.15)); }}
+          onMouseDown={(e) => { if (z > 1) { isPan = true; sx = e.clientX; sy = e.clientY; psx = panX; psy = panY; } }}
+          onMouseMove={(e) => { if (isPan) { panX = psx + (e.clientX - sx); panY = psy + (e.clientY - sy); apply(); } }}
+          onMouseUp={() => { isPan = false; }}
+          onMouseLeave={() => { isPan = false; }}
+          onDoubleClick={() => z === 1 ? setZ(2.5) : reset()}
+          onTouchStart={(e: any) => {
+            const t = e.nativeEvent;
+            if (t.touches.length === 2) { pinch = Math.hypot(t.touches[0].clientX - t.touches[1].clientX, t.touches[0].clientY - t.touches[1].clientY); }
+            if (t.touches.length === 1 && z > 1) { isPan = true; sx = t.touches[0].clientX; sy = t.touches[0].clientY; psx = panX; psy = panY; }
+          }}
+          onTouchMove={(e: any) => {
+            const t = e.nativeEvent; e.preventDefault();
+            if (t.touches.length === 2 && pinch) { const d = Math.hypot(t.touches[0].clientX - t.touches[1].clientX, t.touches[0].clientY - t.touches[1].clientY); setZ(z + (d - pinch) / 200); pinch = d; }
+            if (t.touches.length === 1 && isPan) { panX = psx + (t.touches[0].clientX - sx); panY = psy + (t.touches[0].clientY - sy); apply(); }
+          }}
+          onTouchEnd={() => { isPan = false; pinch = 0; }}
         >
-          <div className="relative max-w-full max-h-full flex items-center justify-center">
-            <img
-              src={lightboxImage}
-              alt="收據放大"
-              className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+          <div className="relative flex items-center justify-center overflow-hidden" style={{ maxWidth: '95vw', maxHeight: '95vh' }}>
+            <img id="lb-img" src={lightboxImage} alt="收據放大" draggable={false}
+              className="rounded-lg shadow-2xl select-none"
+              style={{ maxWidth: '100%', maxHeight: '95vh', objectFit: 'contain' }}
               onClick={e => e.stopPropagation()}
+              onMouseDown={(e) => { e.preventDefault(); if (z > 1) { isPan = true; sx = e.clientX; sy = e.clientY; psx = panX; psy = panY; } }}
+              onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; ((e.currentTarget as HTMLElement).nextElementSibling as HTMLElement)?.classList.remove('hidden'); }}
             />
-            <button
-              onClick={() => setLightboxImage(null)}
-              className="absolute top-2 right-2 bg-black/50 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-black/70 transition-colors"
-            >
+            <div className="hidden text-white text-sm bg-black/60 px-4 py-2 rounded-lg">⚠️ 無法載入圖片</div>
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/50 rounded-full px-3 py-1.5">
+              <button onClick={(e) => { e.stopPropagation(); setZ(z - 0.25); }} className="text-white hover:text-blue-300 text-lg leading-none w-8 h-8 flex items-center justify-center">−</button>
+              <span className="text-white text-xs min-w-[42px] text-center">{Math.round(z * 100)}%</span>
+              <button onClick={(e) => { e.stopPropagation(); setZ(z + 0.25); }} className="text-white hover:text-blue-300 text-lg leading-none w-8 h-8 flex items-center justify-center">+</button>
+              <button onClick={(e) => { e.stopPropagation(); reset(); }} className="text-white hover:text-blue-300 text-xs ml-1">⟲</button>
+            </div>
+            <button onClick={() => { reset(); setLightboxImage(null); }}
+              className="absolute top-2 right-2 bg-black/50 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-black/70 transition-colors">
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
