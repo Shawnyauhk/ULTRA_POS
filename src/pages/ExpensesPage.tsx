@@ -7,13 +7,13 @@ import { Select } from '../components/ui/select';
 import { 
   Camera, Receipt, Calendar, 
   Trash2, Sparkles, User, Edit2, Save, X, Calculator, RefreshCw, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronRight,
-  DollarSign, ShieldCheck, Banknote
+  DollarSign, ShieldCheck, Banknote, BarChart3
 } from 'lucide-react';
 import { useExpenses } from '@/hooks/useSupabaseData';
 import { useRealtimeExpenses } from '@/hooks/useRealtime';
 import { usePermission } from '@/hooks/usePermission';
 import { useAuthStore } from '@/stores/auth';
-import { apiFetch } from '@/lib/supabase';
+import { supabase, apiFetch } from '@/lib/supabase';
 
 // ====== 分類映射（中文 ↔ DB 英文） ======
 const CATEGORY_DISPLAY: { value: string; label: string }[] = [
@@ -55,8 +55,9 @@ interface FormExpense {
 }
 
 export default function ExpensesPage() {
-  const [activeTab, setActiveTab] = useState<'expenses' | 'settlement' | 'cash_settlement' | 'safe'>('expenses');
+  const [activeTab, setActiveTab] = useState<'expenses' | 'settlement' | 'cash_settlement' | 'safe' | 'cash_report'>('expenses');
   const { can } = usePermission();
+  const { user } = useAuthStore();
 
   // Supabase Hook
   const { expenses, loading, refetch, createExpense, updateExpense, deleteExpense } = useExpenses();
@@ -79,6 +80,7 @@ export default function ExpensesPage() {
   const [settlement, setSettlement] = useState<Record<string, string>>({...initialSettlement});
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ type: string; text: string } | null>(null);
   const now = new Date();
   const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
   const [settlementSaving, setSettlementSaving] = useState(false);
@@ -868,6 +870,7 @@ export default function ExpensesPage() {
     cash_expenses: 0,
     expected_balance: 0,
     actual_counted: 0 as number | null,
+    retained_balance: 1500,
     deposited_safe: 0,
     difference: 0,
     status: 'pending',
@@ -920,7 +923,8 @@ export default function ExpensesPage() {
           cash_expenses: totalCashExps,
           expected_balance: expected,
           actual_counted: existing.actual_counted ? Number(existing.actual_counted) : null,
-          deposited_safe: Number(existing.deposited_safe) || deposited,
+          retained_balance: existing.retained_balance ? Number(existing.retained_balance) : 1500,
+          deposited_safe: existing.deposited_safe ? Number(existing.deposited_safe) : 0,
           difference: Number(existing.difference) || 0,
           status: existing.status || 'pending',
           notes: existing.notes || '',
@@ -933,7 +937,8 @@ export default function ExpensesPage() {
           cash_expenses: totalCashExps,
           expected_balance: expected,
           actual_counted: null,
-          deposited_safe: deposited,
+          retained_balance: 1500,
+          deposited_safe: 0,
           difference: 0,
           status: 'pending',
           notes: '',
@@ -957,8 +962,9 @@ export default function ExpensesPage() {
     setCashSaving(true);
     try {
       const actual = Number(cashRegister.actual_counted || 0);
+      const retained = Number(cashRegister.retained_balance || 1500);
+      const deposited = Number(cashRegister.deposited_safe || 0);
       const diff = actual - cashRegister.expected_balance;
-      const deposited = cashRegister.expected_balance > 1500 ? cashRegister.expected_balance - 1500 : 0;
 
       const payload = {
         restaurant_id: rid,
@@ -968,6 +974,7 @@ export default function ExpensesPage() {
         cash_expenses: cashRegister.cash_expenses,
         expected_balance: cashRegister.expected_balance,
         actual_counted: actual,
+        retained_balance: retained,
         deposited_safe: deposited,
         difference: diff,
         status: 'done',
@@ -1200,6 +1207,11 @@ export default function ExpensesPage() {
           {can('safe.view') && (
             <Button variant={activeTab === 'safe' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('safe')}>
               <ShieldCheck className="w-3.5 h-3.5 mr-1" />保險箱
+            </Button>
+          )}
+          {user?.role === 'owner' && (
+            <Button variant={activeTab === 'cash_report' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('cash_report')}>
+              <BarChart3 className="w-3.5 h-3.5 mr-1" />現金日結報告
             </Button>
           )}
         </div>
@@ -2067,163 +2079,129 @@ export default function ExpensesPage() {
                 </CardTitle>
                 <Input type="date" value={cashDate} onChange={e => setCashDate(e.target.value)} className="w-fit" />
               </div>
-              <CardDescription>底金 $1,500 + POS 現金收入 − 現金開支 = 系統計算餘額</CardDescription>
+              <CardDescription>員工日結：填寫以下 3 項資料後提交</CardDescription>
             </CardHeader>
             <CardContent>
               {cashLoading ? (
                 <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
               ) : (
                 <div className="space-y-4">
-                  {/* 系統計算區 - 每行顯示一欄 */}
-                  <div className="space-y-2">
-                    <div className="bg-blue-50 rounded-xl p-4 text-center">
-                      <p className="text-xs text-blue-600 font-medium mb-1">收銀箱底金</p>
-                      <p className="text-2xl font-bold text-blue-800">$1,500</p>
-                    </div>
-                    <div className="bg-green-50 rounded-xl p-4 text-center">
-                      <p className="text-xs text-green-600 font-medium mb-1">POS 現金收入</p>
-                      <p className="text-2xl font-bold text-green-700">${cashRegister.pos_cash_income.toLocaleString()}</p>
-                    </div>
-                    <div className="bg-red-50 rounded-xl p-4 text-center">
-                      <p className="text-xs text-red-600 font-medium mb-1">現金開支</p>
-                      <p className="text-2xl font-bold text-red-700">-${cashRegister.cash_expenses.toLocaleString()}</p>
-                    </div>
-                  </div>
-                  <div className="bg-indigo-50 rounded-xl p-4 text-center">
-                    <p className="text-xs text-indigo-600 font-medium mb-1">系統計算收銀箱餘額</p>
-                    <p className="text-3xl font-bold text-indigo-800">${cashRegister.expected_balance.toLocaleString()}</p>
+                  {/* 系統計算參考 */}
+                  <div className="bg-blue-50 rounded-xl p-4 text-sm text-blue-700">
+                    <p><strong>系統計算收銀箱餘額</strong>：底金 $1,500 + POS 現金 ${cashRegister.pos_cash_income.toLocaleString()} − 開支 ${cashRegister.cash_expenses.toLocaleString()} = <span className="text-lg font-bold">${cashRegister.expected_balance.toLocaleString()}</span></p>
                   </div>
 
-                  <div className="border-t pt-4 space-y-4">
-                    <h3 className="text-sm font-medium text-gray-700">店長點算</h3>
-                    <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full">
-                      <div className="w-full sm:flex-1 sm:min-w-0">
-                        <label className="text-xs font-medium text-gray-500 block mb-1">實際點算金額</label>
+                  {/* 員工填寫 3 欄 */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t pt-4">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 block mb-1.5">① 收工時錢箱總共有幾錢？</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
                         <Input
                           type="number"
                           value={cashRegister.actual_counted ?? ''}
                           onChange={e => {
                             const v = e.target.value ? Number(e.target.value) : null;
-                            setCashRegister(prev => ({
-                              ...prev,
-                              actual_counted: v,
-                              deposited_safe: v !== null && v > 1500 ? v - 1500 : 0,
-                              difference: v !== null ? v - prev.expected_balance : 0,
-                            }));
+                            setCashRegister(prev => ({ ...prev, actual_counted: v, difference: v !== null ? v - prev.expected_balance : 0 }));
                           }}
-                          placeholder="輸入點算金額"
+                          placeholder="輸入點算總金額"
+                          className="pl-7"
                         />
-                      </div>
-                      <div className="w-full sm:flex-1 sm:min-w-0">
-                        <label className="text-xs font-medium text-gray-500 block mb-1">存入保險箱（餘額−底金）</label>
-                        <Input type="number" value={cashRegister.deposited_safe} disabled className="bg-gray-50" />
                       </div>
                     </div>
                     <div>
-                      <label className="text-xs font-medium text-gray-500">備註</label>
-                      <Input value={cashRegister.notes} onChange={e => setCashRegister(prev => ({ ...prev, notes: e.target.value }))} placeholder="如有差異或其他備註" />
+                      <label className="text-xs font-medium text-gray-500 block mb-1.5">② 錢箱留多少錢到明天用？</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                        <Input
+                          type="number"
+                          value={cashRegister.retained_balance}
+                          onChange={e => setCashRegister(prev => ({ ...prev, retained_balance: e.target.value ? Number(e.target.value) : 0 }))}
+                          className="pl-7"
+                        />
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-1">預設 $1,500，可修改</p>
                     </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 block mb-1.5">③ 放了多少錢入保險箱？</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                        <Input
+                          type="number"
+                          value={cashRegister.deposited_safe}
+                          onChange={e => setCashRegister(prev => ({ ...prev, deposited_safe: e.target.value ? Number(e.target.value) : 0 }))}
+                          placeholder="輸入存入金額"
+                          className="pl-7"
+                        />
+                      </div>
+                    </div>
+                  </div>
 
-                    {cashRegister.actual_counted !== null && (
-                      <div className={`rounded-xl p-4 ${Math.abs(cashRegister.difference) >= 100 ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`}>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium">{Math.abs(cashRegister.difference) >= 100 ? '⚠️ 差異較大' : '✅ 差異正常'}</span>
-                          <span className={`text-xl font-bold ${cashRegister.difference >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                            {cashRegister.difference >= 0 ? '+' : ''}${cashRegister.difference.toLocaleString()}
-                          </span>
+                  {/* 實時計算核對 */}
+                  {cashRegister.actual_counted !== null && (
+                    <>
+                      <div className="bg-green-50 rounded-xl p-4 border border-green-200">
+                        <div className="grid grid-cols-3 gap-4 text-center">
+                          <div>
+                            <p className="text-xs text-gray-500">錢箱應有</p>
+                            <p className="text-lg font-bold text-gray-800">${cashRegister.expected_balance.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500">實際點算</p>
+                            <p className="text-lg font-bold text-gray-800">${(cashRegister.actual_counted || 0).toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500">差異</p>
+                            <p className={`text-lg font-bold ${cashRegister.difference >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {cashRegister.difference >= 0 ? '+' : ''}${cashRegister.difference.toLocaleString()}
+                            </p>
+                          </div>
                         </div>
                         {Math.abs(cashRegister.difference) >= 100 && (
-                          <p className="text-xs text-red-600 mt-1">差異達 $100 或以上，系統將自動通知老闆</p>
+                          <p className="text-xs text-red-600 text-center mt-2">⚠️ 差異達 $100 或以上，將自動通知老闆</p>
                         )}
                       </div>
-                    )}
-
-                    <div className="flex items-center justify-between pt-2 gap-2">
-                      <div>
-                        {can('safe.view') && (
-                          <Button variant="outline" size="sm" onClick={loadSafePopupData} disabled={safePopupLoading}>
-                            {safePopupLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <ShieldCheck className="w-3 h-3 mr-1" />}
-                            保險箱記錄
-                          </Button>
-                        )}
-                      </div>
-                      <Button onClick={handleSaveCashRegister} disabled={cashSaving || cashRegister.actual_counted === null || cashRegister.actual_counted === undefined}>
-                        {cashSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-                        {cashRegister.status === 'done' ? '更新日結' : '完成日結'}
-                      </Button>
-                    </div>
-
-                    {/* 保險箱記錄彈窗 */}
-                    {showSafePopup && (
-                      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowSafePopup(false)}>
-                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto mx-4" onClick={e => e.stopPropagation()}>
-                          <div className="sticky top-0 bg-white border-b px-5 py-4 flex items-center justify-between z-10">
-                            <h2 className="text-lg font-semibold flex items-center gap-2">
-                              <ShieldCheck className="w-5 h-5 text-amber-600" />
-                              保險箱記錄
-                            </h2>
-                            <button onClick={() => setShowSafePopup(false)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+                      <div className="bg-amber-50 rounded-xl p-4 border border-amber-200">
+                        <div className="grid grid-cols-2 gap-4 text-center">
+                          <div>
+                            <p className="text-xs text-gray-500">留明日</p>
+                            <p className="text-lg font-bold text-amber-700">${cashRegister.retained_balance.toLocaleString()}</p>
                           </div>
-                          <div className="p-5 space-y-6">
-                            {/* 全部存入總計 */}
-                            <div className="bg-amber-50 rounded-xl p-4 text-center">
-                              <p className="text-xs text-amber-600 font-medium mb-1">歷史存入總額</p>
-                              <p className="text-3xl font-bold text-amber-800">${safePopupData.totalDeposited.toLocaleString()}</p>
-                            </div>
-
-                            {/* 按月分類歸檔 */}
-                            <div>
-                              <h3 className="text-sm font-medium text-gray-700 mb-3">📁 每月分類歸檔</h3>
-                              <div className="space-y-2">
-                                {Object.entries(safePopupData.summary)
-                                  .sort(([a], [b]) => b.localeCompare(a))
-                                  .map(([month, amount]) => (
-                                    <div key={month} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
-                                      <span className="text-sm font-medium text-gray-700">{month}</span>
-                                      <span className="text-sm font-bold text-green-700">${amount.toLocaleString()}</span>
-                                    </div>
-                                  ))}
-                              </div>
-                            </div>
-
-                            {/* 每日存入明細 */}
-                            <div>
-                              <h3 className="text-sm font-medium text-gray-700 mb-3">📋 每日存入明細</h3>
-                              {safePopupData.deposits.length === 0 ? (
-                                <p className="text-sm text-gray-400 text-center py-4">尚無存入記錄</p>
-                              ) : (
-                                <div className="overflow-x-auto">
-                                  <table className="w-full text-xs">
-                                    <thead>
-                                      <tr className="border-b bg-gray-50">
-                                        <th className="text-left px-3 py-2 font-medium text-gray-500">日期</th>
-                                        <th className="text-right px-3 py-2 font-medium text-gray-500">金額</th>
-                                        <th className="text-left px-3 py-2 font-medium text-gray-500">備註</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {safePopupData.deposits.map((d: any, i: number) => (
-                                        <tr key={d.id || i} className="border-b border-gray-50 hover:bg-gray-50/50">
-                                          <td className="px-3 py-2 text-gray-700">{d.date}</td>
-                                          <td className="px-3 py-2 text-right font-medium text-green-700">${Number(d.amount).toLocaleString()}</td>
-                                          <td className="px-3 py-2 text-gray-400">{d.notes || '-'}</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              )}
-                            </div>
+                          <div>
+                            <p className="text-xs text-gray-500">存入保險箱</p>
+                            <p className="text-lg font-bold text-green-700">${cashRegister.deposited_safe.toLocaleString()}</p>
                           </div>
                         </div>
+                        <p className="text-xs text-gray-500 text-center mt-2">
+                          合計：<strong>${((cashRegister.retained_balance || 0) + (cashRegister.deposited_safe || 0)).toLocaleString()}</strong>
+                          {cashRegister.actual_counted !== null && Math.abs(((cashRegister.retained_balance || 0) + (cashRegister.deposited_safe || 0)) - (cashRegister.actual_counted || 0)) > 0.5 && (
+                            <span className="text-red-500"> ⚠️ 與點算總額不符（差 ${Math.abs(((cashRegister.retained_balance || 0) + (cashRegister.deposited_safe || 0)) - (cashRegister.actual_counted || 0)).toLocaleString()}）</span>
+                          )}
+                        </p>
                       </div>
-                    )}
+                    </>
+                  )}
+
+                  {/* 備註與提交 */}
+                  <div className="border-t pt-4 space-y-3">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 block mb-1">備註（可選）</label>
+                      <Input value={cashRegister.notes} onChange={e => setCashRegister(prev => ({ ...prev, notes: e.target.value }))} placeholder="如有差異或其他備註" />
+                    </div>
+                    <div className="flex justify-end">
+                      <Button onClick={handleSaveCashRegister} disabled={cashSaving || cashRegister.actual_counted === null || cashRegister.actual_counted === undefined}>
+                        {cashSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                        {cashRegister.status === 'done' ? '更新日結' : '提交日結'}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}
             </CardContent>
           </Card>
         </div>
+      ) : activeTab === 'cash_report' ? (
+        <CashReportSection restaurantId={user?.restaurant_id || ''} role={user?.role || 'staff'} />
       ) : (
         <div className="space-y-6">
           {/* 保險箱 */}
@@ -2428,6 +2406,123 @@ export default function ExpensesPage() {
         </div>
         );
       })()}
+    </div>
+  );
+}
+
+// ========== 每日現金日結報告（僅老闆可看） ==========
+function CashReportSection({ restaurantId, role }: { restaurantId: string; role: string }) {
+  const [records, setRecords] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [month, setMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+
+  useEffect(() => {
+    if (role !== 'owner') return;
+    loadReport();
+  }, [month]);
+
+  const loadReport = async () => {
+    if (!restaurantId) return;
+    setLoading(true);
+    try {
+      const { data } = await supabase
+        .from('cash_register')
+        .select('*')
+        .eq('restaurant_id', restaurantId)
+        .gte('date', `${month}-01`)
+        .lte('date', `${month}-31`)
+        .order('date', { ascending: true });
+
+      if (data) setRecords(data);
+    } catch (err) {
+      console.error('載入日結報告失敗:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-blue-600" />
+                每日現金日結報告
+              </CardTitle>
+              <CardDescription>錢箱啟動數 + POS 現金 − 當日開支 → 應存 vs 實際存入</CardDescription>
+            </div>
+            <Input type="month" value={month} onChange={e => setMonth(e.target.value)} className="w-fit" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+          ) : records.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <BarChart3 className="w-12 h-12 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">本月尚無日結記錄</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs sm:text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50">
+                    <th className="text-left px-2 py-2 font-medium text-gray-500 whitespace-nowrap">日期</th>
+                    <th className="text-right px-2 py-2 font-medium text-gray-500 whitespace-nowrap">錢箱啟動數</th>
+                    <th className="text-right px-2 py-2 font-medium text-gray-500 whitespace-nowrap">POS 現金</th>
+                    <th className="text-right px-2 py-2 font-medium text-gray-500 whitespace-nowrap">現金開支</th>
+                    <th className="text-right px-2 py-2 font-medium text-gray-500 whitespace-nowrap">系統計算</th>
+                    <th className="text-right px-2 py-2 font-medium text-gray-500 whitespace-nowrap">實際點算</th>
+                    <th className="text-right px-2 py-2 font-medium text-gray-500 whitespace-nowrap">差異</th>
+                    <th className="text-right px-2 py-2 font-medium text-gray-500 whitespace-nowrap">留明日</th>
+                    <th className="text-right px-2 py-2 font-medium text-gray-500 whitespace-nowrap">實際存入</th>
+                    <th className="text-right px-2 py-2 font-medium text-gray-500 whitespace-nowrap">應存入</th>
+                    <th className="text-right px-2 py-2 font-medium text-gray-500 whitespace-nowrap">存入差異</th>
+                    <th className="text-center px-2 py-2 font-medium text-gray-500 whitespace-nowrap">狀態</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {records.map(r => {
+                    const expectedDeposit = (r.actual_counted || 0) - (r.retained_balance || 1500);
+                    const depositDiff = (r.deposited_safe || 0) - expectedDeposit;
+                    return (
+                      <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50/50">
+                        <td className="px-2 py-2 text-gray-700 whitespace-nowrap">{r.date}</td>
+                        <td className="px-2 py-2 text-right font-medium">${Number(r.opening_balance).toLocaleString()}</td>
+                        <td className="px-2 py-2 text-right text-green-700">${Number(r.pos_cash_income).toLocaleString()}</td>
+                        <td className="px-2 py-2 text-right text-red-700">-${Number(r.cash_expenses).toLocaleString()}</td>
+                        <td className="px-2 py-2 text-right font-semibold">${Number(r.expected_balance).toLocaleString()}</td>
+                        <td className="px-2 py-2 text-right">${Number(r.actual_counted).toLocaleString()}</td>
+                        <td className={`px-2 py-2 text-right font-semibold ${Number(r.difference) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {Number(r.difference) >= 0 ? '+' : ''}${Number(r.difference).toLocaleString()}
+                        </td>
+                        <td className="px-2 py-2 text-right">${Number(r.retained_balance || 1500).toLocaleString()}</td>
+                        <td className="px-2 py-2 text-right text-green-700 font-medium">${Number(r.deposited_safe).toLocaleString()}</td>
+                        <td className={`px-2 py-2 text-right font-medium ${expectedDeposit >= 0 ? 'text-gray-800' : 'text-red-600'}`}>
+                          ${expectedDeposit.toLocaleString()}
+                        </td>
+                        <td className={`px-2 py-2 text-right font-semibold ${depositDiff >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {depositDiff >= 0 ? '+' : ''}${depositDiff.toLocaleString()}
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-medium ${r.status === 'done' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                            {r.status === 'done' ? '已完成' : '待處理'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
