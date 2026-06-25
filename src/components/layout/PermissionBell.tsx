@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Bell, CheckCircle2, X, FileText, Clock, Users, CalendarDays, Star } from 'lucide-react';
+import { Bell, CheckCircle2, X, FileText, Clock, CalendarDays, Star } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth';
 import { usePermission } from '@/hooks/usePermission';
 import { supabase } from '@/lib/supabase';
@@ -192,21 +192,17 @@ export default function PermissionBell() {
       {open && (
         <div className="absolute right-0 top-full mt-2 z-50 w-80 sm:w-[360px] bg-white border rounded-xl shadow-2xl overflow-hidden animate-in slide-in-from-top-2 duration-200">
           {/* 頭部 */}
-          <div className="p-4 bg-gradient-to-r from-gray-900 to-gray-800 text-white">
+          <div className="p-4 bg-gradient-to-r from-blue-700 to-blue-600 text-white">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-full bg-amber-400 text-gray-900 flex items-center justify-center text-lg font-bold shrink-0">
                 {user?.name?.charAt(0) || 'U'}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="font-semibold truncate">{user?.name}</div>
-                <div className="text-xs text-gray-300">
+                <div className="text-xs text-blue-200">
                   {roleLabels[user?.role || ''] || user?.role}
                   {hasTasks && ` · ${totalPending} 件待處理`}
                 </div>
-              </div>
-              <div className="flex items-center gap-1 text-amber-400 text-xs">
-                <Users className="w-3 h-3" />
-                <span className="truncate max-w-[60px]">{user?.restaurant_id?.slice(0, 6)}</span>
               </div>
             </div>
           </div>
