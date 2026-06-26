@@ -40,7 +40,7 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string
   utilities: { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-200' },
   salary: { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-200' },
   supplies: { bg: 'bg-cyan-100', text: 'text-cyan-700', border: 'border-cyan-200' },
-  other: { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-200' },
+  other: { bg: 'bg-yellow-100', text: 'text-yellow-700', border: 'border-yellow-200' },
 };
 
 const shortSupplier = (name: string): string => {
