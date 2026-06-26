@@ -1672,8 +1672,8 @@ export default function ExpensesPage() {
                                               }`}
                                               onClick={() => setExpandedDetailId(isDetailOpen ? null : exp.id)}
                                             >
-                                              {/* 日期 - 僅顯示日 */}
-                                              <span className="text-[11px] text-gray-400 shrink-0 w-8 text-right">
+                                              {/* 日期 - 左對齊，貼近箭頭位置 */}
+                                              <span className="text-[11px] text-gray-400 shrink-0 w-4 text-left">
                                                 {exp.expense_date ? parseInt(exp.expense_date.slice(8)) : ''}
                                               </span>
                                               {/* (簡化分類) */}
