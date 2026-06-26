@@ -1155,7 +1155,7 @@ export default function ExpensesPage() {
   const expenseTree = useMemo(() => {
     if (!expenses || expenses.length === 0) return { groups: [], total: 0, totalCount: 0 };
     const sorted = [...expenses].sort((a: any, b: any) =>
-      (b.expense_date || '').localeCompare(a.expense_date || '')
+      (a.expense_date || '').localeCompare(b.expense_date || '')
     );
     const yearMap = new Map<string, Map<string, Map<string, any[]>>>();
     sorted.forEach((exp: any) => {
@@ -1171,12 +1171,12 @@ export default function ExpensesPage() {
     const groups: { year: string; yearKey: string; yEntries: any[]; yTotal: number;
       months: { month: string; monthKey: string; mEntries: any[]; mTotal: number;
         days: { day: string; entries: any[]; dTotal: number }[] }[] }[] = [];
-    for (const y of Array.from(yearMap.keys()).sort().reverse()) {
+    for (const y of Array.from(yearMap.keys()).sort()) {
       const months: typeof groups[0]['months'] = [];
-      for (const m of Array.from(yearMap.get(y)!.keys()).sort().reverse()) {
+      for (const m of Array.from(yearMap.get(y)!.keys()).sort()) {
         const monthMap = yearMap.get(y)!.get(m)!;
         const days: typeof months[0]['days'] = [];
-        for (const d of Array.from(monthMap.keys()).sort().reverse()) {
+        for (const d of Array.from(monthMap.keys()).sort()) {
           const entries = monthMap.get(d)!;
           days.push({ day: d, entries, dTotal: entries.reduce((s: number, e: any) => s + Number(e.amount || 0), 0) });
         }
@@ -1696,8 +1696,6 @@ export default function ExpensesPage() {
                                               }`}>
                                                 {exp.payment_status === 'cash' ? '現金' : exp.payment_status === 'bank' ? '銀行' : '未付'}
                                               </span>
-                                              {/* 展開箭頭 */}
-                                              <ChevronDown className={`w-2.5 h-2.5 text-gray-300 shrink-0 transition-transform ${isDetailOpen ? 'rotate-0' : '-rotate-90'}`} />
                                             </div>
                                             {/* 詳情面板 */}
                                             {isDetailOpen && (
