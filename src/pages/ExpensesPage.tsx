@@ -1697,7 +1697,7 @@ export default function ExpensesPage() {
                                           <div key={exp.id} className="border-t border-gray-50 first:border-t-0">
                                             {/* 條目行 - 全寬無內邊距 */}
                                             <div
-                                              className={`flex items-center gap-1 px-1.5 py-1.5 text-xs cursor-pointer transition-colors w-full ${
+                                              className={`flex items-center gap-0.5 px-1.5 py-1.5 text-xs cursor-pointer transition-colors w-full ${
                                                 isDetailOpen ? 'bg-indigo-50' : 'hover:bg-gray-50'
                                               }`}
                                               onClick={() => setExpandedDetailId(isDetailOpen ? null : exp.id)}
