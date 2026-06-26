@@ -1678,19 +1678,25 @@ export default function ExpensesPage() {
                                               }`}
                                               onClick={() => setExpandedDetailId(isDetailOpen ? null : exp.id)}
                                             >
-                                              {/* 日期 - 左對齊，貼近箭頭位置 */}
+                                              {/* 日期 */}
                                               <span className="text-[11px] text-gray-400 shrink-0 w-4 text-left">
                                                 {exp.expense_date ? parseInt(exp.expense_date.slice(8)) : ''}
                                               </span>
-                                              {/* (簡化分類) */}
-                                              <span className="text-[10px] font-medium text-green-700 bg-green-50 px-1 py-0.5 rounded shrink-0">
+                                              {/* 供應商簡寫（綠色框） */}
+                                              {exp.supplier && (
+                                                <span className="inline-block px-1 py-0.5 rounded text-[10px] font-medium shrink-0 bg-green-100 text-green-700 border border-green-200" title={exp.supplier}>
+                                                  {shortSupplier(exp.supplier)}
+                                                </span>
+                                              )}
+                                              {/* 分類 */}
+                                              <span className="text-[10px] font-medium text-gray-600 bg-gray-100 px-1 py-0.5 rounded shrink-0">
                                                 {shortCategory(exp.category)}
                                               </span>
                                               {/* 購貨內容 */}
                                               <span className="flex-1 min-w-0 text-gray-700 truncate text-xs">
                                                 {cleanDescription(exp.description)}
                                               </span>
-                                              {/* ($金額) */}
+                                              {/* 金額 */}
                                               <span className="font-medium text-right shrink-0 w-16 text-xs">
                                                 ${Number(exp.amount).toLocaleString()}
                                               </span>
@@ -1702,12 +1708,6 @@ export default function ExpensesPage() {
                                               }`}>
                                                 {exp.payment_status === 'cash' ? '現金' : exp.payment_status === 'bank' ? '銀行' : '未付'}
                                               </span>
-                                              {/* 供應商簡寫 */}
-                                              {exp.supplier && (
-                                                <span className="text-[10px] text-gray-500 font-medium shrink-0 w-10 text-left truncate" title={exp.supplier}>
-                                                  {shortSupplier(exp.supplier)}
-                                                </span>
-                                              )}
                                             </div>
                                             {/* 詳情面板 */}
                                             {isDetailOpen && (
