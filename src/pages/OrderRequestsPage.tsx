@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -61,6 +62,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   // 实时位置走 ref，直写 DOM，零延迟
   const dragPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const floatCloneRef = useRef<HTMLDivElement>(null); // 浮起卡片 DOM ref
+  const pageContainerRef = useRef<HTMLDivElement>(null); // 頁面容器 ref（用來計算絕對定位偏移）
   const longPressTimer = useRef<ReturnType<typeof setTimeout>>();
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
@@ -186,13 +188,17 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
       }
 
       e.preventDefault();
-      dragPosRef.current = { x: touch.clientX, y: touch.clientY };
+      // ★ 以 pageContainerRef 為基準的 absolute 定位，讓卡片隨頁面滾動
+      const containerRect = pageContainerRef.current?.getBoundingClientRect() || { left: 0, top: 0 };
+      const offsetX = touch.clientX - containerRect.left;
+      const offsetY = touch.clientY - containerRect.top;
+      dragPosRef.current = { x: offsetX, y: offsetY };
       if (floatCloneRef.current) {
-        floatCloneRef.current.style.left = `${touch.clientX - 100}px`;
-        floatCloneRef.current.style.top = `${touch.clientY - 30}px`;
+        floatCloneRef.current.style.left = `${offsetX - 100}px`;
+        floatCloneRef.current.style.top = `${offsetY - 30}px`;
       }
 
-      // 偵測當前在哪一欄
+      // 偵測當前在哪一欄（用 clientX 因為 getBoundingClientRect 是 viewport 座標）
       if (containerRef.current) {
         const colEls = containerRef.current.children;
         let found: ColumnType | null = null;
@@ -246,8 +252,9 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const handleTouchStart = (order: OrderRequest, e: React.TouchEvent) => {
     e.preventDefault(); // 阻止文字選擇
     const touch = e.touches[0];
-    // 先記錄初始位置（即使未觸發浮起也存，供浮起時立即使用）
-    dragPosRef.current = { x: touch.clientX, y: touch.clientY };
+    // 先記錄初始位置（以 pageContainer 為基準的 offset）
+    const containerRect = pageContainerRef.current?.getBoundingClientRect() || { left: 0, top: 0 };
+    dragPosRef.current = { x: touch.clientX - containerRect.left, y: touch.clientY - containerRect.top };
     longPressTimer.current = setTimeout(() => {
       const originCol = getOrderColumn(order);
       setDragState({ order, overCol: originCol, originCol });
@@ -941,7 +948,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   );
 
   return (
-    <div className="p-3 md:p-4 space-y-2 md:space-y-4">
+    <div ref={pageContainerRef} className="relative p-3 md:p-4 space-y-2 md:space-y-4">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">訂貨管理</h1>
@@ -971,14 +978,14 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
         {renderColumn('已送到', 'received', <PackageCheck className="w-5 h-5 text-green-500"/>, 'bg-green-50')}
       </div>
 
-      {/* 浮起的拖拽卡片克隆 — 位置由 ref 直寫 DOM，無過渡延遲 */}
-      {dragState && (
+      {/* 浮起的拖拽卡片克隆 — Portal 到頁面容器，absolute + relative 定位讓它隨頁面滾動 */}
+      {dragState && pageContainerRef.current && createPortal(
         <div
           ref={floatCloneRef}
-          className="fixed pointer-events-none z-50"
+          className="absolute pointer-events-none z-50"
           style={{
-            left: dragPosRef.current.x - 100,
-            top: dragPosRef.current.y - 30,
+            left: (dragPosRef.current.x) - 100,
+            top: (dragPosRef.current.y) - 30,
             width: 200,
           }}
         >
@@ -987,7 +994,8 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
               {dragState.order.items?.[0]?.inventory?.name || dragState.order.notes || '未知貨物'}
             </div>
           </Card>
-        </div>
+        </div>,
+        pageContainerRef.current
       )}
 
       {/* 已完成區（可折疊） */}
