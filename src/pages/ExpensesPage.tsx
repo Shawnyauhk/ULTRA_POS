@@ -1733,7 +1733,7 @@ export default function ExpensesPage() {
                                               <span className={`inline-block px-1 py-0.5 rounded text-[10px] font-medium shrink-0 ${
                                                 exp.payment_status === 'cash' ? 'bg-green-100 text-green-700 border border-green-200' :
                                                 exp.payment_status === 'bank' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
-                                                'bg-gray-100 text-gray-500'
+                                                'bg-yellow-100 text-yellow-700 border border-yellow-200'
                                               }`}>
                                                 {exp.payment_status === 'cash' ? '現金' : exp.payment_status === 'bank' ? '銀行' : '未付'}
                                               </span>
