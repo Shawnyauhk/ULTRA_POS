@@ -14,6 +14,7 @@ import { useRealtimeExpenses } from '@/hooks/useRealtime';
 import { usePermission } from '@/hooks/usePermission';
 import { useAuthStore } from '@/stores/auth';
 import { supabase, apiFetch } from '@/lib/supabase';
+import { recognizeReceipt } from '@/lib/ocr';
 
 // ====== 分類映射（中文 ↔ DB 英文） ======
 const CATEGORY_DISPLAY: { value: string; label: string }[] = [
@@ -503,55 +504,18 @@ export default function ExpensesPage() {
       // 保存壓縮後的圖片用於後續上傳儲存
       setOcrImageDataUrl(compressed);
 
-      // === 開始 AI 識別（默認用 Qwen，失敗自動用 Llama 後備）===
-      let ocrResponse;
-      let usedModelId = 'qwen/qwen3.5-122b-a10b';
-      let lastError: any = null;
+      // === 開始 AI 識別（使用 Gemini，直接在前端呼叫，無需後端，永不過期）===
+      console.log(`[OCR] 調用 Gemini (${ocrMode} 模式)...`);
+      setOcrProcessingModel('Gemini 2.0 Flash');
+      setOcrActualModel('gemini-2.0-flash');
 
-      for (const attemptModel of ['qwen/qwen3.5-122b-a10b', 'meta/llama-3.2-11b-vision-instruct']) {
-        if (lastError) {
-          console.log(`[OCR] ⚠️ Qwen 失敗，自動切換 Llama 作後備...`);
-        }
-        setOcrProcessingModel(attemptModel.includes('qwen') ? 'Qwen 3.5-122B' : 'Llama 3.2 Vision');
+      const ocrResult = await recognizeReceipt(compressed, ocrMode);
 
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 75000);
-
-        try {
-          console.log(`[OCR] 調用 API (${ocrMode} 模式, 模型 ${attemptModel})...`);
-          const resp = await fetch('/api/ocr/receipt', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: compressed, mode: ocrMode, model: attemptModel }),
-            signal: controller.signal,
-          });
-          clearTimeout(timeout);
-
-          if (!resp.ok) {
-            const errText = await resp.text().catch(() => '');
-            throw new Error(`OCR API 錯誤: ${resp.status} - ${errText.slice(0, 100)}`);
-          }
-
-          const json = await resp.json();
-          if (!json.success) throw new Error(json.message || '識別失敗');
-
-          ocrResponse = json;
-          usedModelId = attemptModel;
-          setOcrActualModel(json.data.model || attemptModel);
-          break; // 成功，跳出循環
-        } catch (err) {
-          clearTimeout(timeout);
-          lastError = err;
-          if (attemptModel === 'meta/llama-3.2-11b-vision-instruct') {
-            throw err; // 兩個模型都失敗了
-          }
-          // Qwen 失敗，繼續用 Llama 嘗試
-        }
+      if (!ocrResult || !ocrResult.rawText) {
+        throw new Error('OCR 識別失敗');
       }
 
-      if (!ocrResponse) throw lastError || new Error('OCR 識別失敗');
-
-      const text = ocrResponse.data.text;
+      const text = ocrResult.rawText;
         const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
         if (ocrMode === 'handwritten') {
@@ -1697,7 +1661,7 @@ export default function ExpensesPage() {
                                           <div key={exp.id} className="border-t border-gray-50 first:border-t-0">
                                             {/* 條目行 - 全寬無內邊距 */}
                                             <div
-                                              className={`flex items-center gap-0.5 px-1.5 py-1.5 text-xs cursor-pointer transition-colors w-full ${
+                                              className={`flex items-center gap-1.5 px-2 py-1.5 text-xs cursor-pointer transition-colors w-full ${
                                                 isDetailOpen ? 'bg-indigo-50' : 'hover:bg-gray-50'
                                               }`}
                                               onClick={() => setExpandedDetailId(isDetailOpen ? null : exp.id)}
@@ -1740,17 +1704,53 @@ export default function ExpensesPage() {
                                             </div>
                                             {/* 詳情面板 */}
                                             {isDetailOpen && (
-                                              <div className="px-1.5 py-2 bg-indigo-50/50 border-t border-indigo-100 text-[11px]">
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1">
-                                                  <div className="flex items-baseline gap-1">
-                                                    <span className="text-gray-400 shrink-0">購貨：</span>
+                                              <div className="px-2.5 py-2.5 bg-indigo-50/50 border-t border-indigo-100 text-[11px]">
+                                                <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+                                                  {/* Row 1: 詳情 (full width) */}
+                                                  <div className="flex items-baseline gap-1.5 col-span-2">
+                                                    <span className="text-gray-400 shrink-0">詳情：</span>
                                                     {isEditing ? (
                                                       <input value={editForm.description ?? exp.description} onChange={e => setEditForm({...editForm, description: e.target.value})} className="w-full border rounded px-1.5 py-0.5 text-xs bg-white" />
                                                     ) : (
                                                       <span className="text-gray-700 break-words">{cleanDescription(exp.description)}</span>
                                                     )}
                                                   </div>
-                                                  <div className="flex items-baseline gap-1">
+                                                  {/* Row 2: 供應商 / 日期 */}
+                                                  <div className="flex items-baseline gap-1.5">
+                                                    <span className="text-gray-400 shrink-0">供應商：</span>
+                                                    {isEditing ? (
+                                                      <input value={editForm.supplier ?? exp.supplier ?? ''} onChange={e => setEditForm({...editForm, supplier: e.target.value})} className="w-full border rounded px-1.5 py-0.5 text-xs bg-white" />
+                                                    ) : (
+                                                      <span className="text-gray-700 break-words">{exp.supplier || '—'}</span>
+                                                    )}
+                                                  </div>
+                                                  <div className="flex items-baseline gap-1.5">
+                                                    <span className="text-gray-400 shrink-0">日期：</span>
+                                                    {isEditing ? (
+                                                      <input type="date" value={editForm.expense_date || exp.expense_date} onChange={e => setEditForm({...editForm, expense_date: e.target.value})} className="border rounded px-1.5 py-0.5 text-xs bg-white" />
+                                                    ) : (
+                                                      <span className="text-gray-700">{exp.expense_date}</span>
+                                                    )}
+                                                  </div>
+                                                  {/* Row 3: 發票號碼 / 金額 */}
+                                                  {exp.invoice ? (
+                                                    <div className="flex items-baseline gap-1.5">
+                                                      <span className="text-gray-400 shrink-0">發票號碼：</span>
+                                                      <span className="text-gray-700">{exp.invoice}</span>
+                                                    </div>
+                                                  ) : (
+                                                    <div />
+                                                  )}
+                                                  <div className="flex items-baseline gap-1.5">
+                                                    <span className="text-gray-400 shrink-0">金額：</span>
+                                                    {isEditing ? (
+                                                      <input type="number" value={editForm.amount ?? exp.amount} onChange={e => setEditForm({...editForm, amount: parseFloat(e.target.value) || 0})} className="w-20 border rounded px-1.5 py-0.5 text-xs text-right bg-white" />
+                                                    ) : (
+                                                      <span className="font-medium text-green-700">${Number(exp.amount).toLocaleString()}</span>
+                                                    )}
+                                                  </div>
+                                                  {/* Row 4: 分類 / 付款 */}
+                                                  <div className="flex items-baseline gap-1.5">
                                                     <span className="text-gray-400 shrink-0">分類：</span>
                                                     {isEditing ? (
                                                       <select value={editForm.category || categoryToLabel(exp.category)} onChange={e => setEditForm({...editForm, category: e.target.value})} className="border rounded px-1 py-0.5 text-xs bg-white">
@@ -1760,23 +1760,7 @@ export default function ExpensesPage() {
                                                       <span className="text-gray-700">{categoryToLabel(exp.category)}</span>
                                                     )}
                                                   </div>
-                                                  <div className="flex items-baseline gap-1">
-                                                    <span className="text-gray-400 shrink-0">供應商：</span>
-                                                    {isEditing ? (
-                                                      <input value={editForm.supplier ?? exp.supplier ?? ''} onChange={e => setEditForm({...editForm, supplier: e.target.value})} className="w-full border rounded px-1.5 py-0.5 text-xs bg-white" />
-                                                    ) : (
-                                                      <span className="text-gray-700 break-words">{exp.supplier || '—'}</span>
-                                                    )}
-                                                  </div>
-                                                  <div className="flex items-baseline gap-1">
-                                                    <span className="text-gray-400 shrink-0">金額：</span>
-                                                    {isEditing ? (
-                                                      <input type="number" value={editForm.amount ?? exp.amount} onChange={e => setEditForm({...editForm, amount: parseFloat(e.target.value) || 0})} className="w-20 border rounded px-1.5 py-0.5 text-xs text-right bg-white" />
-                                                    ) : (
-                                                      <span className="font-medium text-green-700">${Number(exp.amount).toLocaleString()}</span>
-                                                    )}
-                                                  </div>
-                                                  <div className="flex items-baseline gap-1">
+                                                  <div className="flex items-baseline gap-1.5">
                                                     <span className="text-gray-400 shrink-0">付款：</span>
                                                     {isEditing ? (
                                                       <select value={editForm.payment_status || exp.payment_status || ''} onChange={e => setEditForm({...editForm, payment_status: e.target.value})} className="border rounded px-1 py-0.5 text-xs bg-white">
@@ -1790,32 +1774,21 @@ export default function ExpensesPage() {
                                                       </span>
                                                     )}
                                                   </div>
-                                                  <div className="flex items-baseline gap-1">
-                                                    <span className="text-gray-400 shrink-0">日期：</span>
-                                                    {isEditing ? (
-                                                      <input type="date" value={editForm.expense_date || exp.expense_date} onChange={e => setEditForm({...editForm, expense_date: e.target.value})} className="border rounded px-1.5 py-0.5 text-xs bg-white" />
-                                                    ) : (
-                                                      <span className="text-gray-700">{exp.expense_date}</span>
-                                                    )}
-                                                  </div>
-                                                  <div className="flex items-baseline gap-1">
+                                                  {/* Row 5: 經手人 / 記錄時間 */}
+                                                  <div className="flex items-baseline gap-1.5">
                                                     <span className="text-gray-400 shrink-0">經手人：</span>
                                                     <span className="text-gray-700">{exp.handler || useAuthStore.getState().user?.name || '—'}</span>
                                                   </div>
-                                                  {exp.created_at && (
+                                                  {exp.created_at ? (
                                                     <div className="flex items-baseline gap-1">
                                                       <span className="text-gray-400 shrink-0">記錄時間：</span>
                                                       <span className="text-gray-700">{new Date(exp.created_at).toLocaleString()}</span>
                                                     </div>
-                                                  )}
-                                                  {exp.invoice && (
-                                                    <div className="flex items-baseline gap-1">
-                                                      <span className="text-gray-400 shrink-0">發票號碼：</span>
-                                                      <span className="text-gray-700">{exp.invoice}</span>
-                                                    </div>
+                                                  ) : (
+                                                    <div />
                                                   )}
                                                 </div>
-                                                <div className="flex items-center justify-between mt-2 pt-1 border-t border-indigo-100">
+                                                <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-indigo-100">
                                                   <div>
                                                     {exp.receipt_url && (
                                                       <button onClick={() => setLightboxImage(exp.receipt_url!)} className="text-[11px] text-blue-600 hover:text-blue-800 underline flex items-center gap-1">

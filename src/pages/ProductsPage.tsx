@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
-import { Coffee, Upload, Image as ImageIcon, FileSpreadsheet, Loader2, Plus, Edit2, Save, X, Search, RefreshCw } from 'lucide-react';
+import { Coffee, Upload, Image as ImageIcon, FileSpreadsheet, Loader2, Plus, Edit2, Save, X, Search, RefreshCw, MoreVertical, Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import * as XLSX from 'xlsx';
 import { useProducts } from '@/hooks/useSupabaseData';
@@ -27,6 +27,7 @@ export function ProductsPage() {
   const [aiImporting, setAiImporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
 
   const filteredProducts = products.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -76,14 +77,15 @@ export function ProductsPage() {
         reader.readAsDataURL(file);
       });
 
-      const response = await fetch('/api/nvidia/v1/chat/completions', {
+      const AGNES_API_KEY = import.meta.env.VITE_AGNES_API_KEY;
+      const response = await fetch('https://apihub.agnes-ai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_NVIDIA_NIM_API_KEY}`,
+          'Authorization': `Bearer ${AGNES_API_KEY}`,
         },
         body: JSON.stringify({
-          model: import.meta.env.VITE_NVIDIA_NIM_MODEL || 'qwen/qwen3.5-122b-a10b',
+          model: 'agnes-2.0-flash',
           messages: [{
             role: 'user',
             content: [
@@ -240,13 +242,13 @@ export function ProductsPage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">產品管理</h1>
-          <p className="text-muted-foreground">管理菜單產品與客製化選項</p>
+    <div className="p-3 md:p-4 space-y-3 md:space-y-4">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-lg md:text-2xl font-bold text-gray-900 truncate">產品管理</h1>
+          <p className="text-xs md:text-base text-muted-foreground truncate md:block hidden">管理菜單產品與客製化選項</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-1.5 md:gap-2 flex-shrink-0">
           <input
             type="file"
             ref={fileInputRef}
@@ -254,16 +256,16 @@ export function ProductsPage() {
             accept=".xlsx,.xls,.csv,image/*"
             onChange={handleFileUpload}
           />
-          <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-            <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel 導入
+          <Button variant="outline" size="sm" className="text-xs md:text-sm" onClick={() => fileInputRef.current?.click()}>
+            <FileSpreadsheet className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1 md:mr-2" /> Excel
           </Button>
-          <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={aiImporting}>
+          <Button variant="outline" size="sm" className="text-xs md:text-sm" onClick={() => fileInputRef.current?.click()} disabled={aiImporting}>
             {aiImporting ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1 md:mr-2 animate-spin" />
             ) : (
-              <ImageIcon className="w-4 h-4 mr-2" />
+              <ImageIcon className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1 md:mr-2" />
             )}
-            {aiImporting ? 'AI 識別中...' : '圖片 AI 導入'}
+            {aiImporting ? 'AI 識別...' : 'AI 導入'}
           </Button>
           <Button onClick={openAddModal}>
             <Plus className="w-4 h-4 mr-2" /> 新增產品
@@ -272,31 +274,31 @@ export function ProductsPage() {
       </div>
 
       {/* 搜索與篩選 */}
-      <div className="flex gap-4 items-center">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-4">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <Input
-            placeholder="搜索產品名稱..."
+            placeholder="搜索產品..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            className="pl-9"
+            className="pl-9 h-9 md:h-10 text-sm"
           />
         </div>
-        <Select
-          value={selectedCategory}
-          onValueChange={setSelectedCategory}
-          options={[
-            { value: 'all', label: '全部分類' },
-            ...categories.map(c => ({ value: c.id, label: c.name }))
-          ]}
-          className="w-48"
-        />
-        <Button variant="ghost" size="sm" onClick={refetch}>
-          <RefreshCw className="w-4 h-4" />
-        </Button>
-        <Badge variant="secondary" className="text-sm">
-          共 {filteredProducts.length} 項產品
-        </Badge>
+        <div className="flex items-center gap-1.5 md:gap-2">
+          <Select
+            value={selectedCategory}
+            onValueChange={setSelectedCategory}
+            options={[
+              { value: 'all', label: '全部分類' },
+              ...categories.map(c => ({ value: c.id, label: c.name }))
+            ]}
+            className="w-36 md:w-48"
+          />
+          <Button variant="ghost" size="sm" onClick={refetch}>
+            <RefreshCw className="w-4 h-4" />
+          </Button>
+          <span className="text-xs text-gray-400 whitespace-nowrap">{filteredProducts.length} 項</span>
+        </div>
       </div>
 
       {/* 新增/編輯 Modal */}
@@ -348,49 +350,72 @@ export function ProductsPage() {
 
       {/* 產品列表 */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Coffee className="w-5 h-5" /> 產品列表</CardTitle>
+        <CardHeader className="px-3 py-2.5 md:px-4 md:py-3">
+          <CardTitle className="text-sm md:text-base flex items-center gap-2"><Coffee className="w-4 h-4 md:w-5 md:h-5" /> 產品列表</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
               <span className="ml-2">載入中...</span>
             </div>
           ) : filteredProducts.length > 0 ? (
-            <div className="overflow-x-auto">
+            <div>
               <table className="w-full text-sm text-left">
                 <thead className="text-xs text-gray-700 uppercase bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3">名稱</th>
-                    <th className="px-4 py-3">分類</th>
-                    <th className="px-4 py-3">價格</th>
-                    <th className="px-4 py-3">狀態</th>
-                    <th className="px-4 py-3">描述</th>
-                    <th className="px-4 py-3">操作</th>
+                    <th className="px-2 md:px-3 py-2 whitespace-nowrap text-[11px] md:text-xs">名稱</th>
+                    <th className="px-2 md:px-3 py-2 whitespace-nowrap text-[11px] md:text-xs">分類</th>
+                    <th className="px-2 md:px-3 py-2 whitespace-nowrap text-[11px] md:text-xs">價格</th>
+                    <th className="px-2 md:px-3 py-2 whitespace-nowrap text-[11px] md:text-xs">狀態</th>
+                    <th className="px-2 md:px-3 py-2 w-10" />
                   </tr>
                 </thead>
                 <tbody>
                   {filteredProducts.map(product => (
                     <tr key={product.id} className="border-b hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium">{product.name}</td>
-                      <td className="px-4 py-3">
-                        <Badge variant="outline">{product.category?.name || '未分類'}</Badge>
+                      <td className="px-2 md:px-3 py-2 font-medium text-sm leading-tight truncate max-w-[120px] md:max-w-[250px]" title={product.name}>{product.name}</td>
+                      <td className="px-2 md:px-3 py-2 whitespace-nowrap">
+                        <span className="text-[10px] md:text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded whitespace-nowrap">{product.category?.name || '未分類'}</span>
                       </td>
-                      <td className="px-4 py-3">${product.price}</td>
-                      <td className="px-4 py-3">
-                        <Badge variant={product.status === 'available' ? 'default' : 'secondary'}>
+                      <td className="px-2 md:px-3 py-2 whitespace-nowrap text-sm">${product.price}</td>
+                      <td className="px-2 md:px-3 py-2 whitespace-nowrap">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                          product.status === 'available' ? 'bg-green-100 text-green-700' :
+                          product.status === 'sold_out' ? 'bg-red-100 text-red-700' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
                           {product.status === 'available' ? '供應中' : product.status === 'sold_out' ? '售罄' : '已下架'}
-                        </Badge>
+                        </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-500 max-w-xs truncate">{product.description || '—'}</td>
-                      <td className="px-4 py-3 flex gap-2">
-                        <Button size="icon" variant="ghost" onClick={() => openEditModal(product)}>
-                          <Edit2 className="w-4 h-4" />
+                      <td className="px-2 md:px-3 py-2 relative">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          onClick={() => setMenuOpenId(menuOpenId === product.id ? null : product.id)}
+                        >
+                          <MoreVertical className="w-4 h-4 text-gray-400" />
                         </Button>
-                        <Button size="icon" variant="ghost" onClick={() => handleDeleteProduct(product.id)}>
-                          <X className="w-4 h-4 text-red-500" />
-                        </Button>
+                        {menuOpenId === product.id && (
+                          <>
+                            <div className="fixed inset-0 z-10" onClick={() => setMenuOpenId(null)} />
+                            <div className="absolute right-0 top-full mt-1 z-20 bg-white border rounded-lg shadow-lg py-1 min-w-[120px]">
+                              <button
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                                onClick={() => { setMenuOpenId(null); openEditModal(product); }}
+                              >
+                                <Edit2 className="w-3.5 h-3.5" /> 編輯
+                              </button>
+                              <button
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                                onClick={() => { setMenuOpenId(null); handleDeleteProduct(product.id); }}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" /> 刪除
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </td>
                     </tr>
                   ))}

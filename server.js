@@ -579,19 +579,19 @@ function buildOrderEmailHtml(employeeName, items) {
     <!-- 頂部色條 -->
     <tr>
       <td style="background: linear-gradient(135deg, #4f46e5, #7c3aed); padding: 24px 32px; text-align: center;">
-        <h1 style="margin: 0; color: #ffffff; font-size: 22px; letter-spacing: 1px;">📋 新訂貨通知</h1>
+        <h1 style="margin: 0; color: #ffffff; font-size: 22px; letter-spacing: 1px;">📋 訂貨通知</h1>
       </td>
     </tr>
     <!-- 內容 -->
     <tr>
       <td style="padding: 24px 32px;">
         <p style="margin: 0 0 16px; font-size: 15px; color: #475569; line-height: 1.6;">
-          員工 <strong style="color: #4f46e5; font-size: 16px;">${employeeName}</strong> 提交了一份新的訂貨請求，請登入系統查看及處理。
+          <strong style="color: #4f46e5; font-size: 16px;">${employeeName}</strong> 提交了一份訂貨請求，請登入系統查看及處理。
         </p>
 
         <!-- 資訊卡 -->
         <table style="width: 100%; background: #f8fafc; border-radius: 8px; padding: 0; margin-bottom: 20px;">
-          <tr><td style="padding: 12px 16px; border-bottom: 1px solid #e2e8f0;"><span style="color: #94a3b8; font-size: 13px;">申請人</span><br><span style="color: #1e293b; font-size: 15px; font-weight: 600;">${employeeName}</span></td></tr>
+          <tr><td style="padding: 12px 16px; border-bottom: 1px solid #e2e8f0;"><span style="color: #94a3b8; font-size: 13px;">申請分店</span><br><span style="color: #1e293b; font-size: 15px; font-weight: 600;">${employeeName}</span></td></tr>
           <tr><td style="padding: 12px 16px; border-bottom: 1px solid #e2e8f0;"><span style="color: #94a3b8; font-size: 13px;">時間</span><br><span style="color: #1e293b; font-size: 15px;">${new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Hong_Kong' })}</span></td></tr>
           <tr><td style="padding: 12px 16px;"><span style="color: #94a3b8; font-size: 13px;">項目總數</span><br><span style="color: #1e293b; font-size: 15px; font-weight: 600;">${items.length} 項（共 ${totalQty} 件）</span></td></tr>
         </table>
@@ -633,9 +633,10 @@ app.post('/api/whatsapp/notify-order', async (req, res) => {
     const numbers = parseNumbers(admin);
 
     const itemList = items.map(i => `• ${i.name} x ${i.quantity}`).join('\n');
-    const subject = `新訂貨通知 - ${employeeName}`;
-    const body = `ULTRA POS 系統通知\n\n員工 ${employeeName} 提交了一份新訂貨請求：\n\n${itemList}\n\n請登入系統查看及處理。\n\n---\nULTRA POS 餐廳管理系統`;
-    const htmlBody = buildOrderEmailHtml(employeeName, items);
+    const storeName = '天水圍店';
+    const subject = `訂貨通知(${storeName})`;
+    const body = `ULTRA POS 系統通知\n\n${storeName} 提交了一份訂貨請求：\n\n${itemList}\n\n請登入系統查看及處理。\n\n---\nULTRA POS 餐廳管理系統`;
+    const htmlBody = buildOrderEmailHtml(storeName, items);
     const truncatedMsg = body.length > 1000 ? body.slice(0, 997) + '...' : body;
 
     const results = { email: null, whatsapp: null };
@@ -1441,23 +1442,23 @@ app.all('/api/whatsapp/auth-status', async (req, res) => {
 
 // =========== AI 客服系統 API ===========
 
-// NVIDIA NIM 配置
-const NVIDIA_API_KEY = process.env.VITE_NVIDIA_NIM_API_KEY || '';
-const NVIDIA_MODEL = process.env.VITE_NVIDIA_NIM_MODEL || 'qwen/qwen3.5-122b-a10b';
-const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
+// Agnes AI 配置 (OpenAI 兼容格式)
+const AGNES_API_KEY = process.env.VITE_AGNES_API_KEY || '';
+const AGNES_MODEL = 'agnes-2.0-flash';
+const AGNES_API_URL = 'https://apihub.agnes-ai.com/v1/chat/completions';
 
 /**
- * 使用 NVIDIA NIM API 生成 AI 回覆
+ * 使用 Agnes AI API 生成 AI 回覆
  */
 async function generateAIResponse(messages) {
-  const response = await fetch(NVIDIA_API_URL, {
+  const response = await fetch(AGNES_API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${NVIDIA_API_KEY}`,
+      'Authorization': `Bearer ${AGNES_API_KEY}`,
     },
     body: JSON.stringify({
-      model: NVIDIA_MODEL,
+      model: AGNES_MODEL,
       messages,
       max_tokens: 500,
       temperature: 0.7,
@@ -1466,12 +1467,11 @@ async function generateAIResponse(messages) {
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`NVIDIA API 錯誤: ${response.status} - ${errorText}`);
+    throw new Error(`Agnes AI API 錯誤: ${response.status} - ${errorText}`);
   }
 
   const data = await response.json();
-  return data.choices?.[0]?.message?.reasoning_content ||
-         data.choices?.[0]?.message?.content ||
+  return data.choices?.[0]?.message?.content ||
          '';
 }
 
@@ -1534,14 +1534,14 @@ async function generateSessionSummary(sessionId) {
       `${m.role === 'user' ? '客人' : 'AI'}: ${m.content}`
     ).join('\n');
 
-    const summaryResponse = await fetch(NVIDIA_API_URL, {
+    const summaryResponse = await fetch(AGNES_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${NVIDIA_API_KEY}`,
+        'Authorization': `Bearer ${AGNES_API_KEY}`,
       },
       body: JSON.stringify({
-        model: NVIDIA_MODEL,
+        model: AGNES_MODEL,
         messages: [
           {
             role: 'system',
@@ -1692,7 +1692,7 @@ ${knowledgeContext}`,
       { role: 'user', content: message },
     ];
 
-    // 7. 調用 NVIDIA API
+    // 7. 調用 Agnes AI API
     let reply;
     try {
       reply = await generateAIResponse(aiMessages);
@@ -2499,7 +2499,7 @@ app.use('/api/ocr', express.json({ limit: '10mb' }));
  * @param {number} maxRetries - 最大重試次數
  * @returns {Promise<{success: boolean, text?: string, error?: string}>}
  */
-async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3, customModel = null) {
+async function callAgnesOCR(dataUrl, isHandwritten, maxRetries = 3, customModel = null) {
   const prompt = isHandwritten
     ? `你是餐廳記賬本精確辨識助手。分析這張手寫記賬本圖片，**仔細查看每一個欄位**，提取每一筆支出記錄。
 
@@ -2608,17 +2608,17 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3, customModel
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      console.log(`[OCR] 第 ${attempt}/${maxRetries} 次調用 NVIDIA API...`);
+      console.log(`[OCR] 第 ${attempt}/${maxRetries} 次調用 Agnes AI...`);
 
-      const response = await fetch(NVIDIA_API_URL, {
+      const response = await fetch(AGNES_API_URL, {
         method: 'POST',
         signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${NVIDIA_API_KEY}`,
+          'Authorization': `Bearer ${AGNES_API_KEY}`,
         },
         body: JSON.stringify({
-          model: customModel || NVIDIA_MODEL,
+          model: customModel || AGNES_MODEL,
           messages: [
             {
               role: 'user',
@@ -2641,7 +2641,7 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3, customModel
 
         // 504 不立即拋出，允許重試
         if (response.status === 504) {
-          lastError = new Error(`NVIDIA API 504 Gateway Timeout (attempt ${attempt})`);
+          lastError = new Error(`Agnes AI API 504 Gateway Timeout (attempt ${attempt})`);
           console.warn(`[OCR] ⚠️ 504 超時，第 ${attempt} 次失敗`);
           if (attempt < maxRetries) {
             // 重試前等待 1.5 秒
@@ -2659,7 +2659,7 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3, customModel
       try {
         const raw = await response.text();
         if (!raw || raw.trim() === '') {
-          throw new Error('NVIDIA API 返回空響應');
+          throw new Error('Agnes AI API 返回空響應');
         }
         data = JSON.parse(raw);
       } catch (parseErr) {
@@ -2671,7 +2671,7 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3, customModel
           }
           throw parseErr;
         }
-        throw new Error('NVIDIA API 響應解析失敗');
+        throw new Error('Agnes AI API 響應解析失敗');
       }
 
       let text = data.choices?.[0]?.message?.reasoning_content ||
@@ -2686,7 +2686,7 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3, customModel
         });
       }
 
-      const usedModel = data.model || (customModel || NVIDIA_MODEL);
+      const usedModel = data.model || (customModel || AGNES_MODEL);
       console.log(`[OCR] ✅ 第 ${attempt} 次成功 (模型: ${usedModel})`);
       return { success: true, text, model: usedModel };
     } catch (err) {
@@ -2713,8 +2713,8 @@ async function callNVIDIAOCR(dataUrl, isHandwritten, maxRetries = 3, customModel
 
 app.post('/api/ocr/receipt', async (req, res) => {
   try {
-    if (!NVIDIA_API_KEY) {
-      return res.status(500).json({ success: false, message: 'NVIDIA API Key 未配置，请在 .env 中设置 VITE_NVIDIA_NIM_API_KEY' });
+    if (!AGNES_API_KEY) {
+      return res.status(500).json({ success: false, message: 'Agnes AI API Key 未配置，请在 .env 中设置 VITE_AGNES_API_KEY' });
     }
 
     const { image, mode, model } = req.body;
@@ -2724,9 +2724,9 @@ app.post('/api/ocr/receipt', async (req, res) => {
 
     const isHandwritten = mode === 'handwritten';
 
-    console.log(`[OCR] 開始處理圖片 (mode=${mode}, model=${model || NVIDIA_MODEL}, base64長度=${image.length})`);
+    console.log(`[OCR] 開始處理圖片 (mode=${mode}, model=${model || AGNES_MODEL}, base64長度=${image.length})`);
 
-    const result = await callNVIDIAOCR(image, isHandwritten, 2, model || null);
+    const result = await callAgnesOCR(image, isHandwritten, 2, model || null);
 
     if (!result.success) {
       return res.status(504).json({ success: false, message: result.error });
@@ -2823,74 +2823,6 @@ app.get('/api/storage/proxy', async (req, res) => {
   }
 });
 
-// =========== NVIDIA NIM 代理（供前端好評生成等串流調用）============
-// 在生產環境代理 NVIDIA API 請求，繞過 CORS 和 import.meta.env 限制
-app.use('/api/nvidia', express.json({ limit: '10mb' }));
-app.post('/api/nvidia/chat/completions', async (req, res) => {
-  try {
-    if (!NVIDIA_API_KEY) {
-      return res.status(500).json({ success: false, message: 'NVIDIA API Key 未配置' });
-    }
-
-    const body = req.body || {};
-    console.log(`[NVIDIA Proxy] 收到請求 - model: ${body.model || NVIDIA_MODEL}, stream: ${!!body.stream}, messages: ${body.messages?.length || 0}`);
-
-    console.log(`[NVIDIA Proxy] 調用模型: ${body.model || NVIDIA_MODEL}, stream: ${!!body.stream}`);
-
-    const response = await fetch(NVIDIA_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${NVIDIA_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: body.model || NVIDIA_MODEL,
-        messages: body.messages,
-        max_tokens: body.max_tokens || 128,
-        temperature: body.temperature ?? 0.9,
-        top_p: body.top_p ?? 0.95,
-        stream: body.stream ?? false,
-      }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '');
-      console.error(`[NVIDIA Proxy] API 錯誤: ${response.status}`, errText.slice(0, 200));
-      return res.status(response.status).json({ success: false, message: `NVIDIA API 錯誤: ${response.status}` });
-    }
-
-    if (body.stream) {
-      // 串流模式：直接 pipe 回客戶端
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) { res.end(); break; }
-          const chunk = decoder.decode(value, { stream: true });
-          res.write(chunk);
-        }
-      } catch (err) {
-        console.error('[NVIDIA Proxy] 串流中斷:', err.message);
-        if (!res.writableEnded) res.end();
-      }
-    } else {
-      // 非串流模式：返回 JSON
-      const data = await response.json();
-      res.json(data);
-    }
-  } catch (error) {
-    console.error('[NVIDIA Proxy] 錯誤:', error.message);
-    if (!res.headersSent) {
-      res.status(500).json({ success: false, message: error.message });
-    }
-  }
-});
 
 // =========== 打卡系統 API（動態 QR Code + IP 驗證）============
 

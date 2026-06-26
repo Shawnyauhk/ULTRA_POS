@@ -41,7 +41,7 @@ const menuItems: MenuItem[] = [
   { path: '/reports', label: '報表', icon: BarChart3, permission: 'report.view' },
 
   // AI / 評價
-  { path: '/ai-marketing', label: 'AI 客服管理', icon: MessageSquare, permission: 'ai.customer_service' },
+  { path: '/ai-customer-service', label: 'AI 客服管理', icon: MessageSquare, permission: 'ai.customer_service' },
   { path: '/review-generator', label: 'Google 好評', icon: Star, permission: 'review.view' },
 
   // 設定

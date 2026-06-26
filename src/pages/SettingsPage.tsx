@@ -38,7 +38,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">系統設置 Settings</h1>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

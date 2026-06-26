@@ -111,7 +111,7 @@ export function DashboardPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">控制面板與 AI 分析</h1>

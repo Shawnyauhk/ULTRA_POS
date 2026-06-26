@@ -1,6 +1,6 @@
 /**
  * AI 客服聊天客戶端
- * 使用 NVIDIA NIM API (Qwen3.5-122b) 提供即時回覆
+ * 透過 Server API 處理（包含知識庫查詢 + 儲存對話紀錄）
  */
 
 const AI_API_URL = '/api/nvidia/v1/chat/completions';

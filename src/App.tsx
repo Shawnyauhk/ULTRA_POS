@@ -82,7 +82,7 @@ const routePermissions: Record<string, PermissionKey> = {
   '/expenses': 'expense.view',
   '/settlement': 'settlement.view',
   '/reports': 'report.view',
-  '/ai-marketing': 'ai.customer_service',
+  '/ai-customer-service': 'ai.customer_service',
   '/review-generator': 'review.view',
   '/settings': 'setting.view',
 }
@@ -169,7 +169,7 @@ export default function App() {
                 {renderProtectedRoute('/expenses', <ExpensesPage />)}
                 {renderProtectedRoute('/settlement', <SettlementPage />)}
                 {renderProtectedRoute('/payroll', <PayrollPage />)}
-                {renderProtectedRoute('/ai-marketing', <AIChatPage />)}
+                {renderProtectedRoute('/ai-customer-service', <AIChatPage />)}
                 {renderProtectedRoute('/review-generator', <ReviewGeneratorPage />)}
                 {renderProtectedRoute('/hr', <HRPage />)}
                 {renderProtectedRoute('/attendance-device', <AttendanceDevicePage />)}

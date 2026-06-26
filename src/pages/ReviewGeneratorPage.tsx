@@ -16,14 +16,14 @@ import {
   History, Edit3, Trash2, Brain, Copy, AlertCircle,
 } from 'lucide-react';
 
-const NVIDIA_API_URL = '/api/nvidia/chat/completions';
-
-// 好評生成專用模型（比視覺模型快 3-5 倍，文字能力更強）
-const REVIEW_MODEL = 'meta/llama-3.1-8b-instruct';
+// Agnes AI 配置 (無限期免費，OpenAI 兼容格式)
+const AGNES_API_KEY = import.meta.env.VITE_AGNES_API_KEY;
+const AGNES_API_URL = 'https://apihub.agnes-ai.com/v1/chat/completions';
+const AGNES_MODEL = 'agnes-2.0-flash';
 
 const DEFAULT_CONFIG: ReviewConfig = {
   system_prompt: '你是香港本地食客，用地道廣東話寫 Google 地圖食評。',
-  rules: '繁體中文粵語口語、描述味道+口感+賣相、30-80字、5星、零emoji、似真人',
+  rules: '繁體中文粵語口語、描述味道+口感+賣相、10-50字、5星、零emoji、似真人',
   styles: [
     '收工攰到爆，路過試新嘢，食完精神返晒，勁驚喜',
     '同班 friend 星期五晚 happy hour 之後嚟醫肚，吹水開心',
@@ -71,103 +71,43 @@ async function generateReviewStreaming(
 
   const style = config.styles[Math.floor(Math.random() * config.styles.length)];
 
-  // 隨機語氣強化多樣性（每次生成都會隨機變化）
-  const tones = ['超好味', '真係正', '冇得輸', '好驚喜', '極力推薦', '一定要試', '會再幫襯', '性價比高', '街坊之選'];
-  const shuffled = [...tones].sort(() => Math.random() - 0.5);
-  const toneA = shuffled[0];
-  const toneB = shuffled[1];
-
-  // 隨機禁詞表（防止千篇一律的開場/結尾）
-  const bannedOpenings = ['必試', '極力推介', '好味道', '食得飽齊', '味道甜甜的'];
-  const bannedEndings = ['一定要試試', '不可錯過', '百分百推薦'];
-  const bannedOpening = bannedOpenings[Math.floor(Math.random() * bannedOpenings.length)];
-  const bannedEnding = bannedEndings[Math.floor(Math.random() * bannedEndings.length)];
-
-  // 如果有配料組成，加入 prompt 讓 AI 產生更準確的評語
+  // 如果有配料組成，加入 prompt
   const compositionSection = composition
-    ? `\n【實際配料】這款產品的真實配料包括：${composition}。請根據這些配料描述味道和口感，唔好作冇嘅嘢。`
+    ? `。真實配料：${composition}，請按實際配料描述味道口感`
     : '';
 
-  const prompt = `【任務】用香港地道廣東話為「${productName}」寫一段 Google 食評。
+  const prompt = `用香港粵語為「${productName}」寫一段 Google 食評（10-50字）。
+情境：${style}${compositionSection}
+要求：${config.rules}
+直接回覆：`;
 
-【情境】${style}${compositionSection}
-
-【格式要求】
-- 只用繁體中文粵語口語
-- 30-80字，不要超過
-- 必須具體描述：味道（甜/咸/香/辣等）、口感（脆/軟/滑/彈牙等）、賣相
-- 唔要 emoji
-- 千萬不要用「${bannedOpening}」開頭
-- 千萬不要用「${bannedEnding}」結尾
-- 語氣似真人食客，唔似 AI
-
-【關鍵詞提示】可以自然融入：${toneA}、${toneB}
-
-【參考範例】（只學風格，唔好照抄內容）
-例1：「啱啱搬嚟呢頭第一次食，個煲仔飯真係絕！飯粒粒分明，臘味香到隔離枱都望過嚟，鍋底仲有飯焦添！」
-例2：「星期五晚同friend去，full晒要等位，但等得值！個豆腐花滑到震，薑汁夠辣，食完成身暖晒。」
-例3：「行街行到餓餓地求其入咗嚟，結果個撈麵驚為天人！醬汁濃得嚟唔漏，麵底爽彈，加埋杯凍檸茶perfect。」
-
-直接回覆食評（淨係內容，唔好加任何標題或多餘字）：`;
-
-  const response = await fetch(NVIDIA_API_URL, {
+  const response = await fetch(AGNES_API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${AGNES_API_KEY}`,
     },
     body: JSON.stringify({
-      model: REVIEW_MODEL,
+      model: AGNES_MODEL,
       messages: [
         { role: 'system', content: config.system_prompt },
         { role: 'user', content: prompt }
       ],
       max_tokens: config.max_tokens,
       temperature: config.temperature,
-      top_p: 0.95,
-      stream: true
     })
   });
 
   if (!response.ok) {
-    throw new Error(`NVIDIA NIM API 錯誤: ${response.status}`);
+    throw new Error(`Agnes AI API 錯誤: ${response.status}`);
   }
 
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error('無法讀取回應串流');
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || '';
 
-  const decoder = new TextDecoder();
-  let fullContent = '';
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith('data:')) continue;
-
-      const data = trimmed.slice(5).trim();
-      if (data === '[DONE]') break;
-
-      try {
-        const parsed = JSON.parse(data);
-        const delta = parsed.choices?.[0]?.delta || {};
-        const token = delta.reasoning_content || delta.content || '';
-        if (token) {
-          fullContent += token;
-          onToken(fullContent);
-        }
-      } catch {}
-    }
-  }
-
-  if (!fullContent) throw new Error('AI 回覆為空');
-  return fullContent;
+  if (!content) throw new Error('AI 回覆為空');
+  onToken(content);
+  return content;
 }
 
 // ========================

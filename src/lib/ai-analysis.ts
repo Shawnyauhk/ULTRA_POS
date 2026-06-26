@@ -3,7 +3,7 @@
  * 只需更改 AI_PROVIDER 和相關配置即可切換不同的 AI 服務
  */
 
-export type AIProvider = 'gemini' | 'qwen' | 'nvidia';
+export type AIProvider = 'gemini' | 'qwen' | 'nvidia' | 'agnes';
 
 export interface AIConfig {
   provider: AIProvider;
@@ -27,8 +27,8 @@ export interface AIAnalysisResult {
 
 // ================ 配置區域（只需修改這裡） ================
 
-// 選擇 AI 分析提供者: 'gemini' | 'qwen' | 'nvidia'
-const CURRENT_PROVIDER: AIProvider = 'nvidia';
+// 選擇 AI 分析提供者: 'gemini' | 'qwen' | 'nvidia' | 'agnes'
+const CURRENT_PROVIDER: AIProvider = 'agnes';
 
 // NVIDIA NIM 配置 (推薦 - 免費額度)
 const NVIDIA_CONFIG: AIConfig = {
@@ -52,6 +52,14 @@ const QWEN_CONFIG: AIConfig = {
   apiKey: import.meta.env.VITE_QWEN_API_KEY || '',
   model: 'qwen-plus',  // 或 'qwen-max', 'qwen-turbo'
   apiUrl: 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation',
+};
+
+// Agnes AI 配置 (無限期免費，OpenAI 兼容格式)
+const AGNES_CONFIG: AIConfig = {
+  provider: 'agnes',
+  apiKey: import.meta.env.VITE_AGNES_API_KEY || '',
+  model: 'agnes-2.0-flash',
+  apiUrl: 'https://apihub.agnes-ai.com/v1/chat/completions',
 };
 
 // 分析 Prompt
@@ -183,6 +191,45 @@ ${JSON.stringify(salesData, null, 2)}`;
   return parseAnalysisResult(text, 'nvidia');
 }
 
+// Agnes AI 分析
+async function agnesAnalysis(salesData: SalesData): Promise<AIAnalysisResult> {
+  const context = `銷售數據：
+${JSON.stringify(salesData, null, 2)}`;
+  
+  const response = await fetch(AGNES_CONFIG.apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${AGNES_CONFIG.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: AGNES_CONFIG.model,
+      messages: [
+        {
+          role: 'system',
+          content: '你是一個專業的餐廳經營顧問。請用繁體中文回覆。'
+        },
+        {
+          role: 'user',
+          content: ANALYSIS_PROMPT.replace('{context}', context)
+        }
+      ],
+      max_tokens: 1024,
+      temperature: 0.3
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Agnes AI API 錯誤: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content || '';
+  
+  return parseAnalysisResult(text, 'agnes');
+}
+
 // 解析分析結果
 function parseAnalysisResult(text: string, provider: AIProvider): AIAnalysisResult {
   const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -215,6 +262,8 @@ function parseAnalysisResult(text: string, provider: AIProvider): AIAnalysisResu
  */
 export async function analyzeSalesWithAI(salesData: SalesData): Promise<AIAnalysisResult> {
   switch (CURRENT_PROVIDER) {
+    case 'agnes':
+      return agnesAnalysis(salesData);
     case 'nvidia':
       return nvidiaAnalysis(salesData);
     case 'gemini':
@@ -231,6 +280,8 @@ export async function analyzeSalesWithAI(salesData: SalesData): Promise<AIAnalys
  */
 export function getAIConfig() {
   switch (CURRENT_PROVIDER) {
+    case 'agnes':
+      return AGNES_CONFIG;
     case 'nvidia':
       return NVIDIA_CONFIG;
     case 'gemini':
@@ -247,6 +298,7 @@ export function getAIConfig() {
  */
 export function getAvailableProviders(): { id: AIProvider; name: string }[] {
   return [
+    { id: 'agnes', name: 'Agnes AI (agnes-2.0-flash)' },
     { id: 'nvidia', name: 'NVIDIA NIM (qwen3.5-122b)' },
     { id: 'gemini', name: 'Google Gemini' },
     { id: 'qwen', name: '阿里雲通義千問' },

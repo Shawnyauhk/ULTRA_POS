@@ -224,13 +224,32 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     clearTimeout(longPressTimer.current);
     longPressTimer.current = undefined;
 
-    if (dragState?.overCol && dragState.overCol !== dragState.originCol) {
-      setUpdating(dragState.order.id);
-      await updateOrderRequestStatus(dragState.order.id, dropStatusMap[dragState.overCol]);
-      setUpdating(null);
-    }
+    // ★ 先記錄拖曳目標，然後立即清除拖曳狀態（移除幻影 + 恢復原始卡片透明度）
+    const targetCol = dragState?.overCol;
+    const originCol = dragState?.originCol;
+    const draggedOrder = dragState?.order;
     setDragState(null);
     setIsDragging(false);
+
+    if (targetCol && originCol && targetCol !== originCol && draggedOrder) {
+      // ★ 立即樂觀更新本地資料：將卡片從原區移除
+      setColumnOrder(prev => {
+        const next = { ...prev };
+        next[originCol] = (next[originCol] || []).filter(id => id !== draggedOrder.id);
+        if (!next[targetCol]) next[targetCol] = [];
+        next[targetCol] = [draggedOrder.id, ...next[targetCol]];
+        return next;
+      });
+
+      // ★ 非同步更新後端（不影響 UI 響應）
+      try {
+        await updateOrderRequestStatus(draggedOrder.id, dropStatusMap[targetCol]);
+      } catch (err) {
+        console.error('❌ 拖曳更新狀態失敗:', err);
+        // 更新失敗時重新整理資料
+        refetch();
+      }
+    }
   };
 
   useEffect(() => {
@@ -595,15 +614,15 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     const borderColor = colType === 'request' ? 'border-red-200' : colType === 'pending' ? 'border-yellow-200' : 'border-green-200';
     return (
       <div
-        className={`rounded-xl p-2 md:p-3 transition-all duration-200 min-w-[155px] flex-shrink-0 md:min-w-0 ${bgColor} ${dragState?.overCol === colType ? 'ring-2 ring-indigo-400 bg-indigo-50/50 scale-[1.02]' : ''}`}
+        className={`rounded-xl p-2.5 transition-all duration-200 min-w-[100px] flex-shrink-0 md:min-w-0 md:w-full ${bgColor} ${dragState?.overCol === colType ? 'ring-2 ring-indigo-400 bg-indigo-50/50 scale-[1.02]' : ''}`}
         onDragOver={handleDragOver}
         onDrop={(e) => handleDrop(e, dropStatusMap[colType])}
       >
         <div className="flex items-center justify-between mb-2 px-1">
-          <h2 className="font-semibold text-sm md:text-base flex items-center gap-2">{icon} {title}</h2>
+          <h2 className="font-semibold text-sm flex items-center gap-2">{icon} {title}</h2>
           <Badge variant="secondary" className="text-xs">{columnOrders.length}</Badge>
         </div>
-        <div className="space-y-1.5 md:space-y-2">
+        <div className="space-y-1.5">
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -659,7 +678,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                     <div className="text-sm font-medium text-gray-800 leading-snug flex items-baseline gap-1">
                       <span className="truncate">{firstItem?.inventory?.name || order.notes || '未知貨物'}</span>
                       {firstItem && (
-                        <span className="text-[11px] text-gray-500 font-normal shrink-0">
+                        <span className="text-[10px] text-gray-500 font-normal shrink-0">
                           x{firstItem.requested_quantity}{firstItem.inventory?.unit || ''}
                         </span>
                       )}
@@ -667,45 +686,55 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
 
                     {/* 展開後的詳情（優化排版） */}
                     {isExpanded && (
-                      <div className="mt-2 pt-2.5 border-t border-dashed border-gray-200 space-y-1.5">
+                      <div className="mt-1 pt-1 border-t border-dashed border-gray-200 space-y-0.5">
                         {/* 編輯按鈕 + 數量 */}
                         <div className="flex items-center justify-between">
                           {firstItem && (
-                            <span className="text-xs text-gray-900 font-medium">
+                            <span className="text-[10px] text-gray-900 font-medium">
                               {firstItem.requested_quantity}{firstItem.inventory?.unit || '件'}
                             </span>
                           )}
                           {can('order.approve') && (
                             <button
-                              className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                              className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
                               onClick={(e) => { e.stopPropagation(); handleEditRequest(order); }}
                             >
-                              <Pencil className="h-3 w-3" />
+                              <Pencil className="h-2.5 w-2.5" />
                               編輯
                             </button>
                           )}
                         </div>
 
-                        {/* 時間 / 員工 以 grid 對齊 */}
-                        <div className="grid grid-cols-[3.5rem_1fr] gap-x-2 gap-y-1 text-[11px] text-gray-400">
-                          <span className="text-gray-500">申請</span>
-                          <span>{formatShortDateTime(order.created_at)}</span>
-                          <span className="text-gray-500">員工</span>
-                          <span>{order.employee?.name || '未知'}</span>
+                        {/* 時間 / 員工 */}
+                        <div className="text-[9px] text-gray-400 space-y-0.5">
+                          <div className="flex gap-1">
+                            <span className="text-gray-500 w-6 shrink-0">申請</span>
+                            <span className="truncate">{formatShortDateTime(order.created_at)}</span>
+                          </div>
+                          <div className="flex gap-1">
+                            <span className="text-gray-500 w-6 shrink-0">員工</span>
+                            <span className="truncate">{order.employee?.name || '未知'}</span>
+                          </div>
                           {colType === 'pending' && order.ordered_at && (
-                            <><span className="text-gray-500">訂貨</span><span>{formatShortDateTime(order.ordered_at)}</span></>
+                            <div className="flex gap-1">
+                              <span className="text-gray-500 w-6 shrink-0">訂貨</span>
+                              <span className="truncate">{formatShortDateTime(order.ordered_at)}</span>
+                            </div>
                           )}
                           {colType === 'received' && order.received_at && (
-                            <><span className="text-gray-500">送達</span><span>{formatShortDateTime(order.received_at)}</span></>
+                            <div className="flex gap-1">
+                              <span className="text-gray-500 w-6 shrink-0">送達</span>
+                              <span className="truncate">{formatShortDateTime(order.received_at)}</span>
+                            </div>
                           )}
                         </div>
 
                         {/* 貨物清單 */}
                         {items.length > 0 && (
-                          <div className="pt-1">
-                            <div className="text-[10px] text-gray-400 mb-1 font-medium">貨物清單</div>
+                          <div>
+                            <div className="text-[9px] text-gray-400 font-medium">貨物</div>
                             {items.map((item: any, idx: number) => (
-                              <div key={item.id} className="flex items-center gap-1.5 text-[11px] py-0.5">
+                              <div key={item.id} className="flex items-center gap-1 text-[9px] py-0.5">
                                 <span className="text-gray-700 truncate">{item.inventory?.name || '未知貨物'}</span>
                                 <span className="text-gray-500 shrink-0">
                                   x{item.requested_quantity}{item.inventory?.unit || ''}
@@ -716,8 +745,8 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                         )}
 
                         {/* 狀態標籤 + 逾期 */}
-                        <div className="flex items-center gap-2 flex-wrap pt-0.5">
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className={`text-[9px] px-1 py-0.5 rounded font-medium ${
                             order.status === 'pending' ? 'bg-red-100 text-red-700' :
                             order.status === 'approved' ? 'bg-blue-100 text-blue-700' :
                             order.status === 'ordered' ? 'bg-yellow-100 text-yellow-700' :
@@ -728,14 +757,14 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                             {statusLabel}
                           </span>
                           {isOverdue(order.created_at, order.status) && (
-                            <span className="text-[10px] text-red-500">已逾期3天以上</span>
+                            <span className="text-[9px] text-red-500">逾期3天+</span>
                           )}
                         </div>
 
                         {/* 簽收按鈕 */}
                         {colType === 'received' && (
                           <button
-                            className="w-full py-1.5 text-xs bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors font-medium"
+                            className="w-full py-1 text-[10px] bg-green-600 hover:bg-green-700 text-white rounded transition-colors font-medium"
                             onClick={(e) => { e.stopPropagation(); handleOpenSignModal(order); }}
                           >
                             簽收
@@ -864,7 +893,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
       {/* 三欄：手機橫向滾動，桌面並排 */}
       <div
         ref={containerRef}
-        className={`flex gap-2 pb-3 md:grid md:grid-cols-3 md:gap-3 md:overflow-visible ${isDragging ? 'overflow-x-hidden touch-none' : 'overflow-x-auto'}`}
+        className={`flex gap-2 pb-2 md:grid md:grid-cols-3 md:gap-3 md:overflow-visible ${isDragging ? 'overflow-x-hidden touch-none' : 'overflow-x-auto'}`}
       >
         {renderColumn('員工請求', 'request', <AlertCircle className="w-5 h-5 text-red-500"/>, 'bg-red-50')}
         {renderColumn('待處理', 'pending', <Clock className="w-5 h-5 text-yellow-500"/>, 'bg-yellow-50')}

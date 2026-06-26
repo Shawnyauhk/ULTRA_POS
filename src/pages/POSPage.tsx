@@ -145,7 +145,7 @@ export function POSPage() {
           {/* Categories and Products */}
           {!activeCategory ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {CATEGORIES.map(cat => (
+              {localCategories.map(cat => (
                 <Card key={cat.id} className="cursor-pointer hover:border-primary transition-all hover:shadow-md" onClick={() => setActiveCategory(cat.id)}>
                   <CardContent className="p-8 flex items-center justify-between">
                     <span className="text-xl font-bold">{cat.name}</span>
@@ -161,7 +161,7 @@ export function POSPage() {
                   {lang === 'zh' ? '← 返回全部分類' : '← Back to Categories'}
                 </Button>
                 <h2 className="text-xl font-bold ml-2">
-                  {CATEGORIES.find(c => c.id === activeCategory)?.name}
+                  {localCategories.find(c => c.id === activeCategory)?.name}
                 </h2>
               </div>
               <div className="flex-1 overflow-y-auto grid grid-cols-3 gap-4 content-start pr-2">
