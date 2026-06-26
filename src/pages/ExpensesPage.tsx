@@ -1190,28 +1190,28 @@ export default function ExpensesPage() {
   }, [expenses]);
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div className="px-1 md:px-3 space-y-2 md:space-y-3 max-w-full">
+      <div className="flex flex-col gap-1 md:gap-2 md:flex-row md:items-center md:justify-between px-1">
         <div className="min-w-0">
-          <h1 className="text-xl md:text-2xl font-bold text-gray-900">門店收支</h1>
-          <p className="text-sm text-muted-foreground">支出記錄、每月結算、現金日結與保險箱管理</p>
+          <h1 className="text-base md:text-xl font-bold text-gray-900">門店收支</h1>
+          <p className="text-xs text-muted-foreground">支出記錄、每月結算、現金日結與保險箱管理</p>
         </div>
-        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg self-start md:self-auto flex-nowrap overflow-x-auto">
-          <Button variant={activeTab === 'expenses' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('expenses')}>門店支出</Button>
-          <Button variant={activeTab === 'settlement' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('settlement')}>每月結算</Button>
+        <div className="flex gap-0.5 bg-gray-100 p-0.5 rounded-lg self-start md:self-auto flex-nowrap overflow-x-auto">
+          <Button variant={activeTab === 'expenses' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('expenses')} className="h-7 text-xs px-2">門店支出</Button>
+          <Button variant={activeTab === 'settlement' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('settlement')} className="h-7 text-xs px-2">每月結算</Button>
           {can('expense.manage') && (
-            <Button variant={activeTab === 'cash_settlement' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('cash_settlement')}>
-              <DollarSign className="w-3.5 h-3.5 mr-1" />現金日結
+            <Button variant={activeTab === 'cash_settlement' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('cash_settlement')} className="h-7 text-xs px-2">
+              <DollarSign className="w-3 h-3 mr-1" />現金日結
             </Button>
           )}
           {can('safe.view') && (
-            <Button variant={activeTab === 'safe' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('safe')}>
-              <ShieldCheck className="w-3.5 h-3.5 mr-1" />保險箱
+            <Button variant={activeTab === 'safe' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('safe')} className="h-7 text-xs px-2">
+              <ShieldCheck className="w-3 h-3" />保險箱
             </Button>
           )}
           {user?.role === 'owner' && (
-            <Button variant={activeTab === 'cash_report' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('cash_report')}>
-              <BarChart3 className="w-3.5 h-3.5 mr-1" />現金日結報告
+            <Button variant={activeTab === 'cash_report' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('cash_report')} className="h-7 text-xs px-2">
+              <BarChart3 className="w-3 h-3" />現金日結報告
             </Button>
           )}
         </div>
@@ -1606,90 +1606,90 @@ export default function ExpensesPage() {
           )}
 
           {/* 支出列表 */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">支出記錄</CardTitle>
+          <Card className="shadow-sm">
+            <CardHeader className="px-3 py-2 md:px-4 md:py-3">
+              <CardTitle className="text-sm md:text-base">支出記錄</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-0">
               {loading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
                 </div>
               ) : !expenses || expenses.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Receipt className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>暫無支出記錄</p>
-                  <p className="text-sm mt-1">使用 AI 掃描上傳收據，或手動新增</p>
+                <div className="text-center py-6 text-muted-foreground px-3">
+                  <Receipt className="w-10 h-10 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm">暫無支出記錄</p>
+                  <p className="text-xs mt-1">使用 AI 掃描上傳收據，或手動新增</p>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {/* 总计 */}
-                  <div className="text-sm text-muted-foreground px-1 pb-2 border-b">
-                    {expenseTree.totalCount} 筆記錄，總金額 <span className="font-semibold text-gray-700">${expenseTree.total.toLocaleString()}</span>
+                <div className="divide-y divide-gray-100">
+                  {/* 总计 - 作为第一个full-width行 */}
+                  <div className="text-xs text-muted-foreground px-3 py-2 flex items-center gap-2 bg-gray-50/50">
+                    <span className="font-medium text-gray-700">{expenseTree.totalCount}</span> 筆記錄，總金額 <span className="font-semibold text-gray-800">${expenseTree.total.toLocaleString()}</span>
                   </div>
 
                   {expenseTree.groups.map(yg => {
                     const yExpanded = expandedNodes.has(yg.yearKey);
                     return (
-                      <div key={yg.yearKey}>
-                        {/* 年份層 - 全寬 */}
-                        <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors w-full"
+                      <div key={yg.yearKey} className="border-b border-gray-100 last:border-b-0">
+                        {/* 年份層 - 全寬無圓角 */}
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 cursor-pointer hover:bg-blue-100 transition-colors w-full text-xs md:text-sm"
                              onClick={() => { const n = new Set(expandedNodes); if (n.has(yg.yearKey)) n.delete(yg.yearKey); else n.add(yg.yearKey); setExpandedNodes(n); }}>
-                          {yExpanded ? <ChevronDown className="w-4 h-4 text-blue-600 shrink-0" /> : <ChevronRight className="w-4 h-4 text-blue-600 shrink-0" />}
+                          {yExpanded ? <ChevronDown className="w-3 h-3 md:w-3.5 md:h-3.5 text-blue-600 shrink-0" /> : <ChevronRight className="w-3 h-3 md:w-3.5 md:h-3.5 text-blue-600 shrink-0" />}
                           <span className="font-semibold text-blue-800">{yg.year} 年</span>
-                          <Badge variant="secondary" className="ml-1 text-xs">{yg.yEntries.length} 筆</Badge>
-                          <span className="ml-auto font-medium text-blue-700">${yg.yTotal.toLocaleString()}</span>
+                          <span className="text-xs text-blue-400 ml-1">{yg.yEntries.length} 筆</span>
+                          <span className="ml-auto font-medium text-blue-700 text-xs md:text-sm">${yg.yTotal.toLocaleString()}</span>
                         </div>
-                        {/* 月份 + 條目 - 不縮進，全寬利用 */}
+                        {/* 月份 + 條目 - 全寬，不縮進，與年份對齊 */}
                         {yExpanded && (
-                          <div className="mt-1 space-y-1">
+                          <div className="divide-y divide-gray-50">
                             {yg.months.map(mg => {
                               const mExpanded = expandedNodes.has(mg.monthKey);
                               const mParts = mg.month.split('-');
                               const mLabel = mParts.length === 2 ? `${parseInt(mParts[1])}月` : mg.month;
                               return (
                                 <div key={mg.monthKey}>
-                                  {/* 月份層 - 全寬 */}
-                                  <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors w-full"
+                                  {/* 月份層 - 全寬，與年份完全對齊 */}
+                                  <div className="flex items-center gap-1.5 px-3 md:px-6 py-1 bg-gray-50/80 cursor-pointer hover:bg-gray-100 transition-colors w-full text-xs"
                                        onClick={() => { const n = new Set(expandedNodes); if (n.has(mg.monthKey)) n.delete(mg.monthKey); else n.add(mg.monthKey); setExpandedNodes(n); }}>
-                                    {mExpanded ? <ChevronDown className="w-3.5 h-3.5 text-gray-500 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-gray-500 shrink-0" />}
+                                    {mExpanded ? <ChevronDown className="w-3 h-3 text-gray-400 shrink-0" /> : <ChevronRight className="w-3 h-3 text-gray-400 shrink-0" />}
                                     <span className="font-medium text-gray-700">{mLabel}</span>
-                                    <Badge variant="outline" className="text-xs">{mg.mEntries.length} 筆</Badge>
-                                    <span className="ml-auto text-sm text-gray-600">${mg.mTotal.toLocaleString()}</span>
+                                    <span className="text-[10px] text-gray-400 ml-1">{mg.mEntries.length} 筆</span>
+                                    <span className="ml-auto text-xs text-gray-500">${mg.mTotal.toLocaleString()}</span>
                                   </div>
-                                  {/* 條目列表 - 全寬，不縮進 */}
+                                  {/* 條目列表 - 全寬，不縮進，與月份對齊 */}
                                   {mExpanded && (
-                                    <div className="mt-1 space-y-0.5 w-full">
+                                    <div className="w-full">
                                       {mg.mEntries.map((exp: any) => {
                                         const isEditing = editingId === exp.id;
                                         const isDetailOpen = expandedDetailId === exp.id;
                                         return (
-                                          <div key={exp.id}>
-                                            {/* 條目行 - 全寬利用 */}
+                                          <div key={exp.id} className="border-t border-gray-50 first:border-t-0">
+                                            {/* 條目行 - 全寬，緊湊 */}
                                             <div
-                                              className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer rounded-lg transition-colors w-full ${
-                                                isDetailOpen ? 'bg-indigo-50 border border-indigo-200' : 'hover:bg-gray-50 border border-transparent'
+                                              className={`flex items-center gap-1.5 px-3 md:px-6 py-1.5 text-xs cursor-pointer transition-colors w-full ${
+                                                isDetailOpen ? 'bg-indigo-50' : 'hover:bg-gray-50'
                                               }`}
                                               onClick={() => setExpandedDetailId(isDetailOpen ? null : exp.id)}
                                             >
                                               {/* 日期 - 僅顯示日 */}
-                                              <span className="text-xs text-gray-400 shrink-0 w-12 text-right">
+                                              <span className="text-[11px] text-gray-400 shrink-0 w-8 text-right">
                                                 {exp.expense_date ? parseInt(exp.expense_date.slice(8)) : ''}
                                               </span>
                                               {/* (簡化分類) */}
-                                              <span className="text-xs font-medium text-green-700 bg-green-50 px-1.5 py-0.5 rounded shrink-0">
+                                              <span className="text-[10px] font-medium text-green-700 bg-green-50 px-1 py-0.5 rounded shrink-0">
                                                 {shortCategory(exp.category)}
                                               </span>
-                                              {/* 購貨內容（過濾舊資料中內嵌的經手人資訊） */}
-                                              <span className="flex-1 min-w-0 text-gray-700 truncate">
+                                              {/* 購貨內容 */}
+                                              <span className="flex-1 min-w-0 text-gray-700 truncate text-xs">
                                                 {cleanDescription(exp.description)}
                                               </span>
                                               {/* ($金額) */}
-                                              <span className="font-medium text-right shrink-0 w-20">
+                                              <span className="font-medium text-right shrink-0 w-16 text-xs">
                                                 ${Number(exp.amount).toLocaleString()}
                                               </span>
                                               {/* 付款狀態 */}
-                                              <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium shrink-0 ${
+                                              <span className={`inline-block px-1 py-0.5 rounded text-[10px] font-medium shrink-0 ${
                                                 exp.payment_status === 'cash' ? 'bg-green-100 text-green-700' :
                                                 exp.payment_status === 'bank' ? 'bg-blue-100 text-blue-700' :
                                                 'bg-gray-100 text-gray-500'
@@ -1697,25 +1697,21 @@ export default function ExpensesPage() {
                                                 {exp.payment_status === 'cash' ? '現金' : exp.payment_status === 'bank' ? '銀行' : '未付'}
                                               </span>
                                               {/* 展開箭頭 */}
-                                              <ChevronDown className={`w-3 h-3 text-gray-300 shrink-0 transition-transform ${isDetailOpen ? 'rotate-0' : '-rotate-90'}`} />
+                                              <ChevronDown className={`w-2.5 h-2.5 text-gray-300 shrink-0 transition-transform ${isDetailOpen ? 'rotate-0' : '-rotate-90'}`} />
                                             </div>
                                             {/* 詳情面板 */}
                                             {isDetailOpen && (
-                                              <div className="mx-3 mb-1 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100 text-xs">
-                                                {/* 第一行：購貨內容（全寬） */}
-                                                <div className="flex flex-col sm:flex-row sm:gap-4 gap-1 mb-2">
-                                                  <div className="flex-1 min-w-0 flex items-baseline gap-1">
-                                                    <span className="text-gray-400 shrink-0">購貨內容：</span>
+                                              <div className="px-3 md:px-6 py-2 bg-indigo-50/50 border-t border-indigo-100 text-[11px]">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1">
+                                                  <div className="flex items-baseline gap-1">
+                                                    <span className="text-gray-400 shrink-0">購貨：</span>
                                                     {isEditing ? (
-                                                      <input value={editForm.description ?? exp.description} onChange={e => setEditForm({...editForm, description: e.target.value})} className="w-full border rounded px-2 py-1 text-xs bg-white" />
+                                                      <input value={editForm.description ?? exp.description} onChange={e => setEditForm({...editForm, description: e.target.value})} className="w-full border rounded px-1.5 py-0.5 text-xs bg-white" />
                                                     ) : (
                                                       <span className="text-gray-700 break-words">{cleanDescription(exp.description)}</span>
                                                     )}
                                                   </div>
-                                                </div>
-                                                {/* 第二行：分類 + 供應商 */}
-                                                <div className="flex flex-col sm:flex-row sm:gap-4 gap-1 mb-2">
-                                                  <div className="flex-1 min-w-0 flex items-baseline gap-1">
+                                                  <div className="flex items-baseline gap-1">
                                                     <span className="text-gray-400 shrink-0">分類：</span>
                                                     {isEditing ? (
                                                       <select value={editForm.category || categoryToLabel(exp.category)} onChange={e => setEditForm({...editForm, category: e.target.value})} className="border rounded px-1 py-0.5 text-xs bg-white">
@@ -1725,26 +1721,23 @@ export default function ExpensesPage() {
                                                       <span className="text-gray-700">{categoryToLabel(exp.category)}</span>
                                                     )}
                                                   </div>
-                                                  <div className="flex-1 min-w-0 flex items-baseline gap-1">
+                                                  <div className="flex items-baseline gap-1">
                                                     <span className="text-gray-400 shrink-0">供應商：</span>
                                                     {isEditing ? (
-                                                      <input value={editForm.supplier ?? exp.supplier ?? ''} onChange={e => setEditForm({...editForm, supplier: e.target.value})} className="w-full border rounded px-2 py-1 text-xs bg-white" />
+                                                      <input value={editForm.supplier ?? exp.supplier ?? ''} onChange={e => setEditForm({...editForm, supplier: e.target.value})} className="w-full border rounded px-1.5 py-0.5 text-xs bg-white" />
                                                     ) : (
                                                       <span className="text-gray-700 break-words">{exp.supplier || '—'}</span>
                                                     )}
                                                   </div>
-                                                </div>
-                                                {/* 第三行：金額 + 付款狀態 */}
-                                                <div className="flex flex-col sm:flex-row sm:gap-4 gap-1 mb-2">
-                                                  <div className="flex-1 min-w-0 flex items-baseline gap-1">
+                                                  <div className="flex items-baseline gap-1">
                                                     <span className="text-gray-400 shrink-0">金額：</span>
                                                     {isEditing ? (
-                                                      <input type="number" value={editForm.amount ?? exp.amount} onChange={e => setEditForm({...editForm, amount: parseFloat(e.target.value) || 0})} className="w-28 border rounded px-2 py-1 text-xs text-right bg-white" />
+                                                      <input type="number" value={editForm.amount ?? exp.amount} onChange={e => setEditForm({...editForm, amount: parseFloat(e.target.value) || 0})} className="w-20 border rounded px-1.5 py-0.5 text-xs text-right bg-white" />
                                                     ) : (
                                                       <span className="font-medium text-green-700">${Number(exp.amount).toLocaleString()}</span>
                                                     )}
                                                   </div>
-                                                  <div className="flex-1 min-w-0 flex items-baseline gap-1">
+                                                  <div className="flex items-baseline gap-1">
                                                     <span className="text-gray-400 shrink-0">付款：</span>
                                                     {isEditing ? (
                                                       <select value={editForm.payment_status || exp.payment_status || ''} onChange={e => setEditForm({...editForm, payment_status: e.target.value})} className="border rounded px-1 py-0.5 text-xs bg-white">
@@ -1753,78 +1746,68 @@ export default function ExpensesPage() {
                                                         <option value="unpaid">未付</option>
                                                       </select>
                                                     ) : (
-                                                      <span className={`font-medium ${
-                                                        exp.payment_status === 'cash' ? 'text-green-600' :
-                                                        exp.payment_status === 'bank' ? 'text-blue-600' :
-                                                        'text-gray-500'
-                                                      }`}>
+                                                      <span className={`font-medium ${exp.payment_status === 'cash' ? 'text-green-600' : exp.payment_status === 'bank' ? 'text-blue-600' : 'text-gray-500'}`}>
                                                         {exp.payment_status === 'cash' ? '現金已付' : exp.payment_status === 'bank' ? '銀行已付' : '未付'}
                                                       </span>
                                                     )}
                                                   </div>
-                                                </div>
-                                                {/* 第四行：日期 + 經手人 */}
-                                                <div className="flex flex-col sm:flex-row sm:gap-4 gap-1 mb-2">
-                                                  <div className="flex-1 min-w-0 flex items-baseline gap-1">
+                                                  <div className="flex items-baseline gap-1">
                                                     <span className="text-gray-400 shrink-0">日期：</span>
                                                     {isEditing ? (
-                                                      <input type="date" value={editForm.expense_date || exp.expense_date} onChange={e => setEditForm({...editForm, expense_date: e.target.value})} className="border rounded px-2 py-1 text-xs bg-white" />
+                                                      <input type="date" value={editForm.expense_date || exp.expense_date} onChange={e => setEditForm({...editForm, expense_date: e.target.value})} className="border rounded px-1.5 py-0.5 text-xs bg-white" />
                                                     ) : (
                                                       <span className="text-gray-700">{exp.expense_date}</span>
                                                     )}
                                                   </div>
-                                                  <div className="flex-1 min-w-0 flex items-baseline gap-1">
+                                                  <div className="flex items-baseline gap-1">
                                                     <span className="text-gray-400 shrink-0">經手人：</span>
                                                     <span className="text-gray-700">{exp.handler || useAuthStore.getState().user?.name || '—'}</span>
                                                   </div>
+                                                  {exp.created_at && (
+                                                    <div className="flex items-baseline gap-1">
+                                                      <span className="text-gray-400 shrink-0">記錄時間：</span>
+                                                      <span className="text-gray-700">{new Date(exp.created_at).toLocaleString()}</span>
+                                                    </div>
+                                                  )}
+                                                  {exp.invoice && (
+                                                    <div className="flex items-baseline gap-1">
+                                                      <span className="text-gray-400 shrink-0">發票號碼：</span>
+                                                      <span className="text-gray-700">{exp.invoice}</span>
+                                                    </div>
+                                                  )}
                                                 </div>
-                                                {exp.created_at && (
-                                                  <div className="flex items-baseline gap-1 mb-2">
-                                                    <span className="text-gray-400 shrink-0">記錄時間：</span>
-                                                    <span className="text-gray-700">{new Date(exp.created_at).toLocaleString()}</span>
-                                                  </div>
-                                                )}
-                                                {exp.invoice && (
-                                                  <div className="flex items-baseline gap-1 mb-2">
-                                                    <span className="text-gray-400 shrink-0">發票號碼：</span>
-                                                    <span className="text-gray-700">{exp.invoice}</span>
-                                                  </div>
-                                                )}
-                                                <div className="flex items-center justify-between min-h-[24px]">
+                                                <div className="flex items-center justify-between mt-2 pt-1 border-t border-indigo-100">
                                                   <div>
                                                     {exp.receipt_url && (
-                                                      <button
-                                                        onClick={() => setLightboxImage(exp.receipt_url!)}
-                                                        className="text-xs text-blue-600 hover:text-blue-800 underline flex items-center gap-1"
-                                                      >
+                                                      <button onClick={() => setLightboxImage(exp.receipt_url!)} className="text-[11px] text-blue-600 hover:text-blue-800 underline flex items-center gap-1">
                                                         <Receipt className="w-3 h-3" />查看收據照片
                                                       </button>
                                                     )}
                                                   </div>
                                                   {can('expense.manage') && (
-                                                  <div className="flex items-center justify-end gap-1">
+                                                  <div className="flex items-center gap-1">
                                                     {deleteConfirmId === exp.id ? (
                                                       <>
-                                                        <span className="text-xs text-red-600">確認刪除？</span>
-                                                        <Button size="sm" variant="destructive" onClick={() => handleDelete(exp.id)} className="h-6 text-xs px-3">刪除</Button>
-                                                        <Button size="sm" variant="ghost" onClick={() => setDeleteConfirmId(null)} className="h-6 text-xs">取消</Button>
+                                                        <span className="text-[11px] text-red-600">確認刪除？</span>
+                                                        <Button size="sm" variant="destructive" onClick={() => handleDelete(exp.id)} className="h-5 text-[10px] px-2">刪除</Button>
+                                                        <Button size="sm" variant="ghost" onClick={() => setDeleteConfirmId(null)} className="h-5 text-[10px]">取消</Button>
                                                       </>
                                                     ) : editingId === exp.id ? (
                                                       <>
-                                                        <Button size="sm" variant="ghost" onClick={() => handleSaveEdit(exp.id)} disabled={saving} className="h-6 text-xs">
-                                                          <Save className="w-3 h-3 mr-1" />儲存
+                                                        <Button size="sm" variant="ghost" onClick={() => handleSaveEdit(exp.id)} disabled={saving} className="h-5 text-[10px] px-1.5">
+                                                          <Save className="w-2.5 h-2.5 mr-0.5" />儲存
                                                         </Button>
-                                                        <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditForm({}); }} className="h-6 text-xs">
-                                                          <X className="w-3 h-3 mr-1" />取消
+                                                        <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditForm({}); }} className="h-5 text-[10px] px-1.5">
+                                                          <X className="w-2.5 h-2.5 mr-0.5" />取消
                                                         </Button>
                                                       </>
                                                     ) : (
-                                                      <div className="flex items-center gap-1">
-                                                        <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => setDeleteConfirmId(exp.id)}>
-                                                          <Trash2 className="w-3 h-3" />
+                                                      <div className="flex items-center gap-0.5">
+                                                        <Button size="sm" variant="ghost" className="h-5 px-1 text-[10px] text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => setDeleteConfirmId(exp.id)}>
+                                                          <Trash2 className="w-2.5 h-2.5" />
                                                         </Button>
-                                                        <Button size="sm" variant="outline" className="h-6 px-2 text-xs text-indigo-600 border-indigo-200 hover:bg-indigo-100" onClick={() => { setEditingId(exp.id); setEditForm({ category: categoryToLabel(exp.category), amount: exp.amount, description: exp.description, expense_date: exp.expense_date, payment_status: exp.payment_status, supplier: exp.supplier }); setExpandedDetailId(exp.id); }}>
-                                                          <Edit2 className="w-3 h-3" />修改
+                                                        <Button size="sm" variant="outline" className="h-5 px-1.5 text-[10px] text-indigo-600 border-indigo-200 hover:bg-indigo-100" onClick={() => { setEditingId(exp.id); setEditForm({ category: categoryToLabel(exp.category), amount: exp.amount, description: exp.description, expense_date: exp.expense_date, payment_status: exp.payment_status, supplier: exp.supplier }); setExpandedDetailId(exp.id); }}>
+                                                          <Edit2 className="w-2.5 h-2.5" />修改
                                                         </Button>
                                                       </div>
                                                     )}
