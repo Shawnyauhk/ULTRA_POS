@@ -740,6 +740,20 @@ export default function ExpensesPage() {
             if (items.length > 0) description = items.join(', ');
           }
 
+          // ===== AI 智能分類：食物/食材相關一律歸入「進貨成本」=====
+          const foodKeywords = ['蛋', '奶', '肉', '菜', '魚', '蝦', '米', '麵', '粉', '糖', '油',
+            '鹽', '醬', '醋', '酒', '茶', '豆', '果', '瓜', '薑', '葱', '蒜', '雪糕',
+            '包', '餅', '糕', '腸', '丸', '卷', '角', '春卷', '點心', '凍肉',
+            '冰鮮', '蔬果', '生果', '海鮮', '家禽', '扒類', '水產', '臘味',
+            '副食品', '食材', '食品', '雜貨', '零食', '飲料', '飲品',
+            '急凍', '冷藏', '奶類製品', '蛋類', '罐頭', '調味料', '香料'];
+          if (category !== '進貨成本' && (
+            foodKeywords.some(k => description?.includes(k)) ||
+            foodKeywords.some(k => supplier?.includes(k))
+          )) {
+            category = '進貨成本';
+          }
+
           // 描述只包含品項，不包含發票號
           setOcrResult({
             amount,
