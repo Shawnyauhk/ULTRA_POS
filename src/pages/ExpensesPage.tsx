@@ -33,6 +33,16 @@ const shortCategory = (cat: string): string => {
   return label === '進貨成本' ? '進貨' : label;
 };
 
+// 分類顏色映射
+const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  food: { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-200' },
+  rent: { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-200' },
+  utilities: { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-200' },
+  salary: { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-200' },
+  supplies: { bg: 'bg-cyan-100', text: 'text-cyan-700', border: 'border-cyan-200' },
+  other: { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-200' },
+};
+
 const shortSupplier = (name: string): string => {
   if (!name) return '—';
   const cleaned = name.replace(/[（(].*?[)）]/g, '').trim();
@@ -1687,7 +1697,7 @@ export default function ExpensesPage() {
                                           <div key={exp.id} className="border-t border-gray-50 first:border-t-0">
                                             {/* 條目行 - 全寬無內邊距 */}
                                             <div
-                                              className={`flex items-center gap-1.5 px-1.5 py-1.5 text-xs cursor-pointer transition-colors w-full ${
+                                              className={`flex items-center gap-1 px-1.5 py-1.5 text-xs cursor-pointer transition-colors w-full ${
                                                 isDetailOpen ? 'bg-indigo-50' : 'hover:bg-gray-50'
                                               }`}
                                               onClick={() => setExpandedDetailId(isDetailOpen ? null : exp.id)}
@@ -1696,28 +1706,33 @@ export default function ExpensesPage() {
                                               <span className="text-[11px] text-gray-400 shrink-0 w-4 text-left">
                                                 {exp.expense_date ? parseInt(exp.expense_date.slice(8)) : ''}
                                               </span>
-                                              {/* 供應商簡寫（綠色框） */}
+                                              {/* 供應商簡寫 */}
                                               {exp.supplier && (
                                                 <span className="inline-block px-1 py-0.5 rounded text-[10px] font-medium shrink-0 bg-green-100 text-green-700 border border-green-200" title={exp.supplier}>
                                                   {shortSupplier(exp.supplier)}
                                                 </span>
                                               )}
-                                              {/* 分類 */}
-                                              <span className="text-[10px] font-medium text-gray-600 bg-gray-100 px-1 py-0.5 rounded shrink-0">
-                                                {shortCategory(exp.category)}
-                                              </span>
+                                              {/* 分類（不同顏色） */}
+                                              {(() => {
+                                                const cc = CATEGORY_COLORS[exp.category] || CATEGORY_COLORS.other;
+                                                return (
+                                                  <span className={`inline-block px-1 py-0.5 rounded text-[10px] font-medium shrink-0 ${cc.bg} ${cc.text} ${cc.border} border`}>
+                                                    {shortCategory(exp.category)}
+                                                  </span>
+                                                );
+                                              })()}
                                               {/* 購貨內容 */}
                                               <span className="flex-1 min-w-0 text-gray-700 truncate text-xs">
                                                 {cleanDescription(exp.description)}
                                               </span>
                                               {/* 金額 */}
-                                              <span className="font-medium text-right shrink-0 w-16 text-xs">
+                                              <span className="font-medium text-right shrink-0 w-14 text-xs">
                                                 ${Number(exp.amount).toLocaleString()}
                                               </span>
                                               {/* 付款狀態 */}
                                               <span className={`inline-block px-1 py-0.5 rounded text-[10px] font-medium shrink-0 ${
-                                                exp.payment_status === 'cash' ? 'bg-green-100 text-green-700' :
-                                                exp.payment_status === 'bank' ? 'bg-blue-100 text-blue-700' :
+                                                exp.payment_status === 'cash' ? 'bg-green-100 text-green-700 border border-green-200' :
+                                                exp.payment_status === 'bank' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
                                                 'bg-gray-100 text-gray-500'
                                               }`}>
                                                 {exp.payment_status === 'cash' ? '現金' : exp.payment_status === 'bank' ? '銀行' : '未付'}
