@@ -53,6 +53,7 @@ export function OrderRequestsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [completedExpanded, setCompletedExpanded] = useState(false);
 const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
+  const [optimisticCols, setOptimisticCols] = useState<Record<string, ColumnType>>({});
   const [isDragging, setIsDragging] = useState(false);
   const [dragState, setDragState] = useState<{
     order: OrderRequest;
@@ -123,8 +124,9 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     });
   }, [inventory, searchTerm, selectedCategory]);
 
-  // 決定每個訂單屬於哪一區
+  // 決定每個訂單屬於哪一區（樂觀覆蓋優先）
   const getOrderColumn = (order: OrderRequest): ColumnType => {
+    if (optimisticCols[order.id]) return optimisticCols[order.id];
     const status = order.status;
     if (status === 'pending' || status === 'approved') return 'request';
     if (status === 'ordered' || status === 'partial') return 'pending';
@@ -160,11 +162,26 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     e.dataTransfer.dropEffect = 'move';
   };
 
-  const handleDrop = async (e: React.DragEvent, newStatus: OrderRequestStatus) => {
+  const handleDrop = async (e: React.DragEvent, newStatus: OrderRequestStatus, targetCol: ColumnType) => {
     e.preventDefault();
     if (draggedOrder && draggedOrder.status !== newStatus) {
+      setOptimisticCols(prev => ({ ...prev, [draggedOrder.id]: targetCol }));
       setUpdating(draggedOrder.id);
-      await updateOrderRequestStatus(draggedOrder.id, newStatus);
+      try {
+        await updateOrderRequestStatus(draggedOrder.id, newStatus);
+        setOptimisticCols(prev => {
+          const next = { ...prev };
+          delete next[draggedOrder.id];
+          return next;
+        });
+      } catch (err) {
+        setOptimisticCols(prev => {
+          const next = { ...prev };
+          delete next[draggedOrder.id];
+          return next;
+        });
+        refetch();
+      }
       setUpdating(null);
     }
     setDraggedOrder(null);
@@ -225,6 +242,8 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
       setIsDragging(false);
 
       if (targetCol && originCol && targetCol !== originCol && draggedOrder) {
+        // ★ 樂觀覆蓋：立即把該卡片指定到目標欄位（繞過 getOrderColumn 的 status 判斷）
+        setOptimisticCols(prev => ({ ...prev, [draggedOrder.id]: targetCol as ColumnType }));
         setColumnOrder(prev => {
           const next = { ...prev };
           next[originCol] = (next[originCol] || []).filter(id => id !== draggedOrder.id);
@@ -235,8 +254,19 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
 
         try {
           await updateOrderRequestStatus(draggedOrder.id, dropStatusMap[targetCol]);
+          // API 成功後清除樂觀覆蓋（資料 refetch 後 status 已更新）
+          setOptimisticCols(prev => {
+            const next = { ...prev };
+            delete next[draggedOrder.id];
+            return next;
+          });
         } catch (err) {
           console.error('❌ 拖曳更新狀態失敗:', err);
+          setOptimisticCols(prev => {
+            const next = { ...prev };
+            delete next[draggedOrder.id];
+            return next;
+          });
           refetch();
         }
       }
@@ -694,15 +724,15 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     const borderColor = colType === 'request' ? 'border-red-200' : colType === 'pending' ? 'border-yellow-200' : 'border-green-200';
     return (
       <div
-        className={`rounded-xl p-2.5 transition-all duration-200 min-w-[100px] flex-shrink-0 md:min-w-0 md:w-full ${bgColor} ${dragState?.overCol === colType ? 'ring-2 ring-indigo-400 bg-indigo-50/50 scale-[1.02]' : ''}`}
+        className={`rounded-xl p-1.5 md:p-2.5 transition-all duration-200 min-w-0 flex-1 ${bgColor} ${dragState?.overCol === colType ? 'ring-2 ring-indigo-400 bg-indigo-50/50 scale-[1.02]' : ''}`}
         onDragOver={handleDragOver}
-        onDrop={(e) => handleDrop(e, dropStatusMap[colType])}
+        onDrop={(e) => handleDrop(e, dropStatusMap[colType], colType)}
       >
-        <div className="flex items-center justify-between mb-2 px-1">
-          <h2 className="font-semibold text-sm flex items-center gap-2">{icon} {title}</h2>
-          <Badge variant="secondary" className="text-xs">{columnOrders.length}</Badge>
+        <div className="flex items-center justify-between mb-1 md:mb-2 px-0.5">
+          <h2 className="font-semibold text-[10px] md:text-sm flex items-center gap-0.5 md:gap-2">{icon} {title}</h2>
+          <span className="text-[9px] md:text-xs bg-gray-200 text-gray-600 rounded-full px-1 md:px-2 py-0.5">{columnOrders.length}</span>
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1 md:space-y-1.5">
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -749,14 +779,14 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                   }}
                 >
                   <div
-                    className="p-2.5 cursor-pointer hover:bg-gray-50/60 transition-colors"
+                    className="p-1.5 md:p-2.5 cursor-pointer hover:bg-gray-50/60 transition-colors"
                     onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
                   >
                     {/* 預設只顯示貨物名 + 數量（緊密排列） */}
-                    <div className="text-sm font-medium text-gray-800 leading-snug flex items-baseline gap-1">
+                    <div className="text-[10px] md:text-sm font-medium text-gray-800 leading-tight flex items-baseline gap-0.5 md:gap-1">
                       <span className="truncate">{firstItem?.inventory?.name || order.notes || '未知貨物'}</span>
                       {firstItem && (
-                        <span className="text-[10px] text-gray-500 font-normal shrink-0">
+                        <span className="text-[8px] md:text-[10px] text-gray-500 font-normal shrink-0">
                           x{firstItem.requested_quantity}{firstItem.inventory?.unit || ''}
                         </span>
                       )}
@@ -948,7 +978,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   );
 
   return (
-    <div ref={pageContainerRef} className="relative p-3 md:p-4 space-y-2 md:space-y-4">
+    <div ref={pageContainerRef} className="relative p-2 md:p-4 space-y-2 md:space-y-4">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">訂貨管理</h1>
@@ -968,10 +998,10 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
         </div>
       </div>
 
-      {/* 三欄：手機橫向滾動，桌面並排 */}
+      {/* 三欄：左中右並排 */}
       <div
         ref={containerRef}
-        className={`flex gap-2 pb-2 md:grid md:grid-cols-3 md:gap-3 md:overflow-visible ${isDragging ? 'overflow-x-hidden touch-none' : 'overflow-x-auto'}`}
+        className={`flex gap-1 md:gap-3 ${isDragging ? 'overflow-hidden touch-none' : ''}`}
       >
         {renderColumn('員工請求', 'request', <AlertCircle className="w-5 h-5 text-red-500"/>, 'bg-red-50')}
         {renderColumn('待處理', 'pending', <Clock className="w-5 h-5 text-yellow-500"/>, 'bg-yellow-50')}
