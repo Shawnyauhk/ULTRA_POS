@@ -1624,7 +1624,7 @@ export default function ExpensesPage() {
               ) : (
                 <div className="divide-y divide-gray-100">
                   {/* 总计 - 作为第一个full-width行 */}
-                  <div className="text-xs text-muted-foreground px-3 py-2 flex items-center gap-2 bg-gray-50/50">
+                  <div className="text-xs text-muted-foreground px-0 py-2 flex items-center gap-2 bg-gray-50/50">
                     <span className="font-medium text-gray-700">{expenseTree.totalCount}</span> 筆記錄，總金額 <span className="font-semibold text-gray-800">${expenseTree.total.toLocaleString()}</span>
                   </div>
 
@@ -1633,7 +1633,7 @@ export default function ExpensesPage() {
                     return (
                       <div key={yg.yearKey} className="border-b border-gray-100 last:border-b-0">
                         {/* 年份層 - 全寬無圓角 */}
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 cursor-pointer hover:bg-blue-100 transition-colors w-full text-xs md:text-sm"
+                        <div className="flex items-center gap-1.5 px-0 py-1.5 bg-blue-50 cursor-pointer hover:bg-blue-100 transition-colors w-full text-xs md:text-sm"
                              onClick={() => { const n = new Set(expandedNodes); if (n.has(yg.yearKey)) n.delete(yg.yearKey); else n.add(yg.yearKey); setExpandedNodes(n); }}>
                           {yExpanded ? <ChevronDown className="w-3 h-3 md:w-3.5 md:h-3.5 text-blue-600 shrink-0" /> : <ChevronRight className="w-3 h-3 md:w-3.5 md:h-3.5 text-blue-600 shrink-0" />}
                           <span className="font-semibold text-blue-800">{yg.year} 年</span>
@@ -1649,15 +1649,15 @@ export default function ExpensesPage() {
                               const mLabel = mParts.length === 2 ? `${parseInt(mParts[1])}月` : mg.month;
                               return (
                                 <div key={mg.monthKey}>
-                                  {/* 月份層 - 全寬，與年份完全對齊 */}
-                                  <div className="flex items-center gap-1.5 px-3 md:px-6 py-1 bg-gray-50/80 cursor-pointer hover:bg-gray-100 transition-colors w-full text-xs"
+                                  {/* 月份層 - 全寬無內邊距 */}
+                                  <div className="flex items-center gap-1.5 px-0 py-1 bg-gray-50/80 cursor-pointer hover:bg-gray-100 transition-colors w-full text-xs"
                                        onClick={() => { const n = new Set(expandedNodes); if (n.has(mg.monthKey)) n.delete(mg.monthKey); else n.add(mg.monthKey); setExpandedNodes(n); }}>
                                     {mExpanded ? <ChevronDown className="w-3 h-3 text-gray-400 shrink-0" /> : <ChevronRight className="w-3 h-3 text-gray-400 shrink-0" />}
                                     <span className="font-medium text-gray-700">{mLabel}</span>
                                     <span className="text-[10px] text-gray-400 ml-1">{mg.mEntries.length} 筆</span>
                                     <span className="ml-auto text-xs text-gray-500">${mg.mTotal.toLocaleString()}</span>
                                   </div>
-                                  {/* 條目列表 - 全寬，不縮進，與月份對齊 */}
+                                  {/* 條目列表 - 全寬無內邊距 */}
                                   {mExpanded && (
                                     <div className="w-full">
                                       {mg.mEntries.map((exp: any) => {
@@ -1665,9 +1665,9 @@ export default function ExpensesPage() {
                                         const isDetailOpen = expandedDetailId === exp.id;
                                         return (
                                           <div key={exp.id} className="border-t border-gray-50 first:border-t-0">
-                                            {/* 條目行 - 全寬，緊湊 */}
+                                            {/* 條目行 - 全寬無內邊距 */}
                                             <div
-                                              className={`flex items-center gap-1.5 px-3 md:px-6 py-1.5 text-xs cursor-pointer transition-colors w-full ${
+                                              className={`flex items-center gap-1.5 px-0 py-1.5 text-xs cursor-pointer transition-colors w-full ${
                                                 isDetailOpen ? 'bg-indigo-50' : 'hover:bg-gray-50'
                                               }`}
                                               onClick={() => setExpandedDetailId(isDetailOpen ? null : exp.id)}
@@ -1699,7 +1699,7 @@ export default function ExpensesPage() {
                                             </div>
                                             {/* 詳情面板 */}
                                             {isDetailOpen && (
-                                              <div className="px-3 md:px-6 py-2 bg-indigo-50/50 border-t border-indigo-100 text-[11px]">
+                                              <div className="px-0 py-2 bg-indigo-50/50 border-t border-indigo-100 text-[11px]">
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1">
                                                   <div className="flex items-baseline gap-1">
                                                     <span className="text-gray-400 shrink-0">購貨：</span>
