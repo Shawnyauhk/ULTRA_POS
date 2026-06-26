@@ -33,8 +33,14 @@ const shortCategory = (cat: string): string => {
   return label === '進貨成本' ? '進貨' : label;
 };
 
-const shortSupplier = (name: string): string =>
-  name ? name.trim().charAt(0) || name : '—';
+const shortSupplier = (name: string): string => {
+  if (!name) return '—';
+  const cleaned = name.replace(/[（(].*?[)）]/g, '').trim();
+  const cn = cleaned.match(/^[\u4e00-\u9fff]+/)?.[0] || '';
+  if (!cn) return cleaned.slice(0, 2) || '—';
+  if (cn.length >= 3 && cn[2] === '仔') return cn.slice(0, 3);
+  return cn.slice(0, 2);
+};
 
 const cleanDescription = (desc: string): string =>
   (desc || '').replace(/\(經手人:.*\)/g, '').trim() || '—';
@@ -1696,6 +1702,12 @@ export default function ExpensesPage() {
                                               }`}>
                                                 {exp.payment_status === 'cash' ? '現金' : exp.payment_status === 'bank' ? '銀行' : '未付'}
                                               </span>
+                                              {/* 供應商簡寫 */}
+                                              {exp.supplier && (
+                                                <span className="text-[10px] text-gray-500 font-medium shrink-0 w-10 text-left truncate" title={exp.supplier}>
+                                                  {shortSupplier(exp.supplier)}
+                                                </span>
+                                              )}
                                             </div>
                                             {/* 詳情面板 */}
                                             {isDetailOpen && (
