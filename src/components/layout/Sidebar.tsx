@@ -63,9 +63,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation()
   const { user } = useAuthStore()
   const { restaurant } = useRestaurant()
-  const { can, ready } = usePermission()
+  const { can } = usePermission()
 
-  const filteredItems = ready ? menuItems.filter((item) => can(item.permission)) : []
+  const filteredItems = menuItems.filter((item) => can(item.permission))
 
   // 切換頁面時自動關閉手機側邊欄
   useEffect(() => {
