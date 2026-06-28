@@ -1149,7 +1149,7 @@ export default function ExpensesPage() {
   const expenseTree = useMemo(() => {
     if (!expenses || expenses.length === 0) return { groups: [], total: 0, totalCount: 0 };
     const sorted = [...expenses].sort((a: any, b: any) =>
-      (a.expense_date || '').localeCompare(b.expense_date || '')
+      (b.expense_date || '').localeCompare(a.expense_date || '')
     );
     const yearMap = new Map<string, Map<string, Map<string, any[]>>>();
     sorted.forEach((exp: any) => {
@@ -1165,12 +1165,12 @@ export default function ExpensesPage() {
     const groups: { year: string; yearKey: string; yEntries: any[]; yTotal: number;
       months: { month: string; monthKey: string; mEntries: any[]; mTotal: number;
         days: { day: string; entries: any[]; dTotal: number }[] }[] }[] = [];
-    for (const y of Array.from(yearMap.keys()).sort()) {
+    for (const y of Array.from(yearMap.keys()).sort().reverse()) {
       const months: typeof groups[0]['months'] = [];
-      for (const m of Array.from(yearMap.get(y)!.keys()).sort()) {
+      for (const m of Array.from(yearMap.get(y)!.keys()).sort().reverse()) {
         const monthMap = yearMap.get(y)!.get(m)!;
         const days: typeof months[0]['days'] = [];
-        for (const d of Array.from(monthMap.keys()).sort()) {
+        for (const d of Array.from(monthMap.keys()).sort().reverse()) {
           const entries = monthMap.get(d)!;
           days.push({ day: d, entries, dTotal: entries.reduce((s: number, e: any) => s + Number(e.amount || 0), 0) });
         }
@@ -1293,7 +1293,7 @@ export default function ExpensesPage() {
                               dateMap.get(d)!.push({ entry, idx });
                             });
                             // 日期排序
-                            const sortedDates = Array.from(dateMap.keys()).sort();
+                            const sortedDates = Array.from(dateMap.keys()).sort().reverse();
                             for (const d of sortedDates) {
                               groups.push({ date: d, entries: dateMap.get(d)! });
                             }
