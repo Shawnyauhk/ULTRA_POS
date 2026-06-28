@@ -17,6 +17,8 @@ services:
         sync: false
       - key: VITE_NVIDIA_NIM_MODEL
         value: meta/llama-3.2-11b-vision-instruct
+      - key: VITE_AGNES_API_KEY
+        sync: false
       - key: SENDGRID_API_KEY
         sync: false
       - key: BREVO_API_KEY
