@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useAuthStore } from '@/stores/auth'
 import { supabase } from '@/lib/supabase'
 import type { PermissionKey } from '@/types'
@@ -6,6 +6,8 @@ import { DEFAULT_ROLE_PERMISSIONS } from '@/types'
 
 // 模組級快取（不受 React 渲染週期影響）
 let cachedCustomPermissions: Record<string, PermissionKey[]> | null = null
+let _permLoaded = false // refreshCustomPermissions 是否已完成（無論有無自定義權限）
+let _permVersion = 0 // 遞增版號，觸發 usePermission 重新計算
 
 /**
  * 從資料庫加載自定義權限配置
@@ -14,11 +16,11 @@ let cachedCustomPermissions: Record<string, PermissionKey[]> | null = null
 export async function refreshCustomPermissions(): Promise<void> {
   const user = useAuthStore.getState().user
   const rid = user?.restaurant_id
-  if (!rid) {
-    cachedCustomPermissions = null
-    return
-  }
   try {
+    if (!rid) {
+      cachedCustomPermissions = null
+      return
+    }
     const { data, error } = await supabase
       .from('restaurant_roles')
       .select('role_name, permissions')
@@ -38,6 +40,9 @@ export async function refreshCustomPermissions(): Promise<void> {
     cachedCustomPermissions = customMap
   } catch {
     cachedCustomPermissions = null
+  } finally {
+    _permLoaded = true
+    _permVersion++ // 遞增版號，觸發 usePermission 重新計算
   }
 }
 
@@ -46,6 +51,8 @@ export async function refreshCustomPermissions(): Promise<void> {
  */
 export function clearPermissionCache() {
   cachedCustomPermissions = null
+  _permLoaded = false
+  _permVersion++
 }
 
 /**
@@ -78,11 +85,26 @@ function getEffectivePermissions(): PermissionKey[] {
  */
 export function usePermission() {
   const user = useAuthStore((s) => s.user)
+  const [permVersion, setPermVersion] = useState(_permVersion)
+
+  // 當 refreshCustomPermissions 完成（遞增版號）時觸發重新渲染
+  useEffect(() => {
+    if (_permVersion !== permVersion) setPermVersion(_permVersion)
+  }, [permVersion])
+
+  // 每 200ms 檢查版號變化（直到與模組級變數同步為止）
+  useEffect(() => {
+    if (_permVersion === permVersion) return
+    const timer = setInterval(() => {
+      if (_permVersion !== permVersion) setPermVersion(_permVersion)
+    }, 200)
+    return () => clearInterval(timer)
+  }, [permVersion])
 
   const userPermissions = useMemo<PermissionKey[]>(() => {
     return getEffectivePermissions()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user])
+  }, [user, permVersion])
 
   return {
     /** 檢查當前用戶是否擁有某個權限 */
@@ -102,5 +124,8 @@ export function usePermission() {
 
     /** 獲取當前用戶擁有的所有權限列表 */
     permissions: userPermissions,
+
+    /** 權限是否已從資料庫載入完成（false 則正在載入中） */
+    ready: _permLoaded,
   }
 }
