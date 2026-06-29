@@ -4,7 +4,12 @@ import { supabase } from '@/lib/supabase'
 import { ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from '@/types'
 import type { PermissionKey, RestaurantRole } from '@/types'
 import { clearPermissionCache, refreshCustomPermissions } from '@/hooks/usePermission'
-import { Loader2, Save, Shield, CheckCircle } from 'lucide-react'
+import {
+  Loader2, Save, CheckCircle, ChevronDown,
+  LayoutDashboard, ShoppingBag, Receipt,
+  UserCog, Calculator, DollarSign,
+  MessageSquare, Star, Settings
+} from 'lucide-react'
 
 type RoleName = 'manager' | 'staff'
 
@@ -13,27 +18,37 @@ const ROLES: { key: RoleName; label: string; icon: string }[] = [
   { key: 'staff', label: '員工', icon: '👤' },
 ]
 
-/** 将权限按功能分组 */
-const PERMISSION_GROUPS: { group: string; permissions: PermissionKey[] }[] = [
-  { group: '控制面板', permissions: ['dashboard.view'] },
-  { group: 'POS 點餐', permissions: ['pos.create_order', 'pos.cancel_order', 'pos.refund'] },
-  { group: '產品管理', permissions: ['product.view', 'product.manage'] },
-  { group: '庫存管理', permissions: ['inventory.view', 'inventory.manage'] },
-  { group: '訂貨管理', permissions: ['order.view', 'order.create', 'order.approve'] },
-  { group: '員工管理', permissions: ['employee.view', 'employee.manage'] },
-  { group: '打卡系統', permissions: ['attendance.view', 'attendance.manage'] },
-  { group: '排班管理', permissions: ['schedule.view', 'schedule.manage'] },
-  { group: '薪酬管理', permissions: ['payroll.view', 'payroll.manage'] },
-  { group: '財務支出', permissions: ['expense.view', 'expense.manage'] },
+/** 侧栏图标映射 */
+const MENU_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  '控制面板與AI分析': LayoutDashboard,
+  'POS 點餐系統': ShoppingBag,
+  '訂貨管理': Receipt,
+  '人力資源中心': UserCog,
+  '門店支出': Calculator,
+  '營業額結算': DollarSign,
+  'AI 客服管理': MessageSquare,
+  'Google 好評': Star,
+  '系統設置': Settings,
+}
+
+/** 侧栏菜单式权限分组（子权限按逻辑归入对应菜单项） */
+const SIDEBAR_GROUPS: { group: string; permissions: PermissionKey[] }[] = [
+  { group: '控制面板與AI分析', permissions: ['dashboard.view', 'report.view', 'report.export'] },
+  { group: 'POS 點餐系統', permissions: ['pos.create_order', 'pos.cancel_order', 'pos.refund', 'product.view', 'product.manage'] },
+  { group: '訂貨管理', permissions: ['order.view', 'order.create', 'order.approve', 'inventory.view', 'inventory.manage'] },
+  { group: '人力資源中心', permissions: ['employee.view', 'employee.manage', 'attendance.view', 'attendance.manage', 'schedule.view', 'schedule.manage', 'schedule.smart', 'payroll.view', 'payroll.manage'] },
+  { group: '門店支出', permissions: ['expense.view', 'expense.manage', 'expense.monthly_settlement', 'expense.cash_settlement', 'expense.cash_report', 'safe.view', 'safe.manage'] },
   { group: '營業額結算', permissions: ['settlement.view', 'settlement.manage'] },
-  { group: '保險箱', permissions: ['safe.view', 'safe.manage'] },
-  { group: '報表', permissions: ['report.view', 'report.export'] },
-  { group: 'AI 功能', permissions: ['ai.marketing', 'ai.customer_service', 'ai.knowledge_base'] },
-  { group: '評價管理', permissions: ['review.view', 'review.manage'] },
+  { group: 'AI 客服管理', permissions: ['ai.marketing', 'ai.customer_service', 'ai.session_logs', 'ai.knowledge_base'] },
+  { group: 'Google 好評', permissions: ['review.view', 'review.manage'] },
   { group: '系統設置', permissions: ['setting.view', 'setting.manage'] },
 ]
 
-export default function PermissionSettingsPage() {
+interface Props {
+  embedded?: boolean
+}
+
+export default function PermissionSettingsPage({ embedded }: Props) {
   const { user } = useAuthStore()
   const [rolePermissions, setRolePermissions] = useState<Record<RoleName, PermissionKey[]>>({
     manager: [],
@@ -160,6 +175,103 @@ export default function PermissionSettingsPage() {
     }
   }
 
+  const [activeRole, setActiveRole] = useState<RoleName>('manager')
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
+
+  function toggleGroup(group: string) {
+    setExpandedGroups(prev => ({ ...prev, [group]: !prev[group] }))
+  }
+
+  /** 为当前角色渲染权限列表 */
+  function renderRoleContent(role: RoleName) {
+    const perms = rolePermissions[role]
+    const totalPerms = Object.keys(ALL_PERMISSIONS).length
+    const selectedTotal = perms.length
+
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        {/* 角色摘要列 */}
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <span>已選 <strong className="text-gray-900">{selectedTotal}</strong> / {totalPerms} 項權限</span>
+          </div>
+          <div className="flex items-center gap-3 text-xs">
+            <button
+              onClick={() => roleSelectAll(role)}
+              className="px-2.5 py-1 text-primary hover:bg-primary/5 rounded transition-colors font-medium"
+            >
+              全選
+            </button>
+            <button
+              onClick={() => roleDeselectAll(role)}
+              className="px-2.5 py-1 text-gray-500 hover:bg-gray-100 rounded transition-colors"
+            >
+              全部取消
+            </button>
+          </div>
+        </div>
+
+        {/* 側欄式可收合權限分組 */}
+        <div className="divide-y divide-gray-100">
+          {SIDEBAR_GROUPS.map(({ group, permissions }) => {
+            const selectedCount = permissions.filter(p => perms.includes(p)).length
+            const allSelected = selectedCount === permissions.length
+            const isExpanded = expandedGroups[group] === true
+            const Icon = MENU_ICONS[group]
+
+            return (
+              <div key={group}>
+                {/* 分组标题（可点击展开/收起） */}
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-50 transition-colors"
+                >
+                  {Icon && <Icon className="w-4 h-4 text-gray-400 shrink-0" />}
+                  <span className="text-sm font-medium text-gray-800 flex-1">{group}</span>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
+                      allSelected
+                        ? 'bg-green-50 text-green-600'
+                        : selectedCount > 0
+                          ? 'bg-amber-50 text-amber-600'
+                          : 'bg-gray-100 text-gray-400'
+                    }`}>
+                      {selectedCount}/{permissions.length}
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-200 ${
+                      isExpanded ? 'rotate-0' : '-rotate-90'
+                    }`} />
+                  </div>
+                </button>
+
+                {/* 子权限列表 */}
+                {isExpanded && (
+                  <div className="px-4 pb-3 pt-1 pl-11 space-y-1">
+                    {permissions.map(perm => (
+                      <label
+                        key={perm}
+                        className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 cursor-pointer transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={perms.includes(perm)}
+                          onChange={() => togglePermission(role, perm)}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-primary focus:ring-primary shrink-0"
+                        />
+                        <span className="text-sm text-gray-600">{ALL_PERMISSIONS[perm]}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -168,14 +280,70 @@ export default function PermissionSettingsPage() {
     )
   }
 
+  /** 内层共享的 tab + 保存按钮 + 角色内容 */
+  const mainContent = (
+    <>
+      {saved && (
+        <div className="mb-4 flex items-center gap-2 px-4 py-3 bg-green-50 text-green-700 rounded-lg border border-green-200">
+          <CheckCircle className="w-5 h-5" />
+          權限設定已成功儲存！
+        </div>
+      )}
+
+      {/* 角色 Tab 切换 */}
+      <div className="flex items-center gap-1 mb-4 bg-gray-100 rounded-lg p-1 w-fit">
+        {ROLES.map(({ key, label, icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveRole(key)}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              activeRole === key
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <span>{icon}</span>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* 单个角色的权限面板 */}
+      {renderRoleContent(activeRole)}
+    </>
+  )
+
+  // 嵌入模式
+  if (embedded) {
+    return (
+      <>
+        <div className="flex justify-end mb-4">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors font-medium"
+          >
+            {saving ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Save className="w-4 h-4" />
+            )}
+            {saving ? '儲存中...' : '儲存設定'}
+          </button>
+        </div>
+        {mainContent}
+      </>
+    )
+  }
+
   return (
-    <div className="max-w-5xl mx-auto p-3 md:p-6">
+    <div className="max-w-3xl mx-auto p-3 md:p-6">
       {/* 頁面標題 */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
         <div className="min-w-0">
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">權限設定</h1>
           <p className="text-sm text-gray-500 mt-1">
-            自訂主管與員工角色可以使用的功能，只有店主可以修改
+            選擇角色，按側欄選單展開設定各項功能的存取權限
           </p>
         </div>
         <button
@@ -192,79 +360,7 @@ export default function PermissionSettingsPage() {
         </button>
       </div>
 
-      {saved && (
-        <div className="mb-4 flex items-center gap-2 px-4 py-3 bg-green-50 text-green-700 rounded-lg border border-green-200">
-          <CheckCircle className="w-5 h-5" />
-          權限設定已成功儲存！
-        </div>
-      )}
-
-      {/* 角色權限卡片 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {ROLES.map(({ key, label, icon }) => (
-          <div key={key} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            {/* 角色標題 */}
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">{icon}</span>
-                <h2 className="text-lg font-semibold text-gray-900">{label}</h2>
-              </div>
-              <div className="flex items-center gap-2 text-xs">
-                <button
-                  onClick={() => roleSelectAll(key)}
-                  className="px-2 py-1 text-primary hover:bg-primary/5 rounded transition-colors"
-                >
-                  全選
-                </button>
-                <span className="text-gray-300">|</span>
-                <button
-                  onClick={() => roleDeselectAll(key)}
-                  className="px-2 py-1 text-gray-500 hover:bg-gray-100 rounded transition-colors"
-                >
-                  全部取消
-                </button>
-              </div>
-            </div>
-
-            {/* 權限群組 */}
-            <div className="p-5 space-y-5">
-              {PERMISSION_GROUPS.map(({ group, permissions }) => {
-                const selectedCount = permissions.filter((p) => rolePermissions[key].includes(p)).length
-                const allSelected = selectedCount === permissions.length
-
-                return (
-                  <div key={group}>
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-sm font-medium text-gray-700">{group}</h3>
-                      <span className="text-xs text-gray-400">
-                        {selectedCount}/{permissions.length}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                      {permissions.map((perm) => (
-                        <label
-                          key={perm}
-                          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={rolePermissions[key].includes(perm)}
-                            onChange={() => togglePermission(key, perm)}
-                            className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0"
-                          />
-                          <span className="text-sm text-gray-600 whitespace-nowrap">
-                            {ALL_PERMISSIONS[perm]}
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
+      {mainContent}
     </div>
   )
 }

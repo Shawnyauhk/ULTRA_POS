@@ -3362,6 +3362,43 @@ try {
   console.warn('   ⚠️ node-cron 未安裝，POSPAL 自動爬蟲已跳過');
 }
 
+// =========== 更新 Auth 用戶 Metadata（管理者專用） ===========
+app.post('/api/auth/update-user-meta', async (req, res) => {
+  try {
+    const { email, name, phone } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: '缺少 email' });
+
+    // 先查用戶
+    const { data: users } = await supabaseAdmin.auth.admin.listUsers();
+    const user = users?.users?.find(u => u.email === email);
+    if (!user) {
+      // 用戶不存在，創建新用戶（phone 設在頂層而非僅 metadata）
+      const { data, error } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password: '123456',
+        email_confirm: true,
+        phone,
+        user_metadata: { name, phone },
+      });
+      if (error) return res.status(500).json({ success: false, message: error.message });
+      return res.json({ success: true, message: '用戶已創建', user: data.user });
+    }
+
+    // 用戶已存在，更新 metadata + 頂層 phone
+    const { data, error } = await supabaseAdmin.auth.admin.updateUserById(
+      user.id,
+      {
+        phone,
+        user_metadata: { ...user.user_metadata, name, phone },
+      }
+    );
+    if (error) return res.status(500).json({ success: false, message: error.message });
+    res.json({ success: true, message: '用戶 metadata 已更新', user: data.user });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // Express 全局錯誤中介軟體（放在所有路由之後）
 app.use((err, req, res, next) => {
   console.error('❌ Express 錯誤:', err.message, err.stack?.slice(0, 200));

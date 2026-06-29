@@ -9,24 +9,17 @@ import RegisterPage from '@/pages/RegisterPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { POSPage } from '@/pages/POSPage'
 import ExpensesPage from '@/pages/ExpensesPage'
-import SettlementPage from '@/pages/SettlementPage'
-import PayrollPage from '@/pages/PayrollPage'
 import SettingsPage from '@/pages/SettingsPage'
-import { ProductsPage } from '@/pages/ProductsPage'
-import { InventoryPage } from '@/pages/InventoryPage'
 import { OrderRequestsPage } from '@/pages/OrderRequestsPage'
 import { AIChatPage } from '@/pages/AIChatPage'
 import { AICustomerChat } from '@/pages/AICustomerChat'
 import ReviewGeneratorPage from '@/pages/ReviewGeneratorPage'
-import PermissionSettingsPage from '@/pages/PermissionSettingsPage'
-import { EmployeesPage } from '@/pages/EmployeesPage'
+
 import { AttendancePage } from '@/pages/AttendancePage'
 import AttendanceDevicePage from '@/pages/AttendanceDevicePage'
-import { SchedulesPage } from '@/pages/SchedulesPage'
 import PWAUpdatePrompt from '@/components/PWAUpdatePrompt'
 import { HRPage } from '@/pages/HRPage'
 import { SecretRecipesPage } from '@/pages/SecretRecipesPage'
-import ReportsPage from '@/pages/ReportsPage'
 import { useState, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
 import { ToastContainer } from '@/components/ui/toast'
@@ -71,17 +64,10 @@ function PermissionGuard({ permission, children }: { permission: PermissionKey; 
 
 const routePermissions: Record<string, PermissionKey> = {
   '/pos-order': 'pos.create_order',
-  '/products': 'product.view',
-  '/inventory': 'inventory.view',
   '/orders': 'order.view',
   '/hr': 'employee.view',
-  '/employees': 'employee.view',
   '/attendance': 'attendance.view',
-  '/schedules': 'schedule.view',
-  '/payroll': 'payroll.view',
   '/expenses': 'expense.view',
-  '/settlement': 'settlement.view',
-  '/reports': 'report.view',
   '/ai-customer-service': 'ai.customer_service',
   '/review-generator': 'review.view',
   '/settings': 'setting.view',
@@ -160,15 +146,8 @@ export default function App() {
                 {renderProtectedRoute('/', <DashboardPage />)}
                 {renderProtectedRoute('/pos-order', <POSPage />)}
                 {renderProtectedRoute('/orders', <OrderRequestsPage />)}
-                {renderProtectedRoute('/products', <ProductsPage />)}
-                {renderProtectedRoute('/inventory', <InventoryPage />)}
-                {renderProtectedRoute('/employees', <EmployeesPage />)}
                 {renderProtectedRoute('/attendance', <AttendancePage />)}
-                {renderProtectedRoute('/schedules', <SchedulesPage />)}
-                {renderProtectedRoute('/reports', <ReportsPage />)}
                 {renderProtectedRoute('/expenses', <ExpensesPage />)}
-                {renderProtectedRoute('/settlement', <SettlementPage />)}
-                {renderProtectedRoute('/payroll', <PayrollPage />)}
                 {renderProtectedRoute('/ai-customer-service', <AIChatPage />)}
                 {renderProtectedRoute('/review-generator', <ReviewGeneratorPage />)}
                 {renderProtectedRoute('/hr', <HRPage />)}

@@ -74,7 +74,7 @@ if /i "%start_dev%"=="Y" (
     echo 啟動中... 瀏覽器將自動打開 http://localhost:5173
     echo 按 Ctrl+C 停止服務器
     echo.
-    call npm run dev
+    call npm run dev:all
 )
 
 pause

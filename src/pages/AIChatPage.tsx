@@ -9,6 +9,7 @@ import {
   Clock, User, Bot, Search, AlertCircle, PenSquare, Wifi, WifiOff
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth';
+import { usePermission } from '@/hooks/usePermission';
 import { sendAIChatMessage, fetchSessions, fetchSessionMessages, closeSession, deleteSession, fetchKnowledgeBase, saveKnowledgeEntry, deleteKnowledgeEntry } from '@/lib/ai-chat';
 import type { ChatMessage, AISession, AIKnowledgeBase } from '@/types';
 
@@ -16,6 +17,7 @@ type TabType = 'chat' | 'sessions' | 'knowledge';
 
 export function AIChatPage() {
   const { user } = useAuthStore();
+  const { can } = usePermission();
   const restaurantId = user?.restaurant_id || '';
 
   const [activeTab, setActiveTab] = useState<TabType>('chat');
@@ -34,30 +36,36 @@ export function AIChatPage() {
 
       {/* Tab 切換 */}
       <div className="flex gap-2 bg-gray-100 p-1 rounded-lg w-fit">
-        <Button
-          variant={activeTab === 'chat' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('chat')}
-          className="gap-2"
-        >
-          <MessageSquare className="w-4 h-4" />
-          AI 客服對話
-        </Button>
-        <Button
-          variant={activeTab === 'sessions' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('sessions')}
-          className="gap-2"
-        >
-          <History className="w-4 h-4" />
-          客人會話記錄
-        </Button>
-        <Button
-          variant={activeTab === 'knowledge' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('knowledge')}
-          className="gap-2"
-        >
-          <BookOpen className="w-4 h-4" />
-          知識庫管理
-        </Button>
+        {can('ai.customer_service') && (
+          <Button
+            variant={activeTab === 'chat' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('chat')}
+            className="gap-2"
+          >
+            <MessageSquare className="w-4 h-4" />
+            AI 客服對話
+          </Button>
+        )}
+        {can('ai.session_logs') && (
+          <Button
+            variant={activeTab === 'sessions' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('sessions')}
+            className="gap-2"
+          >
+            <History className="w-4 h-4" />
+            客人會話記錄
+          </Button>
+        )}
+        {can('ai.knowledge_base') && (
+          <Button
+            variant={activeTab === 'knowledge' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('knowledge')}
+            className="gap-2"
+          >
+            <BookOpen className="w-4 h-4" />
+            知識庫管理
+          </Button>
+        )}
       </div>
 
       {activeTab === 'chat' && <ChatPlayground restaurantId={restaurantId} />}
@@ -69,6 +77,7 @@ export function AIChatPage() {
 
 // ========== AI 客服對話測試 ==========
 function ChatPlayground({ restaurantId }: { restaurantId: string }) {
+  const { user } = useAuthStore();
   const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);

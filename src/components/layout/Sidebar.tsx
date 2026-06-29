@@ -1,10 +1,9 @@
 import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import {
-  LayoutDashboard, Calculator, ShoppingBag, Package, Coffee,
-  Receipt, Users, MessageSquare, Star, Settings, Shield,
-  BarChart3, Clock, CalendarDays, DollarSign, Store, Smartphone, X, UserCog, ChefHat,
-  ClipboardList, Box, Wallet
+  LayoutDashboard, Calculator, ShoppingBag, Coffee,
+  Receipt, MessageSquare, Star, Settings,
+  DollarSign, Store, X, UserCog, ChefHat,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 import { useRestaurant } from '@/hooks/useSupabaseData'
@@ -22,23 +21,17 @@ interface MenuItem {
 const menuItems: MenuItem[] = [
   { path: '/', label: '控制面板與AI分析', icon: LayoutDashboard, permission: 'dashboard.view' },
 
-  // POS / 銷售
+  // POS / 銷售（含產品管理）
   { path: '/pos-order', label: 'POS 點餐系統', icon: ShoppingBag, permission: 'pos.create_order' },
+
+  // 訂貨管理（含庫存管理）
   { path: '/orders', label: '訂貨管理', icon: Receipt, permission: 'order.view' },
 
-  // 產品 / 庫存
-  { path: '/products', label: '產品管理', icon: ClipboardList, permission: 'product.view' },
-  { path: '/inventory', label: '庫存管理', icon: Box, permission: 'inventory.view' },
-
-  // 人事
-  { path: '/hr', label: '員工與排班', icon: UserCog, permission: 'employee.view' },
-  { path: '/attendance', label: '打卡系統', icon: Clock, permission: 'attendance.view' },
-  { path: '/payroll', label: '薪酬管理', icon: Wallet, permission: 'payroll.view' },
+  // 人事（員工+打卡+排班+薪酬）
+  { path: '/hr', label: '人力資源中心', icon: UserCog, permission: 'employee.view' },
 
   // 財務
-  { path: '/expenses', label: '門店支出', icon: Calculator, permission: 'expense.view' },
-  { path: '/settlement', label: '營業額結算', icon: DollarSign, permission: 'settlement.view' },
-  { path: '/reports', label: '報表', icon: BarChart3, permission: 'report.view' },
+  { path: '/expenses', label: '門店收支', icon: Calculator, permission: 'expense.view' },
 
   // AI / 評價
   { path: '/ai-customer-service', label: 'AI 客服管理', icon: MessageSquare, permission: 'ai.customer_service' },

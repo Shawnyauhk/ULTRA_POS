@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { useAuthStore } from '@/stores/auth'
 import { supabase } from '@/lib/supabase'
 import type { PermissionKey } from '@/types'
-import { DEFAULT_ROLE_PERMISSIONS } from '@/types'
+import { ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from '@/types'
 
 // 模組級快取（不受 React 渲染週期影響）
 let cachedCustomPermissions: Record<string, PermissionKey[]> | null = null
@@ -60,6 +60,11 @@ export function clearPermissionCache() {
 function getEffectivePermissions(): PermissionKey[] {
   const user = useAuthStore.getState().user
   if (!user) return []
+
+  // 店主永遠擁有全部權限，不受資料庫設定影響
+  if (user.role === 'owner') {
+    return Object.keys(ALL_PERMISSIONS) as PermissionKey[]
+  }
 
   // 自定義權限尚未從資料庫載入完成 → 回傳空陣列（不讓任何人看到任何功能）
   if (!_permLoaded) return []

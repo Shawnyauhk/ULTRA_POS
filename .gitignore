@@ -6,3 +6,9 @@ dist
 *.log
 vite.err
 vite.log
+*_err.txt
+*_output.txt
+*_stderr.txt
+*_stdout.txt
+build_*.txt
+tsc_*.txt

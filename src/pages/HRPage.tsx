@@ -4,12 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { CalendarDays, Clock, Users, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertCircle, Plus, Pencil, Trash2, FileCheck, Smartphone, Brain, Copy, Check } from 'lucide-react'
-import { useEmployees, useSchedules, useAttendance, useUnavailability, useSchedulingRules } from '@/hooks/useSupabaseData'
+import { CalendarDays, Clock, Users, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertCircle, Plus, Pencil, Trash2, FileCheck, Smartphone, Brain, Copy, Check, DollarSign } from 'lucide-react'
+import { useEmployees, useSchedules, useAttendance, useUnavailability, useSchedulingRules, useEmployeeSelfHours } from '@/hooks/useSupabaseData'
 import { usePermission } from '@/hooks/usePermission'
 import { useAuthStore } from '@/stores/auth'
 import { supabase } from '@/lib/supabase'
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isToday, addMonths, subMonths, startOfWeek, endOfWeek } from 'date-fns'
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isToday, addMonths, subMonths } from 'date-fns'
 import { zhHK } from 'date-fns/locale'
 import type { Employee, Schedule, Attendance as AttendanceType, UnavailabilityRecord, SchedulingRuleRecord } from '@/types'
 import { generateSchedule, formatScheduleToText, parseScheduleFromText } from '@/lib/schedulingEngine'
@@ -19,6 +19,7 @@ const TABS = [
   { key: 'schedules', label: '排班表', icon: CalendarDays },
   { key: 'attendance', label: '打卡記錄', icon: Clock },
   { key: 'employees', label: '員工名冊', icon: Users },
+  { key: 'payroll', label: '薪酬計算', icon: DollarSign },
   { key: 'smart_schedule', label: '智能排班', icon: Brain },
 ] as const
 
@@ -75,11 +76,17 @@ export function HRPage() {
   const [showEmpModal, setShowEmpModal] = useState(false)
   const [editingEmp, setEditingEmp] = useState<Employee | null>(null)
   const [confirmDeleteEmp, setConfirmDeleteEmp] = useState<string | null>(null)
+  const [showSelfReport, setShowSelfReport] = useState(false)
+  const [selfReportForm, setSelfReportForm] = useState({ total_hours: 0, total_amount: 0, notes: '' })
+  const [selfReportMonth, setSelfReportMonth] = useState(format(new Date(), 'yyyy-MM'))
+  const selfHoursHook = useEmployeeSelfHours(selfReportMonth)
+  const { records: selfRecords, upsertSelfHours } = selfHoursHook
   const [empForm, setEmpForm] = useState({
     name: '', phone: '', email: '', role: 'staff' as Employee['role'],
     salary_type: 'hourly' as 'hourly' | 'monthly',
     hourly_rate: 50, monthly_salary: 0,
     hire_date: new Date().toISOString().split('T')[0],
+    is_active: true,
   })
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -233,6 +240,7 @@ export function HRPage() {
       name: '', phone: '', email: '', role: 'staff',
       salary_type: 'hourly', hourly_rate: 50, monthly_salary: 0,
       hire_date: new Date().toISOString().split('T')[0],
+      is_active: true,
     })
   }
 
@@ -249,6 +257,7 @@ export function HRPage() {
       hourly_rate: emp.hourly_rate || 0,
       monthly_salary: emp.monthly_salary || 0,
       hire_date: emp.hire_date || new Date().toISOString().split('T')[0],
+      is_active: emp.is_active,
     })
     setEditingEmp(emp)
     setShowEmpModal(true)
@@ -265,18 +274,41 @@ export function HRPage() {
       hire_date: empForm.hire_date,
       hourly_rate: empForm.salary_type === 'hourly' ? empForm.hourly_rate : null,
       monthly_salary: empForm.salary_type === 'monthly' ? empForm.monthly_salary : null,
+      is_active: empForm.is_active,
     }
+    const updateAuthMeta = async () => {
+      if (!empForm.phone) return
+      const email = `${empForm.phone}@ultrapos.com`
+      try {
+        const res = await fetch('/api/auth/update-user-meta', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, name: empForm.name, phone: empForm.phone }),
+        })
+        const json = await res.json()
+        if (!json.success) console.warn('更新 Auth 失敗:', json.message)
+      } catch (err) {
+        console.warn('更新 Auth 網路錯誤:', err)
+      }
+    }
+
     let ok: boolean
     if (editingEmp) {
       ok = !!await updateEmployee(editingEmp.id, data)
+      if (ok) await updateAuthMeta()
     } else {
       ok = !!await addEmployee(data as any)
+      if (ok && empForm.phone) await updateAuthMeta()
     }
     setSaving(false)
     if (ok) {
       setShowEmpModal(false)
-      setMessage({ type: 'success', text: editingEmp ? '員工資料已更新' : '員工已新增' })
-      setTimeout(() => setMessage(null), 3000)
+      if (!editingEmp && empForm.phone) {
+        setMessage({ type: 'success', text: `員工已新增，登入帳號: ${empForm.phone}@ultrapos.com / 密碼: 123456` })
+      } else {
+        setMessage({ type: 'success', text: editingEmp ? '員工資料已更新' : '員工已新增' })
+      }
+      setTimeout(() => setMessage(null), 5000)
     } else {
       setMessage({ type: 'error', text: '操作失敗' })
     }
@@ -299,10 +331,15 @@ export function HRPage() {
       {/* Header */}
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-xl md:text-2xl font-bold text-gray-900">員工與排班</h1>
-          <p className="text-sm text-gray-500">排班管理 · 打卡記錄 · 員工名冊 · 智能排班</p>
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">人力資源中心</h1>
+          <p className="text-sm text-gray-500">排班管理 · 打卡記錄 · 員工名冊 · 薪酬計算 · 智能排班</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Self-report hours */}
+          <Button variant="outline" size="sm" onClick={() => { setSelfReportForm({ total_hours: 0, total_amount: 0, notes: '' }); setShowSelfReport(true) }}>
+            <Clock className="h-4 w-4 mr-1.5" />
+            報工時
+          </Button>
           {/* Pending approvals */}
           {(can('attendance.manage') || can('schedule.manage')) && (
             <div className="relative">
@@ -348,7 +385,13 @@ export function HRPage() {
 
       {/* Tabs */}
       <div className="flex gap-0 border-b border-gray-200">
-        {TABS.map(tab => {
+        {TABS.filter(tab => {
+          if (tab.key === 'smart_schedule') return can('schedule.smart')
+          if (tab.key === 'schedules') return can('schedule.view')
+          if (tab.key === 'attendance') return can('attendance.view')
+          if (tab.key === 'employees') return can('employee.view')
+          return true
+        }).map(tab => {
           const Icon = tab.icon
           const isActive = activeTab === tab.key
           return (
@@ -576,6 +619,19 @@ export function HRPage() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* ===== TAB: PAYROLL ===== */}
+      {activeTab === 'payroll' && (
+        <PayrollTab
+          employees={employees}
+          attendance={attendance}
+          schedules={schedules}
+          loading={empLoading || attLoading}
+          selfRecords={selfRecords}
+          currentUser={user}
+          onMonthChange={setSelfReportMonth}
+        />
       )}
 
       {/* ===== TAB: SMART SCHEDULING ===== */}
@@ -1094,6 +1150,15 @@ export function HRPage() {
                 <label className="text-xs font-medium text-gray-600">入職日期</label>
                 <Input type="date" value={empForm.hire_date} onChange={e => setEmpForm(f => ({ ...f, hire_date: e.target.value }))} />
               </div>
+              {editingEmp && (
+                <div>
+                  <label className="text-xs font-medium text-gray-600">狀態</label>
+                  <div className="flex gap-2 mt-1">
+                    <button onClick={() => setEmpForm(f => ({ ...f, is_active: true }))} className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${empForm.is_active ? 'bg-green-50 border-green-300 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-500'}`} >在職</button>
+                    <button onClick={() => setEmpForm(f => ({ ...f, is_active: false }))} className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${!empForm.is_active ? 'bg-red-50 border-red-300 text-red-700' : 'bg-gray-50 border-gray-200 text-gray-500'}`} >離職</button>
+                  </div>
+                </div>
+              )}
               <div className="flex justify-end gap-2 pt-3 border-t">
                 <Button variant="outline" onClick={() => setShowEmpModal(false)}>取消</Button>
                 <Button onClick={handleSaveEmp} disabled={saving || !empForm.name}>
@@ -1123,6 +1188,362 @@ export function HRPage() {
           </Card>
         </div>
       )}
+
+      {/* ===== MODAL: Self-report Hours ===== */}
+      {showSelfReport && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowSelfReport(false)}>
+          <Card className="w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <CardHeader>
+              <CardTitle>報工時 - {format(new Date(), 'yyyy 年 MM 月')}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-gray-500">請填寫你本月的工作時數與期望薪酬總額（供主管核對）</p>
+              <div>
+                <label className="text-xs font-medium text-gray-600">總工時（小時）</label>
+                <Input type="number" step="0.5" min="0" value={selfReportForm.total_hours} onChange={e => setSelfReportForm(f => ({ ...f, total_hours: Number(e.target.value) }))} />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">期望薪酬總額（$）</label>
+                <Input type="number" min="0" value={selfReportForm.total_amount} onChange={e => setSelfReportForm(f => ({ ...f, total_amount: Number(e.target.value) }))} />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">備註</label>
+                <Input value={selfReportForm.notes} onChange={e => setSelfReportForm(f => ({ ...f, notes: e.target.value }))} placeholder="如有補充說明..." />
+              </div>
+              <div className="flex justify-end gap-2 pt-3 border-t">
+                <Button variant="outline" onClick={() => setShowSelfReport(false)}>取消</Button>
+                <Button onClick={async () => {
+                  const empId = user?.id || employees.find(e => e.phone === user?.phone)?.id
+                  if (!empId) return
+                  const now = new Date()
+                  const month = format(now, 'yyyy-MM')
+                  await upsertSelfHours(empId, month, selfReportForm.total_hours, selfReportForm.total_amount, selfReportForm.notes)
+                  setShowSelfReport(false)
+                }}>提交</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ===== PAYROLL TAB =====
+function PayrollTab({
+  employees,
+  attendance,
+  schedules,
+  loading,
+  selfRecords,
+  currentUser,
+  onMonthChange,
+}: {
+  employees: Employee[]
+  attendance: AttendanceType[]
+  schedules: Schedule[]
+  loading: boolean
+  selfRecords: any[]
+  currentUser?: Employee | null
+  onMonthChange?: (month: string) => void
+}) {
+  const [payrollMonth, setPayrollMonth] = useState(() => new Date())
+
+  const monthStr = useMemo(() => format(payrollMonth, 'yyyy-MM'), [payrollMonth])
+
+  // Filter attendance for the selected month
+  const monthAttendance = useMemo(() => {
+    return attendance.filter(a => a.date.startsWith(monthStr))
+  }, [attendance, monthStr])
+
+  // Manual hours override: { employeeId: hours }
+  const [manualHours, setManualHours] = useState<Record<string, number>>({})
+  const [manualBonus, setManualBonus] = useState<Record<string, number>>({})
+  const [manualDeductions, setManualDeductions] = useState<Record<string, number>>({})
+
+  const setEmpHours = (empId: string, hours: number) => {
+    setManualHours(prev => ({ ...prev, [empId]: hours }))
+  }
+  const setEmpBonus = (empId: string, val: number) => {
+    setManualBonus(prev => ({ ...prev, [empId]: val }))
+  }
+  const setEmpDeductions = (empId: string, val: number) => {
+    setManualDeductions(prev => ({ ...prev, [empId]: val }))
+  }
+
+  // Compute payroll for each employee
+  const payrollData = useMemo(() => {
+    return employees
+      .filter(e => e.is_active)
+      .map(emp => {
+        const hourlyRate = emp.hourly_rate || 0
+        const monthlySalary = emp.monthly_salary || 0
+        const isHourly = !!(emp as any).salary_type === 'hourly' || hourlyRate > 0
+
+        // Compute hours from attendance
+        let attendanceHours = 0
+        if (isHourly) {
+          const empAttendance = monthAttendance.filter(a => a.employee_id === emp.id)
+          for (const a of empAttendance) {
+            attendanceHours += a.work_hours || 0
+          }
+        }
+
+        // Use manual hours if entered, otherwise attendance hours
+        const hasManual = manualHours[emp.id] !== undefined
+        const totalHours = hasManual ? manualHours[emp.id] : attendanceHours
+
+        // Manual bonus/deduction override
+        const bonus = manualBonus[emp.id] ?? 0
+        const deductions = manualDeductions[emp.id] ?? 0
+
+        const grossPay = isHourly ? totalHours * hourlyRate : monthlySalary
+
+        const netPay = grossPay + bonus - deductions
+
+        return {
+          id: emp.id,
+          name: emp.name,
+          role: emp.role,
+          salaryType: isHourly ? '時薪' : '月薪',
+          hourlyRate: isHourly ? hourlyRate : null,
+          monthlySalary: isHourly ? null : monthlySalary,
+          attendanceHours,
+          totalHours,
+          hasManual,
+          bonus,
+          deductions,
+          grossPay,
+          netPay,
+        }
+      })
+  }, [employees, monthAttendance, manualHours, manualBonus, manualDeductions])
+
+  // 权限过滤：员工只能看自己，店主/主管可全览
+  const canViewAll = currentUser?.role === 'owner' || currentUser?.role === 'manager'
+  const visibleSelfRecords = useMemo(() => {
+    if (canViewAll) return selfRecords
+    return selfRecords.filter(r => r.employee_id === currentUser?.id)
+  }, [selfRecords, canViewAll, currentUser?.id])
+  const visiblePayrollData = useMemo(() => {
+    if (canViewAll) return payrollData
+    return payrollData.filter(p => p.id === currentUser?.id)
+  }, [payrollData, canViewAll, currentUser?.id])
+
+  const totalPayroll = useMemo(() => visiblePayrollData.reduce((s, p) => s + p.netPay, 0), [visiblePayrollData])
+  const totalEmployees = visiblePayrollData.length
+
+  const changeMonth = (m: Date) => {
+    setPayrollMonth(m)
+    onMonthChange?.(format(m, 'yyyy-MM'))
+  }
+  const prevMonth = () => changeMonth(new Date(payrollMonth.getFullYear(), payrollMonth.getMonth() - 1, 1))
+  const nextMonth = () => changeMonth(new Date(payrollMonth.getFullYear(), payrollMonth.getMonth() + 1, 1))
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Month selector + Summary */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="icon" onClick={prevMonth}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-lg font-bold min-w-[140px] text-center">
+                {format(payrollMonth, 'yyyy 年 MM 月', { locale: zhHK })}
+              </span>
+              <Button variant="outline" size="icon" onClick={nextMonth}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => changeMonth(new Date())}>
+                本月
+              </Button>
+            </div>
+            <div className="flex items-center gap-4 text-sm">
+              <div className="bg-blue-50 rounded-lg px-4 py-2">
+                <span className="text-gray-500">計薪人數</span>
+                <span className="ml-2 font-bold text-lg">{totalEmployees}</span>
+              </div>
+              <div className="bg-green-50 rounded-lg px-4 py-2">
+                <span className="text-gray-500">總應付薪酬</span>
+                <span className="ml-2 font-bold text-lg text-green-700">
+                  ${totalPayroll.toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Comparison: Attendance vs Self-Report */}
+      <Card>
+        <CardHeader className="p-3 border-b">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Clock className="h-4 w-4" />
+              系統打卡 vs 員工自報（{format(payrollMonth, 'yyyy/MM')}）
+              {!canViewAll && <span className="text-[10px] text-gray-400 font-normal">（僅顯示本人）</span>}
+            </CardTitle>
+            <span className="text-xs text-gray-400">{visibleSelfRecords.filter(r => r.total_hours > 0).length} 人已報</span>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0 overflow-x-auto">
+          {visibleSelfRecords.filter(r => r.total_hours > 0).length === 0 ? (
+            <div className="text-center py-8 text-sm text-gray-400">
+              尚未有員工提交本月自報工時，請通知員工點擊「報工時」按鈕填寫
+            </div>
+          ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-gray-50">
+                <th className="text-left px-3 py-2 font-medium text-gray-600 text-xs">員工</th>
+                <th className="text-right px-2 py-2 font-medium text-gray-600 text-xs">打卡工時</th>
+                <th className="text-right px-2 py-2 font-medium text-gray-600 text-xs">自報工時</th>
+                <th className="text-right px-2 py-2 font-medium text-gray-600 text-xs">誤差</th>
+                <th className="text-right px-2 py-2 font-medium text-gray-600 text-xs">系統薪酬</th>
+                <th className="text-right px-2 py-2 font-medium text-gray-600 text-xs">自報薪酬</th>
+                <th className="text-right px-2 py-2 font-medium text-gray-600 text-xs">薪酬誤差</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visiblePayrollData.map(p => {
+                const self = visibleSelfRecords.find(r => r.employee_id === p.id)
+                const selfHours = self?.total_hours || 0
+                const selfAmount = self?.total_amount || 0
+                const hoursDiff = selfHours > 0 ? p.attendanceHours - selfHours : 0
+                const payDiff = selfAmount > 0 ? p.grossPay - selfAmount : 0
+                const hasSelf = selfHours > 0
+                return (
+                  <tr key={p.id} className={`border-b border-gray-50 hover:bg-gray-50 ${hasSelf && Math.abs(hoursDiff) > 1 ? 'bg-red-50' : ''}`}>
+                    <td className="px-3 py-2 font-medium text-gray-800 text-xs">{p.name}</td>
+                    <td className={`px-2 py-2 text-right text-xs ${hasSelf && Math.abs(hoursDiff) > 1 ? 'font-bold' : ''}`}>
+                      {p.attendanceHours.toFixed(1)}h
+                    </td>
+                    <td className={`px-2 py-2 text-right text-xs ${hasSelf ? '' : 'text-gray-300'}`}>
+                      {hasSelf ? `${selfHours.toFixed(1)}h` : '-'}
+                    </td>
+                    <td className={`px-2 py-2 text-right text-xs ${hasSelf ? (Math.abs(hoursDiff) <= 1 ? 'text-green-600' : 'text-red-500 font-bold') : 'text-gray-300'}`}>
+                      {hasSelf ? `${hoursDiff >= 0 ? '+' : ''}${hoursDiff.toFixed(1)}h` : '-'}
+                    </td>
+                    <td className="px-2 py-2 text-right text-xs text-gray-700">${p.grossPay.toLocaleString()}</td>
+                    <td className={`px-2 py-2 text-right text-xs ${hasSelf ? '' : 'text-gray-300'}`}>
+                      {hasSelf ? `$${selfAmount.toLocaleString()}` : '-'}
+                    </td>
+                    <td className={`px-2 py-2 text-right text-xs ${hasSelf ? (Math.abs(payDiff) <= 100 ? 'text-green-600' : 'text-red-500 font-bold') : 'text-gray-300'}`}>
+                      {hasSelf ? `${payDiff >= 0 ? '+' : ''}$${payDiff.toLocaleString()}` : '-'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Payroll Table */}
+      <Card>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  <th className="text-left px-4 py-2.5 font-medium text-gray-600 text-xs">員工</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-gray-600 text-xs">職位</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-gray-600 text-xs">薪資類型</th>
+                  <th className="text-right px-2 py-2.5 font-medium text-gray-600 text-xs">底薪/時薪</th>
+                  <th className="text-right px-2 py-2.5 font-medium text-gray-600 text-xs">工時</th>
+                  <th className="text-right px-2 py-2.5 font-medium text-gray-600 text-xs">獎金</th>
+                  <th className="text-right px-2 py-2.5 font-medium text-gray-600 text-xs">扣項</th>
+                  <th className="text-right px-2 py-2.5 font-medium text-gray-600 text-xs">實發</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visiblePayrollData.map((p) => (
+                  <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="px-4 py-2.5 font-medium text-gray-800">{p.name}</td>
+                    <td className="px-4 py-2.5">
+                      <Badge variant="outline" className="text-[10px]">
+                        {p.role === 'owner' ? '店主' : p.role === 'manager' ? '主管' : '員工'}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-2.5 text-gray-600">{p.salaryType}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      {p.hourlyRate != null ? `$${p.hourlyRate}/h` : p.monthlySalary != null ? `$${p.monthlySalary.toLocaleString()}` : '-'}
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      {p.salaryType === '時薪' ? (
+                        <div className="flex items-center justify-end gap-1">
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            className="w-20 text-right text-sm border border-gray-200 rounded px-1.5 py-0.5 focus:border-blue-400 focus:ring-1 focus:ring-blue-200"
+                            value={p.totalHours}
+                            onChange={e => setEmpHours(p.id, Number(e.target.value))}
+                            placeholder={p.attendanceHours.toFixed(1)}
+                          />
+                          <span className="text-xs text-gray-400">h</span>
+                          {p.hasManual && p.attendanceHours > 0 && (
+                            <span className="text-[10px] text-blue-400 ml-0.5" title={`打卡 ${p.attendanceHours.toFixed(1)}h`}>手動</span>
+                          )}
+                        </div>
+                      ) : '-'}
+                    </td>
+                    <td className="px-2 py-2.5 text-right">
+                      <input
+                        type="number"
+                        min="0"
+                        className="w-20 text-right text-sm border border-gray-200 rounded px-1.5 py-0.5 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 text-green-600"
+                        value={p.bonus}
+                        onChange={e => setEmpBonus(p.id, Number(e.target.value))}
+                      />
+                    </td>
+                    <td className="px-2 py-2.5 text-right">
+                      <input
+                        type="number"
+                        min="0"
+                        className="w-20 text-right text-sm border border-gray-200 rounded px-1.5 py-0.5 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 text-red-500"
+                        value={p.deductions}
+                        onChange={e => setEmpDeductions(p.id, Number(e.target.value))}
+                      />
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-bold">${p.netPay.toLocaleString()}</td>
+                  </tr>
+                ))}
+                {visiblePayrollData.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="text-center py-12 text-sm text-gray-400">
+                      暫無員工資料
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Action buttons */}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm">
+          <FileCheck className="h-4 w-4 mr-1.5" />
+          匯出報表
+        </Button>
+        <Button size="sm">
+          <CheckCircle2 className="h-4 w-4 mr-1.5" />
+          儲存本月薪酬
+        </Button>
+      </div>
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useAuthStore } from '@/stores/auth'
 import type {
   Product,
   Category,
@@ -223,7 +224,39 @@ export function useEmployees() {
     }
   }
 
-  return { employees, loading, error, refetch: fetchEmployees, updateEmployee }
+  const addEmployee = async (data: Omit<Employee, 'id' | 'created_at' | 'restaurant_id'>) => {
+    try {
+      const rid = useAuthStore.getState().user?.restaurant_id || DEMO_RESTAURANT_ID
+      const { error: insertError } = await supabase
+        .from('employees')
+        .insert([{ ...data, restaurant_id: rid, is_active: true }])
+
+      if (insertError) throw insertError
+      await fetchEmployees()
+      return true
+    } catch (err) {
+      console.error('Error adding employee:', err)
+      return false
+    }
+  }
+
+  const deleteEmployee = async (id: string) => {
+    try {
+      const { error: deleteError } = await supabase
+        .from('employees')
+        .update({ is_active: false })
+        .eq('id', id)
+
+      if (deleteError) throw deleteError
+      await fetchEmployees()
+      return true
+    } catch (err) {
+      console.error('Error deleting employee:', err)
+      return false
+    }
+  }
+
+  return { employees, loading, error, refetch: fetchEmployees, updateEmployee, addEmployee, deleteEmployee }
 }
 
 // ============================================
@@ -280,7 +313,6 @@ export function useSchedules() {
       const { data, error: fetchError } = await supabase
         .from('schedules')
         .select('*, employee:employees(*)')
-        .eq('restaurant_id', DEMO_RESTAURANT_ID)
         .order('date', { ascending: true })
 
       if (fetchError) throw fetchError
@@ -301,7 +333,7 @@ export function useSchedules() {
     try {
       const { error: insertError } = await supabase
         .from('schedules')
-        .insert([{ ...data, restaurant_id: DEMO_RESTAURANT_ID, status: 'scheduled' as const }])
+        .insert([{ ...data, status: 'scheduled' as const }])
 
       if (insertError) throw insertError
       await fetchSchedules()
@@ -340,7 +372,7 @@ export function useUnavailability(employeeId?: string, month?: string) {
     try {
       setLoading(true)
       let query = supabase
-        .from('unavailability')
+        .from('employee_unavailability')
         .select('*')
         .eq('restaurant_id', DEMO_RESTAURANT_ID)
 
@@ -366,7 +398,7 @@ export function useUnavailability(employeeId?: string, month?: string) {
     try {
       // Check if already exists
       const { data: existing } = await supabase
-        .from('unavailability')
+        .from('employee_unavailability')
         .select('id')
         .eq('restaurant_id', DEMO_RESTAURANT_ID)
         .eq('employee_id', employeeId)
@@ -375,13 +407,13 @@ export function useUnavailability(employeeId?: string, month?: string) {
 
       if (existing) {
         const { error: deleteError } = await supabase
-          .from('unavailability')
+          .from('employee_unavailability')
           .delete()
           .eq('id', existing.id)
         if (deleteError) throw deleteError
       } else {
         const { error: insertError } = await supabase
-          .from('unavailability')
+          .from('employee_unavailability')
           .insert([{ restaurant_id: DEMO_RESTAURANT_ID, employee_id: employeeId, date }])
         if (insertError) throw insertError
       }
@@ -949,4 +981,56 @@ export function useRecipes() {
   }
 
   return { recipes, loading, error, refetch: fetchRecipes, createRecipe, updateRecipe, deleteRecipe }
+}
+
+// ============================================
+// Employee Self-Reported Hours (员工自助报工时)
+// ============================================
+export function useEmployeeSelfHours(month?: string) {
+  const [records, setRecords] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const fetchRecords = useCallback(async () => {
+    try {
+      setLoading(true)
+      let query = supabase
+        .from('employee_hours_self')
+        .select('*, employee:employees(name)')
+        .eq('restaurant_id', DEMO_RESTAURANT_ID)
+      if (month) query = query.eq('month', month)
+      const { data, error } = await query.order('created_at', { ascending: false })
+      if (error) throw error
+      setRecords(data || [])
+    } catch (err) {
+      console.error('Error fetching self hours:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [month])
+
+  useEffect(() => { fetchRecords() }, [fetchRecords])
+
+  const upsertSelfHours = async (employeeId: string, month: string, totalHours: number, totalAmount: number, notes?: string) => {
+    try {
+      const { error } = await supabase
+        .from('employee_hours_self')
+        .upsert({
+          restaurant_id: DEMO_RESTAURANT_ID,
+          employee_id: employeeId,
+          month,
+          total_hours: totalHours,
+          total_amount: totalAmount,
+          notes: notes || null,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'employee_id,month' })
+      if (error) throw error
+      await fetchRecords()
+      return true
+    } catch (err) {
+      console.error('Error upserting self hours:', err)
+      return false
+    }
+  }
+
+  return { records, loading, refetch: fetchRecords, upsertSelfHours }
 }

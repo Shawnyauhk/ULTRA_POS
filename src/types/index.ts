@@ -409,71 +409,62 @@ export interface Report {
 
 /** 系统所有权限的定义（key = 权限标识, value = 中文说明） */
 export const ALL_PERMISSIONS = {
-  // 控制面板
+  // ── 控制面板與AI分析（含報表） ──
   'dashboard.view': '查看控制面板',
-
-  // POS 点餐
-  'pos.create_order': '建立訂單',
-  'pos.cancel_order': '取消訂單',
-  'pos.refund': '退款操作',
-
-  // 产品管理
-  'product.view': '查看產品',
-  'product.manage': '管理產品（新增/編輯/刪除）',
-
-  // 库存管理
-  'inventory.view': '查看庫存',
-  'inventory.manage': '管理庫存',
-
-  // 订货管理
-  'order.view': '查看訂貨',
-  'order.create': '建立訂貨單',
-  'order.approve': '審批訂貨',
-
-  // 员工管理
-  'employee.view': '查看員工',
-  'employee.manage': '管理員工（新增/編輯/刪除）',
-
-  // 打卡管理
-  'attendance.view': '查看打卡記錄',
-  'attendance.manage': '管理打卡',
-
-  // 排班管理
-  'schedule.view': '查看排班',
-  'schedule.manage': '管理排班',
-
-  // 薪酬管理
-  'payroll.view': '查看薪酬',
-  'payroll.manage': '管理薪酬',
-
-  // 财务管理
-  'expense.view': '查看支出',
-  'expense.manage': '管理支出',
-
-  // 营业額結算
-  'settlement.view': '查看營業額結算',
-  'settlement.manage': '管理營業額結算',
-
-  // 报表
   'report.view': '查看報表',
   'report.export': '匯出報表',
 
-  // AI 功能
+  // ── POS 點餐系統（含產品管理） ──
+  'pos.create_order': '建立訂單',
+  'pos.cancel_order': '取消訂單',
+  'pos.refund': '退款操作',
+  'product.view': '查看產品',
+  'product.manage': '管理產品（新增/編輯/刪除）',
+
+  // ── 訂貨管理（含庫存管理） ──
+  'order.view': '查看訂貨',
+  'order.create': '建立訂貨單',
+  'order.approve': '審批訂貨',
+  'inventory.view': '查看庫存',
+  'inventory.manage': '管理庫存',
+
+  // ── 人力資源中心（員工+打卡+排班+薪酬） ──
+  'employee.view': '查看員工',
+  'employee.manage': '管理員工（新增/編輯/刪除）',
+  'attendance.view': '查看打卡記錄',
+  'attendance.manage': '管理打卡',
+  'schedule.view': '查看排班',
+  'schedule.manage': '管理排班',
+  'schedule.smart': '智能排班',
+  'payroll.view': '查看薪酬',
+  'payroll.manage': '管理薪酬',
+
+  // ── 門店支出（含保險箱） ──
+  'expense.view': '查看門店支出記錄',
+  'expense.manage': '管理門店支出',
+  'expense.monthly_settlement': '每月結算查看',
+  'expense.cash_settlement': '現金日結操作',
+  'expense.cash_report': '現金日結報告',
+  'safe.view': '查看保險箱',
+  'safe.manage': '管理保險箱（月度核對）',
+
+  // ── 營業額結算 ──
+  'settlement.view': '查看營業額結算',
+  'settlement.manage': '管理營業額結算',
+
+  // ── AI 功能 ──
   'ai.marketing': 'AI 行銷管理',
-  'ai.customer_service': 'AI 客服管理',
+  'ai.customer_service': 'AI 客服對話',
+  'ai.session_logs': '客人會話記錄',
   'ai.knowledge_base': 'AI 知識庫管理',
 
-  // 评价管理
+  // ── 评价管理 ──
   'review.view': '查看評價',
   'review.manage': '管理評價',
 
-  // 系统设置
+  // ── 系统设置 ──
   'setting.view': '查看設定',
   'setting.manage': '管理設定',
-
-  // 收支管理（新增）
-  'safe.view': '查看保險箱',
-  'safe.manage': '管理保險箱（月度核對）',
 } as const
 
 export type PermissionKey = keyof typeof ALL_PERMISSIONS
@@ -482,32 +473,49 @@ export type PermissionKey = keyof typeof ALL_PERMISSIONS
 export const DEFAULT_ROLE_PERMISSIONS: Record<Employee['role'], PermissionKey[]> = {
   owner: Object.keys(ALL_PERMISSIONS) as PermissionKey[],
   manager: [
+    // 控制面板與AI分析
     'dashboard.view',
+    'report.view', 'report.export',
+
+    // POS 點餐系統
     'pos.create_order', 'pos.cancel_order', 'pos.refund',
     'product.view', 'product.manage',
-    'inventory.view', 'inventory.manage',
+
+    // 訂貨管理
     'order.view', 'order.create', 'order.approve',
+    'inventory.view', 'inventory.manage',
+
+    // 人力資源中心
     'employee.view',
     'attendance.view', 'attendance.manage',
-    'schedule.view', 'schedule.manage',
+    'schedule.view', 'schedule.manage', 'schedule.smart',
     'payroll.view', 'payroll.manage',
-    'expense.view', 'expense.manage',
-    'settlement.view', 'settlement.manage',
-    'report.view', 'report.export',
-    'ai.marketing', 'ai.customer_service', 'ai.knowledge_base',
-    'review.view', 'review.manage',
-    'setting.view',
+
+    // 門店支出
+    'expense.view', 'expense.manage', 'expense.monthly_settlement', 'expense.cash_settlement', 'expense.cash_report',
     'safe.view',
+
+    // 營業額結算
+    'settlement.view', 'settlement.manage',
+
+    // AI 功能
+    'ai.marketing', 'ai.customer_service', 'ai.session_logs', 'ai.knowledge_base',
+
+    // 評價管理
+    'review.view', 'review.manage',
+
+    // 系統設置
+    'setting.view',
   ],
   staff: [
     'dashboard.view',
     'pos.create_order',
     'product.view',
-    'inventory.view',
     'order.view', 'order.create',
+    'inventory.view',
     'attendance.view', 'attendance.manage',
     'schedule.view',
-    'expense.view',
+    'expense.view', 'expense.monthly_settlement',
   ],
 }
 

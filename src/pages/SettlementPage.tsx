@@ -14,7 +14,7 @@ import DateRangeFilter from '@/components/ui/DateRangeFilter';
 const initialSettlement = {
   cash: '', octopus: '', foodpanda: '', payme: '', alipay_hk: '', wechat_hk: '',
   meituan_keeta: '', openrice: '',
-  total_amount: '', total_transactions: '',
+  total_amount: '',
 };
 
 const WEEKDAY_CN = ['日', '一', '二', '三', '四', '五', '六'];
@@ -22,10 +22,11 @@ const formatDateWithWeekday = (dateStr: string) => {
   const d = new Date(dateStr);
   return `${dateStr}(${WEEKDAY_CN[d.getDay()]})`;
 };
+const $ = (v: any) => parseFloat(v || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
 // ====== 年區塊（點擊展開收起）=======
-function YearBlock({ year, total, transactions, count, children }: {
-  year: string; total: number; transactions: number; count: number; children: React.ReactNode;
+function YearBlock({ year, total, cashTotal, octopusTotal, count, children }: {
+  year: string; total: number; cashTotal: number; octopusTotal: number; count: number; children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(true);
   return (
@@ -37,9 +38,10 @@ function YearBlock({ year, total, transactions, count, children }: {
           <span className="font-bold text-gray-800 text-sm">{year} 年</span>
           <span className="text-xs text-gray-500">（{count} 日）</span>
         </div>
-        <div className="flex items-center gap-4 text-xs">
-          <span className="text-blue-700 font-semibold">${total.toFixed(2)}</span>
-          <span className="text-purple-700 font-semibold">{transactions} 筆</span>
+        <div className="flex items-center gap-3 text-xs">
+          <span className="text-green-600 font-medium">現金 ${$(cashTotal)}</span>
+          <span className="text-orange-600 font-medium">八達通 ${$(octopusTotal)}</span>
+          <span className="text-blue-700 font-semibold">合計 ${$(total)}</span>
         </div>
       </button>
       {open && <div className="divide-y divide-gray-100">{children}</div>}
@@ -48,8 +50,8 @@ function YearBlock({ year, total, transactions, count, children }: {
 }
 
 // ====== 月區塊 ======
-function MonthBlock({ year, month, total, transactions, count, children }: {
-  year: string; month: string; total: number; transactions: number; count: number; children: React.ReactNode;
+function MonthBlock({ year, month, total, cashTotal, octopusTotal, count, children }: {
+  year: string; month: string; total: number; cashTotal: number; octopusTotal: number; count: number; children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const monthNames = ['', '一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
@@ -63,8 +65,9 @@ function MonthBlock({ year, month, total, transactions, count, children }: {
           <span className="text-xs text-gray-400">（{count} 日）</span>
         </div>
         <div className="flex items-center gap-3 text-xs">
-          <span className="text-blue-600 font-medium">${total.toFixed(2)}</span>
-          <span className="text-purple-600 font-medium">{transactions} 筆</span>
+          <span className="text-green-600">現金 ${$(cashTotal)}</span>
+          <span className="text-orange-600">八達通 ${$(octopusTotal)}</span>
+          <span className="text-blue-600 font-medium">合計 ${$(total)}</span>
         </div>
       </button>
       {open && <div className="divide-y divide-gray-50">{children}</div>}
@@ -90,10 +93,9 @@ function DayBlock({ record, online, ePayment, onEdit }: {
           </Badge>
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          <span>現金 ${record.cash || 0}</span>
-          <span>八達通 ${record.octopus || 0}</span>
-          <span className="text-blue-700 font-semibold">合計 ${record.total_amount || 0}</span>
-          <span className="text-purple-700 font-medium">{record.total_transactions || 0} 筆</span>
+          <span>現金 ${$(record.cash)}</span>
+          <span>八達通 ${$(record.octopus)}</span>
+          <span className="text-blue-700 font-semibold">合計 ${$(record.total_amount)}</span>
         </div>
       </button>
       {open && (
@@ -108,17 +110,16 @@ function DayBlock({ record, online, ePayment, onEdit }: {
             )}
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">現金</span><br /><span className="font-medium">${record.cash || 0}</span></div>
-            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">八達通</span><br /><span className="font-medium">${record.octopus || 0}</span></div>
-            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">Foodpanda</span><br /><span className="font-medium">${record.foodpanda || 0}</span></div>
-            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">Payme</span><br /><span className="font-medium">${record.payme || 0}</span></div>
-            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">支付寶香港</span><br /><span className="font-medium">${record.alipay_hk || 0}</span></div>
-            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">WeChat 香港</span><br /><span className="font-medium">${record.wechat_hk || 0}</span></div>
-            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">美團 KEETA</span><br /><span className="font-medium">${record.meituan_keeta || 0}</span></div>
-            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">OpenRice</span><br /><span className="font-medium">${record.openrice || 0}</span></div>
-            <div className="col-span-2 sm:col-span-4 bg-blue-50 rounded px-2.5 py-1.5 border border-blue-100 flex justify-between">
-              <span className="text-blue-700 font-medium">總金額：${record.total_amount || 0}</span>
-              <span className="text-purple-700 font-medium">總筆數：{record.total_transactions || 0}</span>
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">現金</span><br /><span className="font-medium">${$(record.cash)}</span></div>
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">八達通</span><br /><span className="font-medium">${$(record.octopus)}</span></div>
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">Foodpanda</span><br /><span className="font-medium">${$(record.foodpanda)}</span></div>
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">Payme</span><br /><span className="font-medium">${$(record.payme)}</span></div>
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">支付寶香港</span><br /><span className="font-medium">${$(record.alipay_hk)}</span></div>
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">WeChat 香港</span><br /><span className="font-medium">${$(record.wechat_hk)}</span></div>
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">美團 KEETA</span><br /><span className="font-medium">${$(record.meituan_keeta)}</span></div>
+            <div className="bg-white rounded px-2.5 py-1.5 border"><span className="text-gray-500">OpenRice</span><br /><span className="font-medium">${$(record.openrice)}</span></div>
+            <div className="col-span-2 sm:col-span-4 bg-blue-50 rounded px-2.5 py-1.5 border border-blue-100">
+              <span className="text-blue-700 font-medium">總金額：${$(record.total_amount)}</span>
             </div>
           </div>
         </div>
@@ -127,7 +128,7 @@ function DayBlock({ record, online, ePayment, onEdit }: {
   );
 }
 
-export default function SettlementPage() {
+export default function SettlementPage({ embedded }: { embedded?: boolean }) {
   const { can } = usePermission();
 
   // Settlement State
@@ -176,7 +177,6 @@ export default function SettlementPage() {
           meituan_keeta: s.meituan_keeta?.toString() || '',
           openrice: s.openrice?.toString() || '',
           total_amount: s.total_amount?.toString() || '',
-          total_transactions: s.total_transactions?.toString() || '',
         });
       } else {
         setSettlement({ ...initialSettlement });
@@ -273,16 +273,17 @@ export default function SettlementPage() {
       meituan_keeta: record.meituan_keeta?.toString() || '',
       openrice: record.openrice?.toString() || '',
       total_amount: record.total_amount?.toString() || '',
-      total_transactions: record.total_transactions?.toString() || '',
     });
   };
 
   return (
-    <div className="p-3 md:p-6 space-y-6">
-      <div>
+    <div className={embedded ? '' : 'p-3 md:p-6'}>
+      {!embedded && (
+        <div className="mb-6">
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">營業額結算</h1>
-        <p className="text-sm text-muted-foreground">記錄各項收款來源，或與 POSPAL 系統同步</p>
-      </div>
+          <p className="text-sm text-muted-foreground">記錄各項收款來源，或與 POSPAL 系統同步</p>
+        </div>
+      )}
 
       <Card className="max-w-4xl">
         <CardHeader>
@@ -355,11 +356,6 @@ export default function SettlementPage() {
                     <Input type="number" step="0.01" placeholder="0.00" value={settlement.total_amount || ''}
                       onChange={e => setSettlement({ ...settlement, total_amount: e.target.value })} />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1 text-purple-700">📊 總筆數</label>
-                    <Input type="number" step="1" placeholder="0" value={settlement.total_transactions || ''}
-                      onChange={e => setSettlement({ ...settlement, total_transactions: e.target.value })} />
-                  </div>
                 </div>
               </div>
             </>
@@ -430,26 +426,30 @@ export default function SettlementPage() {
                   }
                   const months = Array.from(monthMap.entries()).sort((a, b) => b[0].localeCompare(a[0]));
                   const yearTotal = yearRecords.reduce((s, r) => s + parseFloat(r.total_amount || 0), 0);
-                  const yearTx = yearRecords.reduce((s, r) => s + parseInt(r.total_transactions || 0), 0);
+                  const yearCash = yearRecords.reduce((s, r) => s + parseFloat(r.cash || 0), 0);
+                  const yearOctopus = yearRecords.reduce((s, r) => s + parseFloat(r.octopus || 0), 0);
 
                   return (
                     <YearBlock
                       key={year}
                       year={year}
                       total={yearTotal}
-                      transactions={yearTx}
+                      cashTotal={yearCash}
+                      octopusTotal={yearOctopus}
                       count={yearRecords.length}
                     >
                       {months.map(([month, monthRecords]) => {
                         const monthTotal = monthRecords.reduce((s, r) => s + parseFloat(r.total_amount || 0), 0);
-                        const monthTx = monthRecords.reduce((s, r) => s + parseInt(r.total_transactions || 0), 0);
+                        const monthCash = monthRecords.reduce((s, r) => s + parseFloat(r.cash || 0), 0);
+                        const monthOctopus = monthRecords.reduce((s, r) => s + parseFloat(r.octopus || 0), 0);
                         return (
                           <MonthBlock
                             key={month}
                             year={year}
                             month={month}
                             total={monthTotal}
-                            transactions={monthTx}
+                            cashTotal={monthCash}
+                            octopusTotal={monthOctopus}
                             count={monthRecords.length}
                           >
                             {monthRecords.map((record) => {

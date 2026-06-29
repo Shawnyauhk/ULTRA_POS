@@ -1,28 +1,21 @@
-import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Clock, CheckCircle, AlertCircle, Loader2, Plus, Search, X, Pencil, Calendar, ChevronDown, ChevronRight, PackageCheck, FileCheck, Package } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Clock, CheckCircle, AlertCircle, Loader2, Plus, Search, X, Pencil, ChevronDown, ChevronRight, PackageCheck, FileCheck, ClipboardList, Box, Tags, Trash2 } from 'lucide-react';
 import { useOrderRequests, useInventory } from '@/hooks/useSupabaseData';
 import { FALLBACK_RESTAURANT_ID } from '@/hooks/useSupabaseData';
 import { usePermission } from '@/hooks/usePermission';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/auth';
-import type { OrderRequest, OrderRequestStatus, Inventory } from '@/types';
+import type { OrderRequest, OrderRequestStatus, Inventory, PermissionKey } from '@/types';
 
-// Warehouse categories
-const warehouseCategories = [
-  '全部',
-  '糖水配料',
-  '茶用品',
-  '碗/杯/袋/用具',
-  '煎餅配料',
-  '雜物',
-  '雞蛋仔/格餅配料',
-];
+type OrderTab = 'orders' | 'inventory'
+
+const DEFAULT_CATEGORIES = ['糖水配料', '茶用品', '碗/杯/袋/用具', '煎餅配料', '雜物', '雞蛋仔/格餅配料'];
 
 
 function getRestaurantId(): string {
@@ -33,11 +26,11 @@ function getRestaurantId(): string {
 type ColumnType = 'request' | 'pending' | 'received' | 'completed';
 
 export function OrderRequestsPage() {
-  const navigate = useNavigate();
   const { can } = usePermission();
   const { orderRequests, loading, refetch, updateOrderRequestStatus } = useOrderRequests();
-  const { inventory, loading: inventoryLoading } = useInventory();
+  const { inventory, loading: inventoryLoading, refetch: refetchInv, updateInventory, addInventory } = useInventory();
   const { user } = useAuthStore();
+  const [activeTab, setActiveTab] = useState<OrderTab>('orders');
   const [draggedOrder, setDraggedOrder] = useState<OrderRequest | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -979,26 +972,47 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
 
   return (
     <div ref={pageContainerRef} className="relative p-2 md:p-4 space-y-2 md:space-y-4">
+      {/* Header */}
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">訂貨管理</h1>
-          <p className="text-sm text-muted-foreground">點擊卡片檢視詳細內容</p>
+          <p className="text-sm text-muted-foreground">訂貨單看板 · 庫存總覽</p>
         </div>
         <div className="flex items-center gap-2">
-          {can('order.create') && (
+          {can('order.create') && activeTab === 'orders' && (
             <Button onClick={() => setShowRequestModal(true)}>
               <Plus className="h-4 w-4 mr-2" />
               訂貨請求
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => navigate("/inventory")}>
-            <Package className="h-4 w-4 mr-1.5" />
-            貨物表
-          </Button>
         </div>
       </div>
 
-      {/* 三欄：左中右並排 */}
+      {/* Tabs */}
+      <div className="flex gap-0 border-b border-gray-200">
+        {[
+          { key: 'orders' as OrderTab, label: '訂貨單看板', icon: ClipboardList },
+          { key: 'inventory' as OrderTab, label: '庫存總覽', icon: Box },
+        ].map(tab => {
+          const Icon = tab.icon
+          const isActive = activeTab === tab.key
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                isActive ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* ===== ORDERS KANBAN TAB ===== */}
+      {activeTab === 'orders' && (<>
       <div
         ref={containerRef}
         className={`flex gap-1 md:gap-3 ${isDragging ? 'overflow-hidden touch-none' : ''}`}
@@ -1097,7 +1111,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                   />
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                  {warehouseCategories.map((cat) => (
+                  {['全部', ...DEFAULT_CATEGORIES].map((cat) => (
                     <Button
                       key={cat}
                       variant={selectedCategory === cat ? 'default' : 'outline'}
@@ -1426,6 +1440,447 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
           </Card>
         </div>
       )}
+      </>)}
+      
+      {/* ===== INVENTORY TAB ===== */}
+      {activeTab === 'inventory' && (
+        <InventoryTab
+          inventory={inventory}
+          loading={inventoryLoading}
+          refetch={refetchInv}
+          updateInventory={updateInventory}
+          addInventory={addInventory}
+          can={can}
+        />
+      )}
     </div>
   );
+}
+
+// ===== INVENTORY TAB =====
+function InventoryTab({
+  inventory,
+  loading,
+  refetch,
+  updateInventory,
+  addInventory,
+  can,
+}: {
+  inventory: Inventory[]
+  loading: boolean
+  refetch: () => void
+  updateInventory: (id: string, data: Record<string, any>) => Promise<any>
+  addInventory: (data: any) => Promise<any>
+  can: (perm: PermissionKey) => boolean
+}) {
+  const { user } = useAuthStore()
+  const [searchTerm, setSearchTerm] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<string>('全部')
+  const [showModal, setShowModal] = useState(false)
+  const [editingItem, setEditingItem] = useState<Inventory | null>(null)
+  const [saving, setSaving] = useState(false)
+  const firstCat = DEFAULT_CATEGORIES[0] || '糖水配料'
+  const [formData, setFormData] = useState({
+    category: firstCat, name: '', unit: '包', current_stock: 0, min_stock_level: 10, supplier: '',
+  })
+  // ===== Category management =====
+  const [customCategories, setCustomCategories] = useState<string[]>([])
+  const [catLoading, setCatLoading] = useState(true)
+  const [showCatModal, setShowCatModal] = useState(false)
+  const [newCatName, setNewCatName] = useState('')
+  const [catSaving, setCatSaving] = useState(false)
+  const [editingCat, setEditingCat] = useState<string | null>(null)
+  const [editingCatValue, setEditingCatValue] = useState('')
+
+  const allCategories = useMemo(() => {
+    const set = new Set([...DEFAULT_CATEGORIES, ...customCategories])
+    return Array.from(set)
+  }, [customCategories])
+
+  const CAT_SETTINGS_KEY = 'inventory_categories'
+
+  // Load custom categories from settings
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (!user?.restaurant_id) return
+      try {
+        const { data } = await supabase
+          .from('settings')
+          .select('setting_value')
+          .eq('restaurant_id', user.restaurant_id)
+          .eq('setting_key', CAT_SETTINGS_KEY)
+          .maybeSingle()
+        if (!cancelled && data?.setting_value) {
+          try {
+            const parsed = JSON.parse(data.setting_value)
+            if (Array.isArray(parsed)) setCustomCategories(parsed)
+          } catch { /* ignore bad json */ }
+        }
+      } catch { /* ignore */ } finally {
+        if (!cancelled) setCatLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [user?.restaurant_id])
+
+  const saveCategories = async (cats: string[]) => {
+    if (!user?.restaurant_id) return
+    setCatSaving(true)
+    try {
+      const { data: existing } = await supabase
+        .from('settings')
+        .select('id')
+        .eq('restaurant_id', user.restaurant_id)
+        .eq('setting_key', CAT_SETTINGS_KEY)
+        .maybeSingle()
+      const payload = { setting_value: JSON.stringify(cats), updated_at: new Date().toISOString() }
+      if (existing) {
+        await supabase.from('settings').update(payload).eq('id', existing.id)
+      } else {
+        await supabase.from('settings').insert([{
+          restaurant_id: user.restaurant_id,
+          setting_key: CAT_SETTINGS_KEY,
+          setting_value: JSON.stringify(cats),
+          setting_type: 'json',
+        }])
+      }
+    } catch (err) {
+      console.error('Save categories error:', err)
+    } finally {
+      setCatSaving(false)
+    }
+  }
+
+  const handleAddCategory = async () => {
+    const name = newCatName.trim()
+    if (!name || allCategories.includes(name)) return
+    const updated = [...customCategories, name]
+    setCustomCategories(updated)
+    setNewCatName('')
+    await saveCategories(updated)
+  }
+
+  const handleRemoveCategory = async (cat: string) => {
+    if (DEFAULT_CATEGORIES.includes(cat)) return // cannot remove default
+    const updated = customCategories.filter(c => c !== cat)
+    setCustomCategories(updated)
+    if (selectedCategory === cat) setSelectedCategory('全部')
+    await saveCategories(updated)
+  }
+
+  const handleRenameCategory = async () => {
+    if (!editingCat || !editingCatValue.trim()) return
+    const newName = editingCatValue.trim()
+    if (newName === editingCat) { setEditingCat(null); return }
+
+    // Update the category in all places: customCategories list + any inventory items using old name
+    const updatedCustom = customCategories.map(c => c === editingCat ? newName : c)
+    setCustomCategories(updatedCustom)
+    setEditingCat(null)
+
+    // Also update any inventory items that use the old category name
+    const itemsToUpdate = inventory.filter(i => i.category === editingCat)
+    for (const item of itemsToUpdate) {
+      await updateInventory(item.id, { category: newName })
+    }
+
+    await saveCategories(updatedCustom)
+    refetch()
+  }
+
+  const filteredInventory = inventory.filter(item => {
+    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesCategory = selectedCategory === '全部' || item.category === selectedCategory
+    return matchesSearch && matchesCategory
+  })
+
+  const lowStockItems = inventory.filter(item => item.current_stock < item.min_stock_level)
+
+  const handleEdit = (item: Inventory) => {
+    setEditingItem(item)
+    setFormData({
+      category: item.category, name: item.name, unit: item.unit,
+      current_stock: item.current_stock, min_stock_level: item.min_stock_level, supplier: item.supplier || '',
+    })
+    setShowModal(true)
+  }
+
+  const resetForm = () => {
+    setFormData({ category: '糖水配料', name: '', unit: '包', current_stock: 0, min_stock_level: 10, supplier: '' })
+  }
+
+  const handleDeleteItem = async () => {
+    if (!editingItem) return
+    if (!confirm(`確定刪除「${editingItem.name}」？此操作無法復原。`)) return
+    setSaving(true)
+    try {
+      const { error } = await supabase.from('inventory').delete().eq('id', editingItem.id)
+      if (error) throw error
+      setShowModal(false)
+      setEditingItem(null)
+      resetForm()
+      refetch()
+    } catch (err) {
+      console.error('Delete inventory error:', err)
+      alert('刪除失敗')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formData.name) return
+    setSaving(true)
+    try {
+      if (editingItem) {
+        await updateInventory(editingItem.id, {
+          ...formData, last_updated: new Date().toISOString(),
+        })
+      } else {
+        await addInventory(formData)
+      }
+      setShowModal(false)
+      setEditingItem(null)
+      resetForm()
+      refetch()
+    } catch (err) {
+      console.error('Save inventory error:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Low stock alert */}
+      {lowStockItems.length > 0 && (
+        <Card className="border-yellow-200 bg-yellow-50">
+          <CardContent className="p-3 md:p-4">
+            <div className="flex items-center gap-2 text-yellow-800">
+              <AlertCircle className="h-5 w-5" />
+              <span className="font-medium">庫存預警：{lowStockItems.length} 項貨物低於最低庫存</span>
+            </div>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {lowStockItems.slice(0, 5).map(item => (
+                <Badge key={item.id} variant="warning" className="cursor-pointer" onClick={() => handleEdit(item)}>
+                  {item.name} (現有 {item.current_stock}{item.unit})
+                </Badge>
+              ))}
+              {lowStockItems.length > 5 && <Badge variant="secondary">+{lowStockItems.length - 5} 更多</Badge>}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Search + Filters */}
+      <div className="flex flex-col md:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input placeholder="搜尋貨物名稱..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10" />
+        </div>
+        <div className="flex gap-1 flex-wrap items-center">
+          <Button variant={selectedCategory === '全部' ? 'default' : 'outline'} size="sm" onClick={() => setSelectedCategory('全部')}>
+            全部 ({inventory.length})
+          </Button>
+          {allCategories.map(cat => {
+            const count = inventory.filter(i => i.category === cat).length
+            return (
+              <Button key={cat} variant={selectedCategory === cat ? 'default' : 'outline'} size="sm" onClick={() => setSelectedCategory(cat)}>
+                {cat} ({count})
+              </Button>
+            )
+          })}
+          {!catLoading && (
+            <Button variant="outline" size="sm" onClick={() => setShowCatModal(true)} className="text-gray-500">
+              <Tags className="h-3.5 w-3.5 mr-1" />管理分類
+            </Button>
+          )}
+        </div>
+        <Button size="sm" onClick={() => { resetForm(); setEditingItem(null); setShowModal(true) }}>
+          <Plus className="h-4 w-4 mr-1" />新增貨物
+        </Button>
+      </div>
+
+      {/* Inventory Table */}
+      <Card>
+        <CardContent className="p-0 overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>貨物名稱</TableHead>
+                <TableHead className="hidden md:table-cell">類別</TableHead>
+                <TableHead>庫存</TableHead>
+                <TableHead className="hidden md:table-cell">最低</TableHead>
+                <TableHead>狀態</TableHead>
+                <TableHead className="hidden md:table-cell">供應商</TableHead>
+                <TableHead className="text-right">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredInventory.map(item => {
+                const isLow = item.current_stock < item.min_stock_level
+                return (
+                  <TableRow key={item.id} className={isLow ? 'bg-yellow-50' : ''}>
+                    <TableCell className="font-medium text-xs md:text-sm">{item.name}</TableCell>
+                    <TableCell className="hidden md:table-cell"><Badge variant="secondary">{item.category}</Badge></TableCell>
+                    <TableCell className="whitespace-nowrap text-xs md:text-sm">
+                      <span className={isLow ? 'text-yellow-600 font-medium' : ''}>{item.current_stock}<span className="hidden md:inline"> {item.unit}</span></span>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell text-xs md:text-sm">{item.min_stock_level} {item.unit}</TableCell>
+                    <TableCell className="text-xs md:text-sm">
+                      {isLow ? (
+                        <Badge variant="warning" className="flex items-center gap-0.5 md:gap-1 text-[10px] md:text-xs whitespace-nowrap"><AlertCircle className="h-2.5 w-2.5 md:h-3 md:w-3" />不足</Badge>
+                      ) : (
+                        <Badge variant="success" className="text-[10px] md:text-xs">正常</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell text-gray-500 text-xs md:text-sm">{item.supplier || '-'}</TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="icon" className="h-7 w-7 md:h-9 md:w-9" onClick={() => handleEdit(item)}><Pencil className="h-3 w-3 md:h-4 md:w-4" /></Button>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* ===== Category Management Modal ===== */}
+      {showCatModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowCatModal(false)}>
+          <Card className="w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base"><Tags className="h-4 w-4" />管理庫存分類</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Existing categories */}
+              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                {allCategories.map(cat => {
+                  const isEditing = editingCat === cat
+                  const isDefault = DEFAULT_CATEGORIES.includes(cat)
+                  return (
+                    <div key={cat} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                      {isEditing ? (
+                        <Input
+                          value={editingCatValue}
+                          onChange={e => setEditingCatValue(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') handleRenameCategory(); if (e.key === 'Escape') setEditingCat(null) }}
+                          className="h-8 text-sm flex-1 mr-2"
+                          autoFocus
+                        />
+                      ) : (
+                        <span className="text-sm flex-1 cursor-pointer hover:text-blue-600" onClick={() => { setEditingCat(cat); setEditingCatValue(cat) }}>
+                          {cat}
+                        </span>
+                      )}
+                      <div className="flex items-center gap-1 shrink-0">
+                        {isEditing ? (
+                          <button onClick={handleRenameCategory} className="p-1 rounded hover:bg-blue-100 text-blue-600">
+                            <CheckCircle className="h-3.5 w-3.5" />
+                          </button>
+                        ) : (
+                          <button onClick={() => { setEditingCat(cat); setEditingCatValue(cat) }} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600">
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                        )}
+                        {!isDefault && !isEditing && (
+                          <button onClick={() => handleRemoveCategory(cat)} className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-500">
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )                        }
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Add new category */}
+              <div className="flex gap-2">
+                <Input
+                  placeholder="新分類名稱"
+                  value={newCatName}
+                  onChange={e => setNewCatName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddCategory()}
+                  className="flex-1"
+                />
+                <Button size="sm" onClick={handleAddCategory} disabled={!newCatName.trim() || catSaving}>
+                  {catSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : '新增'}
+                </Button>
+              </div>
+
+              <div className="flex justify-end pt-2 border-t">
+                <Button variant="outline" size="sm" onClick={() => setShowCatModal(false)}>完成</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Add/Edit Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowModal(false)}>
+          <Card className="w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+            <CardHeader><CardTitle>{editingItem ? '編輯貨物' : '新增貨物'}</CardTitle></CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium">類別</label>
+                  <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm mt-1" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}>
+                    {allCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">貨物名稱</label>
+                  <Input value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium">現有庫存</label>
+                    <Input type="number" value={formData.current_stock} onChange={e => setFormData({ ...formData, current_stock: Number(e.target.value) })} required />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">單位</label>
+                    <Input value={formData.unit} onChange={e => setFormData({ ...formData, unit: e.target.value })} required />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium">最低庫存</label>
+                    <Input type="number" value={formData.min_stock_level} onChange={e => setFormData({ ...formData, min_stock_level: Number(e.target.value) })} required />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">供應商</label>
+                    <Input value={formData.supplier} onChange={e => setFormData({ ...formData, supplier: e.target.value })} />
+                  </div>
+                </div>
+                <div className="flex justify-between gap-2 pt-4">
+                  <div>
+                    {editingItem && (
+                      <Button type="button" variant="destructive" size="sm" onClick={handleDeleteItem} disabled={saving}>
+                        <Trash2 className="h-4 w-4 mr-1" />刪除
+                      </Button>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" onClick={() => setShowModal(false)}>取消</Button>
+                    <Button type="submit" disabled={saving}>
+                      {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                      {editingItem ? '儲存' : '新增'}
+                    </Button>
+                  </div>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  )
 }

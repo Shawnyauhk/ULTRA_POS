@@ -15,6 +15,7 @@ import { usePermission } from '@/hooks/usePermission';
 import { useAuthStore } from '@/stores/auth';
 import { supabase, apiFetch } from '@/lib/supabase';
 import { recognizeReceipt } from '@/lib/ocr';
+import SettlementPage from './SettlementPage';
 
 // ====== 分類映射（中文 ↔ DB 英文） ======
 const CATEGORY_DISPLAY: { value: string; label: string }[] = [
@@ -72,7 +73,7 @@ interface FormExpense {
 }
 
 export default function ExpensesPage() {
-  const [activeTab, setActiveTab] = useState<'expenses' | 'settlement' | 'cash_settlement' | 'safe' | 'cash_report'>('expenses');
+  const [activeTab, setActiveTab] = useState<'expenses' | 'settlement' | 'cash_settlement' | 'safe'>('expenses');
   const { can } = usePermission();
   const { user } = useAuthStore();
 
@@ -873,6 +874,7 @@ export default function ExpensesPage() {
   const [cashLoading, setCashLoading] = useState(false);
   const [cashSaving, setCashSaving] = useState(false);
   const [cashNotified, setCashNotified] = useState(false);
+  const [showCashReport, setShowCashReport] = useState(false);
 
   // 載入收銀箱資料
   const loadCashRegister = async (d: string) => {
@@ -1188,12 +1190,14 @@ export default function ExpensesPage() {
       <div className="flex flex-col gap-1 md:gap-2 md:flex-row md:items-center md:justify-between px-1">
         <div className="min-w-0">
           <h1 className="text-base md:text-xl font-bold text-gray-900">門店收支</h1>
-          <p className="text-xs text-muted-foreground">支出記錄、每月結算、現金日結與保險箱管理</p>
+          <p className="text-xs text-muted-foreground">支出記錄、營業額結算、現金日結與保險箱管理</p>
         </div>
         <div className="flex gap-0.5 bg-gray-100 p-0.5 rounded-lg self-start md:self-auto flex-nowrap overflow-x-auto">
           <Button variant={activeTab === 'expenses' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('expenses')} className="h-7 text-xs px-2">門店支出</Button>
-          <Button variant={activeTab === 'settlement' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('settlement')} className="h-7 text-xs px-2">每月結算</Button>
-          {can('expense.manage') && (
+          {can('settlement.view') && (
+            <Button variant={activeTab === 'settlement' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('settlement')} className="h-7 text-xs px-2">營業額結算</Button>
+          )}
+          {can('expense.cash_settlement') && (
             <Button variant={activeTab === 'cash_settlement' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('cash_settlement')} className="h-7 text-xs px-2">
               <DollarSign className="w-3 h-3 mr-1" />現金日結
             </Button>
@@ -1203,11 +1207,7 @@ export default function ExpensesPage() {
               <ShieldCheck className="w-3 h-3" />保險箱
             </Button>
           )}
-          {user?.role === 'owner' && (
-            <Button variant={activeTab === 'cash_report' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('cash_report')} className="h-7 text-xs px-2">
-              <BarChart3 className="w-3 h-3" />現金日結報告
-            </Button>
-          )}
+
         </div>
       </div>
 
@@ -1847,222 +1847,7 @@ export default function ExpensesPage() {
           </Card>
         </div>
       ) : activeTab === 'settlement' ? (
-        <div className="space-y-6">
-          {/* 每月結算 */}
-          <Card>
-            <CardHeader>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
-                <div className="min-w-0 flex-1">
-                  <CardTitle className="!leading-relaxed !tracking-normal text-base sm:text-2xl font-semibold break-words whitespace-normal" style={{ lineHeight: '1.625', letterSpacing: '0.01em' }}>
-                    每月營業額結算
-                  </CardTitle>
-                  <CardDescription className="!leading-relaxed !tracking-normal break-words max-w-prose" style={{ lineHeight: '1.625', letterSpacing: '0.02em' }}>
-                    檢視每月各支付管道營業額彙總（可手動填寫或從 POSPAL 同步）
-                  </CardDescription>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <Button variant="outline" size="sm" onClick={() => {
-                    const n = new Date();
-                    setMonth(`${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`);
-                  }}>
-                    <RefreshCw className="w-3 h-3 mr-1" /> 本月
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={handleSyncPOSPAL} disabled={syncing}>
-                    {syncing ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
-                    同步 POSPAL
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2 mb-4">
-                <span className="text-sm text-muted-foreground">月份</span>
-                <Input type="month" value={month} onChange={e => { setMonth(e.target.value); setSettlementResult(null); }} className="w-fit" />
-                {settlementDays > 0 && (
-                  <span className="text-xs text-muted-foreground ml-2">
-                    （含 {settlementDays} 天營業資料）
-                  </span>
-                )}
-              </div>
-
-              {syncStatus && (
-                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm flex items-center gap-2">
-                  <RefreshCw className="w-4 h-4 text-blue-500" />
-                  {syncStatus}
-                </div>
-              )}
-
-              {settlementLoading ? (
-                <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground">現金</label>
-                      <Input type="number" placeholder="0" value={settlement.cash}
-                        onChange={e => setSettlement({...settlement, cash: e.target.value})} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground">八達通</label>
-                      <Input type="number" placeholder="0" value={settlement.octopus}
-                        onChange={e => setSettlement({...settlement, octopus: e.target.value})} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground">Foodpanda</label>
-                      <Input type="number" placeholder="0" value={settlement.foodpanda}
-                        onChange={e => setSettlement({...settlement, foodpanda: e.target.value})} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground">Alipay HK</label>
-                      <Input type="number" placeholder="0" value={settlement.alipay_hk}
-                        onChange={e => setSettlement({...settlement, alipay_hk: e.target.value})} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground">WeChat Pay HK</label>
-                      <Input type="number" placeholder="0" value={settlement.wechat_hk}
-                        onChange={e => setSettlement({...settlement, wechat_hk: e.target.value})} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground">美團/Keeta</label>
-                      <Input type="number" placeholder="0" value={settlement.meituan_keeta}
-                        onChange={e => setSettlement({...settlement, meituan_keeta: e.target.value})} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground">OpenRice</label>
-                      <Input type="number" placeholder="0" value={settlement.openrice}
-                        onChange={e => setSettlement({...settlement, openrice: e.target.value})} />
-                    </div>
-                    <div className="md:col-span-1">
-                      <label className="text-xs font-medium text-muted-foreground">總交易數</label>
-                      <Input type="number" placeholder="0" value={settlement.total_transactions}
-                        onChange={e => setSettlement({...settlement, total_transactions: e.target.value})} />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-6 pt-4 border-t">
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground">系統預估總額</label>
-                      <Input type="number" placeholder="0" value={settlement.total_amount}
-                        onChange={e => setSettlement({...settlement, total_amount: e.target.value})} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground">實際總額</label>
-                      <Input type="number" placeholder="0" value={settlement.actual_revenue}
-                        onChange={e => setSettlement({...settlement, actual_revenue: e.target.value})} />
-                    </div>
-                    <div className="flex items-end">
-                      <Button onClick={async () => {
-                        const user = useAuthStore.getState().user;
-                        const rid = user?.restaurant_id;
-                        if (!rid) return;
-                        setSettlementSaving(true);
-                        setSettlementResult(null);
-                        // 以月份第一天作為代表日期儲存（彙總記錄）
-                        const settlementDate = `${month}-01`;
-                        try {
-                          const res = await fetch('/api/settlements', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              restaurant_id: rid,
-                              settlement_date: settlementDate,
-                              store_name: '家傳芋曉',
-                              ...Object.fromEntries(
-                                Object.entries(settlement).map(([k, v]) => [k, v ? parseFloat(v) : 0])
-                              ),
-                            }),
-                          });
-                          const json = await res.json();
-                          if (json.success) {
-                            setSettlementResult('✅ 月度結算資料已儲存');
-                            loadMonthlySettlement(month);
-                          } else {
-                            setSettlementResult('❌ 儲存失敗: ' + json.message);
-                          }
-                        } catch (e: any) {
-                          setSettlementResult('❌ 錯誤: ' + e.message);
-                        } finally {
-                          setSettlementSaving(false);
-                        }
-                      }} disabled={settlementSaving}>
-                        {settlementSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-                        儲存結算
-                      </Button>
-                    </div>
-                  </div>
-
-                  {settlementResult && (
-                    <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-green-500" />
-                      {settlementResult}
-                    </div>
-                  )}
-
-                  {/* === 月結記錄 === */}
-                  <div className="mt-6 pt-4 border-t">
-                    <button
-                      onClick={() => setShowMonthlyRecords(!showMonthlyRecords)}
-                      className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900 w-full text-left"
-                    >
-                      {showMonthlyRecords ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                      月結記錄
-                      {settlementDays > 0 && (
-                        <span className="text-xs text-muted-foreground font-normal ml-1">（{settlementDays} 天）</span>
-                      )}
-                    </button>
-                    {showMonthlyRecords && (
-                      <div className="mt-3 overflow-x-auto">
-                        {settlementRecords.length === 0 ? (
-                          <p className="text-sm text-gray-400 text-center py-4">本月尚無營業記錄</p>
-                        ) : (
-                          <table className="w-full text-xs">
-                            <thead>
-                              <tr className="border-b bg-gray-50">
-                                <th className="text-left px-2 py-1.5 font-medium text-gray-500">日期</th>
-                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">現金</th>
-                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">八達通</th>
-                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">Foodpanda</th>
-                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">Alipay</th>
-                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">WeChat</th>
-                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">美團</th>
-                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">OpenRice</th>
-                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">總金額</th>
-                                <th className="text-right px-2 py-1.5 font-medium text-gray-500">來源</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {settlementRecords.map((r: any) => {
-                                const sourceLabel = r.source === 'pospal_crawler' ? 'POSPAL' : '手動';
-                                return (
-                                  <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                                    <td className="px-2 py-1.5 text-gray-700 whitespace-nowrap">{r.settlement_date}</td>
-                                    <td className="px-2 py-1.5 text-right font-medium">{r.cash ? `$${Number(r.cash).toLocaleString()}` : '-'}</td>
-                                    <td className="px-2 py-1.5 text-right">{r.octopus ? `$${Number(r.octopus).toLocaleString()}` : '-'}</td>
-                                    <td className="px-2 py-1.5 text-right">{r.foodpanda ? `$${Number(r.foodpanda).toLocaleString()}` : '-'}</td>
-                                    <td className="px-2 py-1.5 text-right">{r.alipay_hk ? `$${Number(r.alipay_hk).toLocaleString()}` : '-'}</td>
-                                    <td className="px-2 py-1.5 text-right">{r.wechat_hk ? `$${Number(r.wechat_hk).toLocaleString()}` : '-'}</td>
-                                    <td className="px-2 py-1.5 text-right">{r.meituan_keeta ? `$${Number(r.meituan_keeta).toLocaleString()}` : '-'}</td>
-                                    <td className="px-2 py-1.5 text-right">{r.openrice ? `$${Number(r.openrice).toLocaleString()}` : '-'}</td>
-                                    <td className="px-2 py-1.5 text-right font-medium text-indigo-700">${Number(r.total_amount || 0).toLocaleString()}</td>
-                                    <td className="px-2 py-1.5 text-right">
-                                      <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${r.source === 'pospal_crawler' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
-                                        {sourceLabel}
-                                      </span>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+        <SettlementPage embedded />
       ) : activeTab === 'cash_settlement' ? (
         <div className="space-y-6">
           <Card>
@@ -2194,9 +1979,18 @@ export default function ExpensesPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* 現金日結報告 - 按鈕切換 */}
+          <div className="flex justify-start">
+            <Button variant="outline" size="sm" onClick={() => setShowCashReport(!showCashReport)} className="text-xs">
+              <BarChart3 className="h-3.5 w-3.5 mr-1.5" />
+              {showCashReport ? '隱藏' : '查看'}現金日結報告
+            </Button>
+          </div>
+          {showCashReport && (
+            <CashReportSection restaurantId={user?.restaurant_id || ''} canView={can('expense.cash_report')} />
+          )}
         </div>
-      ) : activeTab === 'cash_report' ? (
-        <CashReportSection restaurantId={user?.restaurant_id || ''} role={user?.role || 'staff'} />
       ) : (
         <div className="space-y-6">
           {/* 保險箱 */}
@@ -2406,7 +2200,7 @@ export default function ExpensesPage() {
 }
 
 // ========== 每日現金日結報告（僅老闆可看） ==========
-function CashReportSection({ restaurantId, role }: { restaurantId: string; role: string }) {
+function CashReportSection({ restaurantId, canView }: { restaurantId: string; canView: boolean }) {
   const [records, setRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [month, setMonth] = useState(() => {
@@ -2415,7 +2209,7 @@ function CashReportSection({ restaurantId, role }: { restaurantId: string; role:
   });
 
   useEffect(() => {
-    if (role !== 'owner') return;
+    if (!canView) return;
     loadReport();
   }, [month]);
 
