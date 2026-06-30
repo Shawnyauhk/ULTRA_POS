@@ -1010,7 +1010,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">訂貨管理</h1>
-          <p className="text-sm text-muted-foreground">訂貨單看板 · 庫存總覽</p>
+          <p className="text-sm text-muted-foreground">訂貨單看板 · 庫存管理</p>
         </div>
         <div className="flex items-center gap-2">
           {can('order.create') && activeTab === 'orders' && (
@@ -1026,7 +1026,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
       <div className="flex gap-0 border-b border-gray-200">
         {[
           { key: 'orders' as OrderTab, label: '訂貨單看板', icon: ClipboardList },
-          { key: 'inventory' as OrderTab, label: '庫存總覽', icon: Box },
+          { key: 'inventory' as OrderTab, label: '庫存管理', icon: Box },
         ].map(tab => {
           const Icon = tab.icon
           const isActive = activeTab === tab.key
@@ -1693,24 +1693,7 @@ function InventoryTab({
   return (
     <div className="space-y-4">
       {/* Low stock alert */}
-      {lowStockItems.length > 0 && (
-        <Card className="border-yellow-200 bg-yellow-50">
-          <CardContent className="p-3 md:p-4">
-            <div className="flex items-center gap-2 text-yellow-800">
-              <AlertCircle className="h-5 w-5" />
-              <span className="font-medium">庫存預警：{lowStockItems.length} 項貨物低於最低庫存</span>
-            </div>
-            <div className="flex flex-wrap gap-2 mt-2">
-              {lowStockItems.slice(0, 5).map(item => (
-                <Badge key={item.id} variant="warning" className="cursor-pointer" onClick={() => handleEdit(item)}>
-                  {item.name} (現有 {item.current_stock}{item.unit})
-                </Badge>
-              ))}
-              {lowStockItems.length > 5 && <Badge variant="secondary">+{lowStockItems.length - 5} 更多</Badge>}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+
 
       {/* Search + Filters */}
       <div className="flex flex-col md:flex-row gap-3">
