@@ -267,6 +267,7 @@ export default function SettlementPage({ embedded }: { embedded?: boolean }) {
     setMissingSyncStatus(`⏳ 正在補抓 ${missingDates.length} 天缺失資料...`);
     let success = 0;
     let failed = 0;
+    const errors: string[] = [];
     for (const d of missingDates) {
       try {
         const res = await apiFetch('/api/settlements/sync', {
@@ -278,13 +279,16 @@ export default function SettlementPage({ embedded }: { embedded?: boolean }) {
           success++;
         } else {
           failed++;
+          if (json.message) errors.push(`${d}: ${json.message}`);
         }
-      } catch {
+      } catch (e: any) {
         failed++;
+        errors.push(`${d}: ${e.message || e}`);
       }
       setMissingSyncStatus(`⏳ 已處理 ${success + failed}/${missingDates.length} 天 (${success} 成功 / ${failed} 失敗)`);
     }
-    setMissingSyncStatus(`✅ 補抓完成：${success} 成功 / ${failed} 失敗`);
+    const errorSummary = errors.length > 0 ? `\n${errors.slice(0, 3).join('\n')}${errors.length > 3 ? `\n...還有 ${errors.length - 3} 個錯誤` : ''}` : '';
+    setMissingSyncStatus(`✅ 補抓完成：${success} 成功 / ${failed} 失敗${errorSummary}`);
     setMissingSyncLoading(false);
     await loadSettlementHistory();
   };
