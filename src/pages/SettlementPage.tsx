@@ -139,6 +139,8 @@ export default function SettlementPage({ embedded }: { embedded?: boolean }) {
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [missingSyncLoading, setMissingSyncLoading] = useState(false);
+  const [missingSyncStatus, setMissingSyncStatus] = useState<string | null>(null);
 
   // History State
   const [settlementHistory, setSettlementHistory] = useState<any[]>([]);
@@ -241,6 +243,50 @@ export default function SettlementPage({ embedded }: { embedded?: boolean }) {
     } finally {
       setSyncing(false);
     }
+  };
+
+  const handleSyncMissingDates = async () => {
+    const user = useAuthStore.getState().user;
+    const rid = user?.restaurant_id;
+    if (!rid) return;
+    const existingDates = new Set(settlementHistory.map(r => r.settlement_date));
+    const missingDates: string[] = [];
+    const start = new Date(historyRange.start);
+    const end = new Date(historyRange.end);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const ds = d.toISOString().split('T')[0];
+      if (!existingDates.has(ds) && d <= today) missingDates.push(ds);
+    }
+    if (missingDates.length === 0) {
+      setMissingSyncStatus('✅ 範圍內沒有缺失日期');
+      return;
+    }
+    setMissingSyncLoading(true);
+    setMissingSyncStatus(`⏳ 正在補抓 ${missingDates.length} 天缺失資料...`);
+    let success = 0;
+    let failed = 0;
+    for (const d of missingDates) {
+      try {
+        const res = await apiFetch('/api/settlements/sync', {
+          method: 'POST',
+          body: JSON.stringify({ restaurant_id: rid, date: d }),
+        });
+        const json = await res.json();
+        if (json.success) {
+          success++;
+        } else {
+          failed++;
+        }
+      } catch {
+        failed++;
+      }
+      setMissingSyncStatus(`⏳ 已處理 ${success + failed}/${missingDates.length} 天 (${success} 成功 / ${failed} 失敗)`);
+    }
+    setMissingSyncStatus(`✅ 補抓完成：${success} 成功 / ${failed} 失敗`);
+    setMissingSyncLoading(false);
+    await loadSettlementHistory();
   };
 
   const loadSettlementHistory = async () => {
@@ -388,11 +434,29 @@ export default function SettlementPage({ embedded }: { embedded?: boolean }) {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* 日期範圍篩選 */}
-          <DateRangeFilter
-            startDate={historyRange.start}
-            endDate={historyRange.end}
-            onChange={(start, end) => { setHistoryRange({ start, end }); }}
-          />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <DateRangeFilter
+              startDate={historyRange.start}
+              endDate={historyRange.end}
+              onChange={(start, end) => { setHistoryRange({ start, end }); }}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSyncMissingDates}
+              disabled={missingSyncLoading}
+              className="shrink-0"
+            >
+              {missingSyncLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+              爬回缺失資料
+            </Button>
+          </div>
+
+          {missingSyncStatus && (
+            <div className={`text-sm px-3 py-2 rounded-lg ${missingSyncStatus.startsWith('✅') ? 'bg-green-50 text-green-700' : missingSyncStatus.startsWith('⏳') ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'}`}>
+              {missingSyncStatus}
+            </div>
+          )}
 
           {historyLoading ? (
             <div className="flex items-center justify-center py-8">
