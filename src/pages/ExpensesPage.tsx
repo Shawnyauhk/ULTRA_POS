@@ -109,6 +109,26 @@ export default function ExpensesPage() {
   const [settlementDays, setSettlementDays] = useState<number>(0);
   const [settlementRecords, setSettlementRecords] = useState<any[]>([]);
 
+  // ===== 篩選器狀態 =====
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+  const [filterCategories, setFilterCategories] = useState<string[]>([]);
+  const [filterSupplier, setFilterSupplier] = useState('');
+  const [filterPaymentStatus, setFilterPaymentStatus] = useState<string[]>([]);
+  const [expandedFilterSections, setExpandedFilterSections] = useState<Set<string>>(new Set());
+  const toggleSection = (section: string) => {
+    const next = new Set(expandedFilterSections);
+    if (next.has(section)) next.delete(section);
+    else next.add(section);
+    setExpandedFilterSections(next);
+  };
+  const PAYMENT_OPTIONS = [
+    { value: 'cash', label: '現金已付' },
+    { value: 'bank', label: '銀行已付' },
+    { value: 'unpaid', label: '未付' },
+  ];
+
   // 載入該月份的結算數據（彙總）
   useEffect(() => {
     loadMonthlySettlement(month);
@@ -1147,10 +1167,30 @@ export default function ExpensesPage() {
     }
   };
 
+  // === 過濾後的支出 ===
+  const filteredExpenses = useMemo(() => {
+    if (!expenses) return [];
+    return expenses.filter((exp: any) => {
+      if (filterDateFrom && exp.expense_date < filterDateFrom) return false;
+      if (filterDateTo && exp.expense_date > filterDateTo) return false;
+      if (filterCategories.length > 0 && !filterCategories.includes(exp.category)) return false;
+      if (filterSupplier && exp.supplier !== filterSupplier) return false;
+      if (filterPaymentStatus.length > 0 && !filterPaymentStatus.includes(exp.payment_status)) return false;
+      return true;
+    });
+  }, [expenses, filterDateFrom, filterDateTo, filterCategories, filterSupplier, filterPaymentStatus]);
+
+  // === 供應商列表（用於下拉篩選）===
+  const supplierOptions = useMemo(() => {
+    if (!expenses) return [];
+    const suppliers = [...new Set(expenses.map((e: any) => e.supplier).filter(Boolean))];
+    return suppliers.sort((a, b) => a.localeCompare(b, 'zh-HK'));
+  }, [expenses]);
+
   // === 預計算支出樹形結構（年→月→日）===
   const expenseTree = useMemo(() => {
-    if (!expenses || expenses.length === 0) return { groups: [], total: 0, totalCount: 0 };
-    const sorted = [...expenses].sort((a: any, b: any) =>
+    if (!filteredExpenses || filteredExpenses.length === 0) return { groups: [], total: 0, totalCount: 0 };
+    const sorted = [...filteredExpenses].sort((a: any, b: any) =>
       (b.expense_date || '').localeCompare(a.expense_date || '')
     );
     const yearMap = new Map<string, Map<string, Map<string, any[]>>>();
@@ -1602,18 +1642,135 @@ export default function ExpensesPage() {
           {/* 支出列表 */}
           <Card className="shadow-sm">
             <CardHeader className="px-3 py-2 md:px-4 md:py-3">
-              <CardTitle className="text-sm md:text-base">支出記錄</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm md:text-base">支出記錄</CardTitle>
+                <Button variant="ghost" size="sm" onClick={() => setShowFilters(!showFilters)}
+                  className={`text-xs h-6 px-2 ${showFilters ? 'bg-blue-50 text-blue-600' : ''}`}>
+                  <BarChart3 className="w-3.5 h-3.5 mr-1" />
+                  篩選
+                  {(filterDateFrom || filterDateTo || filterCategories.length > 0 || filterSupplier || filterPaymentStatus.length > 0) && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 ml-1" />
+                  )}
+                </Button>
+              </div>
+              {/* 篩選器列 - 兩層式摺疊面板 */}
+              {showFilters && (
+                <div className="mt-2 border border-gray-100 rounded-md overflow-hidden text-xs">
+                  {/* === 日期 === */}
+                  <div className="border-b border-gray-50">
+                    <button onClick={() => toggleSection('date')}
+                      className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 text-xs font-medium text-gray-600">
+                      <span className="flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5" />
+                        日期
+                        {(filterDateFrom || filterDateTo) && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
+                      </span>
+                      {expandedFilterSections.has('date') ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                    </button>
+                    {expandedFilterSections.has('date') && (
+                      <div className="px-3 pb-2 flex items-center gap-1">
+                        <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
+                          className="w-28 md:w-32 px-1.5 py-1 border border-gray-200 rounded text-xs" />
+                        <span className="text-gray-300">~</span>
+                        <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
+                          className="w-28 md:w-32 px-1.5 py-1 border border-gray-200 rounded text-xs" />
+                      </div>
+                    )}
+                  </div>
+                  {/* === 分類 === */}
+                  <div className="border-b border-gray-50">
+                    <button onClick={() => toggleSection('category')}
+                      className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 text-xs font-medium text-gray-600">
+                      <span className="flex items-center gap-1.5">
+                        <BarChart3 className="w-3.5 h-3.5" />
+                        分類
+                        {filterCategories.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
+                      </span>
+                      {expandedFilterSections.has('category') ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                    </button>
+                    {expandedFilterSections.has('category') && (
+                      <div className="px-3 pb-2 flex flex-wrap gap-1">
+                        {CATEGORY_DISPLAY.map(cat => {
+                          const selected = filterCategories.includes(cat.value);
+                          return (
+                            <button key={cat.value} onClick={() => setFilterCategories(prev =>
+                              prev.includes(cat.value) ? prev.filter(v => v !== cat.value) : [...prev, cat.value]
+                            )}
+                              className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                                selected ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-400'
+                              }`}>
+                              {cat.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  {/* === 供應商 === */}
+                  <div className="border-b border-gray-50">
+                    <button onClick={() => toggleSection('supplier')}
+                      className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 text-xs font-medium text-gray-600">
+                      <span className="flex items-center gap-1.5">
+                        <User className="w-3.5 h-3.5" />
+                        供應商
+                        {filterSupplier && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
+                      </span>
+                      {expandedFilterSections.has('supplier') ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                    </button>
+                    {expandedFilterSections.has('supplier') && (
+                      <div className="px-3 pb-2">
+                        <select value={filterSupplier} onChange={e => setFilterSupplier(e.target.value)}
+                          className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded bg-white">
+                          <option value="">全部供應商</option>
+                          {supplierOptions.map(s => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                  {/* === 付款狀態 === */}
+                  <div>
+                    <button onClick={() => toggleSection('payment')}
+                      className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 text-xs font-medium text-gray-600">
+                      <span className="flex items-center gap-1.5">
+                        <DollarSign className="w-3.5 h-3.5" />
+                        付款
+                        {filterPaymentStatus.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
+                      </span>
+                      {expandedFilterSections.has('payment') ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                    </button>
+                    {expandedFilterSections.has('payment') && (
+                      <div className="px-3 pb-2 flex flex-wrap gap-1">
+                        {PAYMENT_OPTIONS.map(opt => {
+                          const selected = filterPaymentStatus.includes(opt.value);
+                          return (
+                            <button key={opt.value} onClick={() => setFilterPaymentStatus(prev =>
+                              prev.includes(opt.value) ? prev.filter(v => v !== opt.value) : [...prev, opt.value]
+                            )}
+                              className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                                selected ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-400'
+                              }`}>
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </CardHeader>
             <CardContent className="p-0">
               {loading ? (
                 <div className="flex items-center justify-center py-6">
                   <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
                 </div>
-              ) : !expenses || expenses.length === 0 ? (
+              ) : !filteredExpenses || filteredExpenses.length === 0 ? (
                 <div className="text-center py-6 text-muted-foreground px-3">
                   <Receipt className="w-10 h-10 mx-auto mb-3 opacity-50" />
-                  <p className="text-sm">暫無支出記錄</p>
-                  <p className="text-xs mt-1">使用 AI 掃描上傳收據，或手動新增</p>
+                  <p className="text-sm">{expenses && expenses.length > 0 ? '沒有符合篩選條件的記錄' : '暫無支出記錄'}</p>
+                  <p className="text-xs mt-1">{expenses && expenses.length > 0 ? '請調整篩選條件' : '使用 AI 掃描上傳收據，或手動新增'}</p>
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100">

@@ -978,7 +978,7 @@ const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
                       </div>
                     )}
                   </div>
-                </Card>
+                </div>
               );
             })
           ) : (

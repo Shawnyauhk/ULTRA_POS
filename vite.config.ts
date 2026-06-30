@@ -56,7 +56,7 @@ export default defineConfig({
     proxy: {
       // 代理後端 API 請求
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:3001',
         changeOrigin: true,
       },
     },
