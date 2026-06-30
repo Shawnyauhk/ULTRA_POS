@@ -302,6 +302,11 @@ async function getEmailSettings(restaurantId) {
   // 優先順序：BREVO_API_KEY (env) > brevo_api_key (DB) > SENDGRID_API_KEY (env) > sendgrid_api_key (DB) > RESEND_API_KEY (env) > resend_api_key (DB)
   let apiKey = process.env.BREVO_API_KEY || process.env.SENDGRID_API_KEY || process.env.RESEND_API_KEY || process.env.EMAIL_API_KEY || '';
   let from = process.env.EMAIL_FROM || 'handmadetarohk813@gmail.com';
+  // 驗證 EMAIL_FROM 是否為有效的電子郵件地址，否則 fallback
+  if (!from.match(/^[\w.+-]+@[\w.-]+\.[a-z]{2,}$/i)) {
+    console.warn(`⚠️ EMAIL_FROM 值「${from}」不是有效的郵箱，將使用默認值 handmadetarohk813@gmail.com`);
+    from = 'handmadetarohk813@gmail.com';
+  }
   let user = process.env.EMAIL_USER || '';
   let pass = process.env.EMAIL_PASS || '';
   let adminEmail = process.env.ADMIN_EMAIL || '';
@@ -347,7 +352,8 @@ async function sendEmailViaSendGrid(apiKey, from, to, subject, text, extra = {},
   if (isBrevo) {
     // Brevo (SendinBlue) API: https://developers.brevo.com/reference/sendtransacemail
     // 免費 300 封/天，HTTP API，不需域名
-    const fromEmail = from.match(/[\w.+-]+@[\w.-]+/)?.[0] || from;
+    const fromEmail = from.match(/^[\w.+-]+@[\w.-]+\.[a-z]{2,}$/i)?.[0] || 'handmadetarohk813@gmail.com';
+    if (fromEmail !== from) console.warn(`⚠️ Brevo sender 修正: ${from} → ${fromEmail}`);
     const finalHtml = html || `<div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; color: #333;">${text.replace(/\n/g, '<br>')}</div>`;
     const payload = {
       sender: { email: fromEmail, name: '家傳芋曉: 通知' },

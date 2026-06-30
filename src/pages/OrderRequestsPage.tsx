@@ -45,6 +45,8 @@ export function OrderRequestsPage() {
   const [editDate, setEditDate] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [completedExpanded, setCompletedExpanded] = useState(false);
+  const [completedDetailOrder, setCompletedDetailOrder] = useState<string | null>(null);
+  const [historyModalOrder, setHistoryModalOrder] = useState<OrderRequest | null>(null);
 const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [optimisticCols, setOptimisticCols] = useState<Record<string, ColumnType>>({});
   const [isDragging, setIsDragging] = useState(false);
@@ -740,7 +742,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     bgColor: string,
   ) => {
     const columnOrders = getSortedOrders(colType);
-    const borderColor = colType === 'request' ? 'border-red-200' : colType === 'pending' ? 'border-yellow-200' : 'border-green-200';
+    const borderColor = colType === 'request' ? 'border-blue-200' : colType === 'pending' ? 'border-yellow-200' : 'border-green-200';
     return (
       <div
         className={`rounded-xl p-1.5 md:p-2.5 transition-all duration-200 min-w-0 flex-1 ${bgColor} ${dragState?.overCol === colType ? 'ring-2 ring-indigo-400 bg-indigo-50/50 scale-[1.02]' : ''}`}
@@ -768,7 +770,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                   key={order.id}
                   draggable="true"
                   ref={el => { if (el) cardRefs.current.set(order.id, el); }}
-                  className={`overflow-hidden select-none transition-all duration-200 ${borderColor} ${isExpanded ? 'border-primary/50 ring-1 ring-primary/20' : ''} ${stale ? 'border-red-400 bg-red-50' : ''} ${dragState?.order.id === order.id ? 'opacity-40 scale-95' : ''} ${isDragging && dragState?.order.id === order.id ? 'shadow-2xl scale-[1.03] ring-2 ring-indigo-400 z-50 relative' : 'hover:shadow-md active:scale-[1.01]'}`}
+                  className={`overflow-hidden select-none transition-all duration-200 ${borderColor} ${isExpanded ? 'border-primary/50 ring-1 ring-primary/20' : ''} ${stale ? (colType === 'request' ? 'border-blue-400 bg-blue-50' : 'border-red-400 bg-red-50') : ''} ${dragState?.order.id === order.id ? 'opacity-40 scale-95' : ''} ${isDragging && dragState?.order.id === order.id ? 'shadow-2xl scale-[1.03] ring-2 ring-indigo-400 z-50 relative' : 'hover:shadow-md active:scale-[1.01]'}`}
                   onTouchStart={(e) => handleTouchStart(order, e)}
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = 'move';
@@ -815,7 +817,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                     {/* 展開後的詳情（優化排版） */}
                     {/* 逾期提示（收合狀態也可見） */}
                     {stale && (
-                      <div className="mt-1 text-[9px] text-red-500 font-medium flex items-center gap-1">
+                      <div className={`mt-1 text-[9px] font-medium flex items-center gap-1 ${colType === 'request' ? 'text-blue-500' : 'text-red-500'}`}>
                         <AlertCircle className="h-2.5 w-2.5" />
                         停留此區逾3天
                       </div>
@@ -892,14 +894,23 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                             {statusLabel}
                           </span>
                           {stale && (
-                            <span className="text-[9px] text-red-500">停留此區逾3天</span>
+                            <span className={`text-[9px] ${colType === 'request' ? 'text-blue-500' : 'text-red-500'}`}>停留此區逾3天</span>
                           )}
                         </div>
+
+                        {/* 過往紀錄按鈕（所有欄位通用） */}
+                        <button
+                          className="w-full py-1 mt-1 text-[10px] bg-gray-100 hover:bg-gray-200 text-gray-600 rounded transition-colors font-medium flex items-center justify-center gap-1"
+                          onClick={(e) => { e.stopPropagation(); setHistoryModalOrder(order); }}
+                        >
+                          <Clock className="h-2.5 w-2.5" />
+                          過往紀錄
+                        </button>
 
                         {/* 簽收按鈕 */}
                         {colType === 'received' && (
                           <button
-                            className="w-full py-1 text-[10px] bg-green-600 hover:bg-green-700 text-white rounded transition-colors font-medium"
+                            className="w-full py-1 mt-1 text-[10px] bg-green-600 hover:bg-green-700 text-white rounded transition-colors font-medium"
                             onClick={(e) => { e.stopPropagation(); handleOpenSignModal(order); }}
                           >
                             簽收
@@ -959,41 +970,83 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                 const unit = item?.inventory?.unit || '';
                 const isMatch = receivedQty != null && receivedQty === orderedQty;
                 const isRejected = order.status === 'rejected';
+                const isDetailOpen = completedDetailOrder === order.id;
 
                 return (
-                  <div key={order.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
-                    <div className="flex items-center gap-3 flex-1">
-                      <div className="flex-1">
-                        <p className="font-medium text-sm text-gray-800">{order.notes || '無備註'}</p>
-                        <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
-                          <span>{formatDate(order.created_at)}</span>
-                          <span>{order.employee?.name || '未知'}</span>
+                  <div key={order.id}>
+                    {/* 卡片頭（可點擊展開詳情） */}
+                    <div
+                      onClick={() => setCompletedDetailOrder(isDetailOpen ? null : order.id)}
+                      className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 cursor-pointer hover:bg-gray-100 transition-colors"
+                    >
+                      <div className="flex items-center gap-3 flex-1">
+                        <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform shrink-0 ${isDetailOpen ? '' : '-rotate-90'}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm text-gray-800 truncate">{order.notes || item?.inventory?.name || '無備註'}</p>
+                          <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+                            <span>{formatDate(order.created_at)}</span>
+                            <span>·</span>
+                            <span>{order.employee?.name || '未知'}</span>
+                          </div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-3 text-xs shrink-0 ml-2">
+                        {isRejected ? (
+                          <Badge variant="destructive">已拒絕</Badge>
+                        ) : (
+                          <>
+                            <span className="text-gray-500">訂 {orderedQty}{unit}</span>
+                            {receivedQty != null && (
+                              <>
+                                <span className="text-gray-500">收 {receivedQty}{unit}</span>
+                                {isMatch ? (
+                                  <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+                                ) : (
+                                  <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+                                )}
+                              </>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-4 text-sm">
-                      {isRejected ? (
-                        <Badge variant="destructive">已拒絕</Badge>
-                      ) : (
-                        <>
-                          <span className="text-gray-500">訂: {orderedQty}{unit}</span>
-                          {receivedQty != null && (
-                            <>
-                              <span className="text-gray-500">收: {receivedQty}{unit}</span>
-                              {isMatch ? (
-                                <Badge variant="success" className="flex items-center gap-1">
-                                  <CheckCircle className="h-3 w-3" /> 一致
-                                </Badge>
-                              ) : (
-                                <Badge variant="warning" className="flex items-center gap-1">
-                                  <AlertCircle className="h-3 w-3" /> 不符（差{Math.abs(orderedQty - receivedQty)}{unit}）
-                                </Badge>
-                              )}
-                            </>
-                          )}
-                        </>
-                      )}
-                    </div>
+
+                    {/* 展開詳情：各區時間軸 */}
+                    {isDetailOpen && (
+                      <div className="bg-white border border-gray-100 rounded-lg mx-2 mb-2 p-3 space-y-2 text-xs">
+                        <div className="font-medium text-gray-700 mb-1.5 flex items-center justify-between">
+                          <span>📋 訂單時間軸</span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setHistoryModalOrder(order); }}
+                            className="text-primary hover:underline flex items-center gap-1 text-[11px]"
+                          >
+                            <Clock className="h-3 w-3" /> 過往紀錄
+                          </button>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <TimelineRow label="📝 員工請求" date={order.created_at} zone="request" />
+                          {order.ordered_at && <TimelineRow label="🔄 待處理" date={order.ordered_at} zone="pending" />}
+                          {order.received_at && <TimelineRow label="📦 已送到" date={order.received_at} zone="received" />}
+                          <TimelineRow label="✅ 已完成" date={order.updated_at || order.created_at} zone="completed" />
+                        </div>
+
+                        {items.length > 0 && (
+                          <div className="border-t pt-1.5 mt-1.5">
+                            <div className="text-[10px] text-gray-400 mb-1">貨物清單</div>
+                            {items.map((itm: any) => (
+                              <div key={itm.id} className="flex justify-between text-[11px] text-gray-600 py-0.5">
+                                <span>{itm.inventory?.name || '未知貨物'}</span>
+                                <span>
+                                  訂 {itm.requested_quantity}{itm.inventory?.unit || ''}
+                                  {itm.received_quantity != null && ` → 收 ${itm.received_quantity}`}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1051,7 +1104,7 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
         ref={containerRef}
         className={`flex gap-1 md:gap-3 ${isDragging ? 'overflow-hidden touch-none' : ''}`}
       >
-        {renderColumn('員工請求', 'request', <AlertCircle className="w-5 h-5 text-red-500"/>, 'bg-red-50')}
+        {renderColumn('員工請求', 'request', <AlertCircle className="w-5 h-5 text-blue-500"/>, 'bg-blue-50')}
         {renderColumn('待處理', 'pending', <Clock className="w-5 h-5 text-yellow-500"/>, 'bg-yellow-50')}
         {renderColumn('已送到', 'received', <PackageCheck className="w-5 h-5 text-green-500"/>, 'bg-green-50')}
       </div>
@@ -1487,6 +1540,85 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
           can={can}
         />
       )}
+
+      {/* ===== 過往紀錄 Modal ===== */}
+      {historyModalOrder && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setHistoryModalOrder(null)}>
+          <Card className="w-full max-w-lg max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <CardHeader className="sticky top-0 bg-white z-10 border-b">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">📋 過往紀錄</CardTitle>
+                <button onClick={() => setHistoryModalOrder(null)} className="text-gray-400 hover:text-gray-600">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 space-y-3">
+              <p className="text-sm text-gray-600">
+                {historyModalOrder.notes || historyModalOrder.items?.[0]?.inventory?.name || '此訂單'}
+              </p>
+              {(() => {
+                const name = historyModalOrder.items?.[0]?.inventory?.name || '';
+                const related = orderRequests.filter(o =>
+                  o.id !== historyModalOrder.id &&
+                  o.items?.some(i => name && i.inventory?.name === name)
+                );
+                if (related.length === 0 && !name) {
+                  // Fallback: show same status changes
+                  const sameStatus = orderRequests.filter(o =>
+                    o.id !== historyModalOrder.id &&
+                    o.status === historyModalOrder.status
+                  ).slice(0, 10);
+                  if (sameStatus.length === 0) {
+                    return <p className="text-xs text-gray-400 text-center py-4">暫無相關過往紀錄</p>;
+                  }
+                  return (
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-gray-500 font-medium">同狀態訂單（最近 10 項）</p>
+                      {sameStatus.map(o => (
+                        <TimelineRow key={o.id} label={o.notes || o.items?.[0]?.inventory?.name || '訂單'} date={o.created_at} zone={getOrderColumn(o)} />
+                      ))}
+                    </div>
+                  );
+                }
+                if (related.length === 0) {
+                  return <p className="text-xs text-gray-400 text-center py-4">暫無相關過往紀錄</p>;
+                }
+                return (
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-gray-500 font-medium">同一貨物的所有訂單記錄（共 {related.length + 1} 筆，含本次）</p>
+                    {[historyModalOrder, ...related].map(o => (
+                      <div key={o.id} className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-gray-700">{formatShortDateTime(o.created_at)}</span>
+                          <Badge variant="outline" className="text-[10px]">{getStatusLabel(o.status)}</Badge>
+                        </div>
+                        <div className="text-[10px] text-gray-500 space-y-0.5">
+                          <span>📝 員工請求: {formatDate(o.created_at)}</span>
+                          {o.ordered_at && <span>🔄 待處理: {formatDate(o.ordered_at)}</span>}
+                          {o.received_at && <span>📦 已送到: {formatDate(o.received_at)}</span>}
+                          {o.status === 'received' && <span>✅ 已完成: {formatDate(o.updated_at)}</span>}
+                          {o.status === 'rejected' && <span>❌ 已拒絕: {formatDate(o.updated_at)}</span>}
+                        </div>
+                        {o.items && o.items.length > 0 && (
+                          <div className="mt-1 text-[10px] text-gray-400 border-t pt-1">
+                            {o.items.map((itm: any) => (
+                              <span key={itm.id} className="mr-2">
+                                {itm.inventory?.name || '貨物'} x{itm.requested_quantity}
+                                {itm.received_quantity != null ? `(收${itm.received_quantity})` : ''}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
@@ -1900,4 +2032,21 @@ function InventoryTab({
       )}
     </div>
   )
+}
+
+// ===== 時間軸元件 =====
+function TimelineRow({ label, date, zone }: { label: string; date: string; zone: string }) {
+  const zoneColors: Record<string, string> = {
+    request: 'border-l-blue-400 bg-blue-50',
+    pending: 'border-l-yellow-400 bg-yellow-50',
+    received: 'border-l-green-400 bg-green-50',
+    completed: 'border-l-gray-400 bg-gray-50',
+  };
+  const color = zoneColors[zone] || 'border-l-gray-300 bg-gray-50';
+  return (
+    <div className={`flex items-center justify-between px-3 py-1.5 rounded border-l-4 ${color}`}>
+      <span className="text-xs text-gray-700">{label}</span>
+      <span className="text-[10px] text-gray-500 font-mono">{new Date(date).toLocaleString('zh-TW', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' })}</span>
+    </div>
+  );
 }
