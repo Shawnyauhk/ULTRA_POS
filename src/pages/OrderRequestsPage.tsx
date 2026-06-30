@@ -961,95 +961,122 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
           {completedOrders.length === 0 ? (
             <div className="text-center py-6 text-gray-400 text-sm">暫無已完成項目</div>
           ) : (
-            <div className="space-y-2">
-              {completedOrders.map(order => {
-                const items = order.items || [];
-                const item = items[0];
-                const orderedQty = item?.requested_quantity || 0;
-                const receivedQty = item?.received_quantity;
-                const unit = item?.inventory?.unit || '';
-                const isMatch = receivedQty != null && receivedQty === orderedQty;
-                const isRejected = order.status === 'rejected';
-                const isDetailOpen = completedDetailOrder === order.id;
+            <div className="space-y-3">
+              {(() => {
+                // 按年分組
+                const yearMap = new Map<string, any[]>();
+                for (const o of completedOrders) {
+                  const year = o.created_at.slice(0, 4);
+                  if (!yearMap.has(year)) yearMap.set(year, []);
+                  yearMap.get(year)!.push(o);
+                }
+                const years = Array.from(yearMap.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+                const monthNames = ['', '1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
 
-                return (
-                  <div key={order.id}>
-                    {/* 卡片頭（可點擊展開詳情） */}
-                    <div
-                      onClick={() => setCompletedDetailOrder(isDetailOpen ? null : order.id)}
-                      className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 cursor-pointer hover:bg-gray-100 transition-colors"
-                    >
-                      <div className="flex items-center gap-3 flex-1">
-                        <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform shrink-0 ${isDetailOpen ? '' : '-rotate-90'}`} />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm text-gray-800 truncate">{order.notes || item?.inventory?.name || '無備註'}</p>
-                          <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
-                            <span>{formatDate(order.created_at)}</span>
-                            <span>·</span>
-                            <span>{order.employee?.name || '未知'}</span>
-                          </div>
-                        </div>
+                return years.map(([year, yearOrders]) => {
+                  // 按月分組
+                  const monthMap = new Map<string, any[]>();
+                  for (const o of yearOrders) {
+                    const month = o.created_at.slice(5, 7);
+                    if (!monthMap.has(month)) monthMap.set(month, []);
+                    monthMap.get(month)!.push(o);
+                  }
+                  const months = Array.from(monthMap.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+                  const yearTotal = yearOrders.length;
+
+                  return (
+                    <div key={year} className="border rounded-lg overflow-hidden">
+                      <div className="bg-gray-100 px-4 py-2 flex items-center justify-between">
+                        <span className="font-bold text-gray-700 text-sm">{year} 年</span>
+                        <span className="text-xs text-gray-500">{yearTotal} 項</span>
                       </div>
-                      <div className="flex items-center gap-3 text-xs shrink-0 ml-2">
-                        {isRejected ? (
-                          <Badge variant="destructive">已拒絕</Badge>
-                        ) : (
-                          <>
-                            <span className="text-gray-500">訂 {orderedQty}{unit}</span>
-                            {receivedQty != null && (
-                              <>
-                                <span className="text-gray-500">收 {receivedQty}{unit}</span>
-                                {isMatch ? (
-                                  <CheckCircle className="h-3.5 w-3.5 text-green-500" />
-                                ) : (
-                                  <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
-                                )}
-                              </>
-                            )}
-                          </>
-                        )}
+                      <div className="divide-y divide-gray-100">
+                        {months.map(([month, monthOrders]) => (
+                          <div key={month}>
+                            <div className="bg-gray-50 px-4 py-1.5 text-xs text-gray-500 font-medium">
+                              {monthNames[parseInt(month)]}（{monthOrders.length} 項）
+                            </div>
+                            <div className="space-y-1 px-2 pb-2">
+                              {monthOrders.map(order => {
+                                const items = order.items || [];
+                                const item = items[0];
+                                const orderedQty = item?.requested_quantity || 0;
+                                const receivedQty = item?.received_quantity;
+                                const unit = item?.inventory?.unit || '';
+                                const isMatch = receivedQty != null && receivedQty === orderedQty;
+                                const isRejected = order.status === 'rejected';
+                                const isDetailOpen = completedDetailOrder === order.id;
+
+                                return (
+                                  <div key={order.id}>
+                                    <div
+                                      onClick={() => setCompletedDetailOrder(isDetailOpen ? null : order.id)}
+                                      className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-100 transition-colors mt-1"
+                                    >
+                                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                                        <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform shrink-0 ${isDetailOpen ? '' : '-rotate-90'}`} />
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium text-gray-800 truncate">{order.notes || item?.inventory?.name || '無備註'}</p>
+                                          <p className="text-[10px] text-gray-400 truncate">{order.employee?.name || '未知'} · {formatShortDateTime(order.created_at)}</p>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2 text-[10px] shrink-0 ml-2">
+                                        {isRejected ? (
+                                          <Badge variant="destructive" className="text-[9px]">已拒絕</Badge>
+                                        ) : (
+                                          <>
+                                            <span className="text-gray-500">訂 {orderedQty}{unit}</span>
+                                            {receivedQty != null && (
+                                              <span className="text-gray-500">收 {receivedQty}{unit}</span>
+                                            )}
+                                            {!isRejected && (isMatch
+                                              ? <CheckCircle className="h-3 w-3 text-green-500" />
+                                              : <AlertCircle className="h-3 w-3 text-amber-500" />
+                                            )}
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {isDetailOpen && (
+                                      <div className="bg-white border border-gray-100 rounded-lg mx-1 mb-1 p-2.5 space-y-1.5 text-[10px]">
+                                        <div className="font-medium text-gray-700 flex items-center justify-between">
+                                          <span>📋 訂單時間軸</span>
+                                          <button onClick={(e) => { e.stopPropagation(); setHistoryModalOrder(order); }}
+                                            className="text-primary hover:underline flex items-center gap-1 text-[10px]">
+                                            <Clock className="h-2.5 w-2.5" /> 過往紀錄
+                                          </button>
+                                        </div>
+                                        <div className="space-y-1">
+                                          <TimelineRow label="📝 員工請求" date={order.created_at} zone="request" />
+                                          {order.ordered_at && <TimelineRow label="🔄 待處理" date={order.ordered_at} zone="pending" />}
+                                          {order.received_at && <TimelineRow label="📦 已送到" date={order.received_at} zone="received" />}
+                                          <TimelineRow label="✅ 已完成" date={order.updated_at || order.created_at} zone="completed" />
+                                        </div>
+                                        {items.length > 0 && (
+                                          <div className="border-t pt-1 mt-1">
+                                            <div className="text-[9px] text-gray-400 mb-0.5">貨物清單</div>
+                                            {items.map((itm: any) => (
+                                              <div key={itm.id} className="flex justify-between text-[10px] text-gray-600">
+                                                <span>{itm.inventory?.name || '未知貨物'}</span>
+                                                <span>訂 {itm.requested_quantity}{itm.inventory?.unit || ''}{itm.received_quantity != null && ` → 收 ${itm.received_quantity}`}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
-
-                    {/* 展開詳情：各區時間軸 */}
-                    {isDetailOpen && (
-                      <div className="bg-white border border-gray-100 rounded-lg mx-2 mb-2 p-3 space-y-2 text-xs">
-                        <div className="font-medium text-gray-700 mb-1.5 flex items-center justify-between">
-                          <span>📋 訂單時間軸</span>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setHistoryModalOrder(order); }}
-                            className="text-primary hover:underline flex items-center gap-1 text-[11px]"
-                          >
-                            <Clock className="h-3 w-3" /> 過往紀錄
-                          </button>
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <TimelineRow label="📝 員工請求" date={order.created_at} zone="request" />
-                          {order.ordered_at && <TimelineRow label="🔄 待處理" date={order.ordered_at} zone="pending" />}
-                          {order.received_at && <TimelineRow label="📦 已送到" date={order.received_at} zone="received" />}
-                          <TimelineRow label="✅ 已完成" date={order.updated_at || order.created_at} zone="completed" />
-                        </div>
-
-                        {items.length > 0 && (
-                          <div className="border-t pt-1.5 mt-1.5">
-                            <div className="text-[10px] text-gray-400 mb-1">貨物清單</div>
-                            {items.map((itm: any) => (
-                              <div key={itm.id} className="flex justify-between text-[11px] text-gray-600 py-0.5">
-                                <span>{itm.inventory?.name || '未知貨物'}</span>
-                                <span>
-                                  訂 {itm.requested_quantity}{itm.inventory?.unit || ''}
-                                  {itm.received_quantity != null && ` → 收 ${itm.received_quantity}`}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
             </div>
           )}
         </CardContent>
