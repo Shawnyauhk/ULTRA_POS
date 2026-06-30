@@ -2430,29 +2430,28 @@ app.post('/api/settlements/sync', requirePermission('expense.manage'), async (re
 
     const output = (result.stdout || '') + (result.stderr || '');
 
-    if (result.status !== 0) {
-      // 解析 output 提取有用錯誤訊息
-      const errMsg = output.includes('登入失敗') ? output.split('登入失敗')[1]?.split('\n')[0]?.trim() || output :
-                     output.includes('密碼錯誤') ? 'POSPAL 密碼錯誤，請檢查 .env 中的 POSPAL_PASSWORD' :
-                     output.includes('未授權') ? 'POSPAL 未授權，請在 POSPAL 後台確認帳號密碼是否正確或需重新登入' :
-                     '爬蟲執行失敗: ' + output.slice(0, 500);
-      return res.json({ success: false, message: errMsg, output });
-    }
-
-    // 從 logs/ 讀取爬蟲結果 JSON
+    // 嘗試先從 JSON 結果檔案讀取 (即使 exit code 非 0，也可能有部分結果)
     const logsDir = resolve(crawlerPath, 'logs');
     const jsonPath = resolve(logsDir, `${date}.json`);
-    
     let crawlData;
     try {
       const jsonContent = readFileSync(jsonPath, 'utf-8');
       crawlData = JSON.parse(jsonContent);
-    } catch {
-      return res.json({ success: false, message: '找不到爬蟲結果檔案，請確認 POSPAL 帳號密碼是否正確', output });
+    } catch { crawlData = null; }
+
+    if (crawlData && !crawlData.success) {
+      return res.json({ success: false, message: '爬取失敗: ' + (crawlData.error || 'POSPAL 頁面可能已變更，需更新爬蟲規則') });
     }
 
-    if (!crawlData.success) {
-      return res.json({ success: false, message: '爬取失敗: ' + (crawlData.error || 'POSPAL 頁面可能已變更，需更新爬蟲規則'), output });
+    if (!crawlData) {
+      // 從 output 提取 [RESULT] 行的簡潔錯誤訊息
+      const resultLine = output.match(/\[POSPAL Crawler Result\] [^\n]+/);
+      const errMsg = resultLine
+        ? resultLine[0].replace('[POSPAL Crawler Result] ', '')
+        : output.includes('登入失敗') ? '登入失敗，請檢查 POSPAL 帳號密碼' :
+          output.includes('配置錯誤') ? 'POSPAL 配置錯誤，請檢查 .env 中的 POSPAL_USERNAME / POSPAL_PASSWORD' :
+          '爬蟲執行失敗 (exit code ' + result.status + ')，請檢查 POSPAL 帳號密碼或瀏覽器環境';
+      return res.json({ success: false, message: errMsg });
     }
 
     // 構建資料庫記錄

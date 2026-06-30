@@ -258,7 +258,7 @@ class PospalCrawler {
     log('正在啟動瀏覽器...');
 
     this.browser = await puppeteer.launch({
-      headless: this.debug ? false : 'new',
+      headless: this.debug ? false : true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -885,20 +885,21 @@ class PospalCrawler {
   }
 
   static printResult(result: CrawlResult): void {
+    // 失敗時輸出精簡格式，避免冗餘裝飾線污染日誌
+    if (!result.success) {
+      console.log(`\n[POSPAL Crawler Result] date=${result.date} status=fail error=${(result.error || 'unknown').replace(/\n/g, ' | ')} duration=${result.duration.toFixed(1)}s`);
+      return;
+    }
     console.log('');
     console.log('='.repeat(60));
     console.log('  POSPAL 營業額結算結果');
     console.log('='.repeat(60));
     console.log(`  日期:          ${result.date}`);
     console.log(`  門店:          ${result.storeName || 'N/A'}`);
-    console.log(`  狀態:          ${result.success ? '✅ 成功' : '❌ 失敗'}`);
+    console.log(`  狀態:          ✅ 成功`);
     console.log(`  耗時:          ${result.duration.toFixed(1)} 秒`);
 
-    if (result.error) {
-      console.log(`  錯誤:          ${result.error}`);
-    }
-
-    if (result.success && result.payments.length > 0) {
+    if (result.payments.length > 0) {
       console.log('');
       console.log('  ┌──────────────────────────────┬──────────────────┐');
       console.log('  │ 支付方式                       │ 金額 (HKD)       │');
