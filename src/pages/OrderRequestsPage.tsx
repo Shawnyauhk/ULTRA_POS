@@ -267,6 +267,13 @@ const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
     }
   };
 
+  // ★ 安全機制：pressedCard 卡住時自動清除（PWA 觸控 bug 防禦）
+  useEffect(() => {
+    if (!pressedCard) return;
+    const t = setTimeout(() => setPressedCard(null), 500);
+    return () => clearTimeout(t);
+  }, [pressedCard]);
+
   // ★ 全域 touchmove / touchend / mousemove / mouseup 監聽
   useEffect(() => {
     if (!dragState && !isDragging) return;
@@ -858,10 +865,11 @@ const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
                   onMouseLeave={endCardPress}
                   onTouchStart={(e) => { handleTouchStart(order, e); startCardPress(order.id, e); }}
                   onTouchEnd={endCardPress}
+                  onTouchCancel={endCardPress}
                 >
                   <div
                     className="p-1.5 md:p-2.5 cursor-pointer hover:bg-gray-50/60 transition-colors"
-                    onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
+                    onClick={() => { endCardPress(); setExpandedOrder(isExpanded ? null : order.id); }}
                   >
                     {/* 預設只顯示貨物名 + 數量（緊密排列） */}
                     <div className="text-[10px] md:text-sm font-medium text-gray-800 leading-tight flex items-baseline gap-0.5 md:gap-1">
