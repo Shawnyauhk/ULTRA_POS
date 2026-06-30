@@ -136,14 +136,40 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
     return 'request';
   };
 
-  // Check if request is overdue (>3 days in request column)
-  const isOverdue = (createdAt: string, status: OrderRequestStatus): boolean => {
-    const created = new Date(createdAt);
+  // Check if order is stale (>3 days in current column)
+  const isStale = (order: OrderRequest, colType: ColumnType): boolean => {
+    const dateStr = colType === 'request' ? order.created_at :
+                    colType === 'pending' ? order.ordered_at || order.created_at :
+                    colType === 'received' ? order.received_at || order.created_at :
+                    null;
+    if (!dateStr) return false;
+    const date = new Date(dateStr);
     const now = new Date();
-    const diffDays = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
-    const inRequestColumn = status === 'pending' || status === 'approved';
-    return inRequestColumn && diffDays >= 3;
+    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+    return diffDays >= 3;
   };
+
+  // Send stale notification once per session
+  useEffect(() => {
+    if (!user?.restaurant_id || loading) return;
+    const sent = sessionStorage.getItem('stale_notified');
+    if (sent) return;
+    const staleOrders = orderRequests.filter(o => {
+      const col = getOrderColumn(o);
+      return col !== 'completed' && isStale(o, col);
+    });
+    if (staleOrders.length > 0) {
+      sessionStorage.setItem('stale_notified', '1');
+      fetch('/api/orders/notify-stale', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurant_id: user.restaurant_id,
+          count: staleOrders.length,
+        }),
+      }).catch(() => {});
+    }
+  }, [user?.restaurant_id, loading]);
 
   const handleDragStart = (e: React.DragEvent, order: OrderRequest) => {
     setDraggedOrder(order);
@@ -736,12 +762,13 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
               const firstItem = items[0];
               const isExpanded = expandedOrder === order.id;
               const statusLabel = getStatusLabel(order.status);
+              const stale = isStale(order, colType);
               return (
                 <Card
                   key={order.id}
                   draggable="true"
                   ref={el => { if (el) cardRefs.current.set(order.id, el); }}
-                  className={`overflow-hidden select-none transition-all duration-200 ${borderColor} ${isExpanded ? 'border-primary/50 ring-1 ring-primary/20' : ''} ${dragState?.order.id === order.id ? 'opacity-40 scale-95' : ''} ${isDragging && dragState?.order.id === order.id ? 'shadow-2xl scale-[1.03] ring-2 ring-indigo-400 z-50 relative' : 'hover:shadow-md active:scale-[1.01]'}`}
+                  className={`overflow-hidden select-none transition-all duration-200 ${borderColor} ${isExpanded ? 'border-primary/50 ring-1 ring-primary/20' : ''} ${stale ? 'border-red-400 bg-red-50' : ''} ${dragState?.order.id === order.id ? 'opacity-40 scale-95' : ''} ${isDragging && dragState?.order.id === order.id ? 'shadow-2xl scale-[1.03] ring-2 ring-indigo-400 z-50 relative' : 'hover:shadow-md active:scale-[1.01]'}`}
                   onTouchStart={(e) => handleTouchStart(order, e)}
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = 'move';
@@ -786,6 +813,13 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                     </div>
 
                     {/* 展開後的詳情（優化排版） */}
+                    {/* 逾期提示（收合狀態也可見） */}
+                    {stale && (
+                      <div className="mt-1 text-[9px] text-red-500 font-medium flex items-center gap-1">
+                        <AlertCircle className="h-2.5 w-2.5" />
+                        停留此區逾3天
+                      </div>
+                    )}
                     {isExpanded && (
                       <div className="mt-1 pt-1 border-t border-dashed border-gray-200 space-y-0.5">
                         {/* 編輯按鈕 + 數量 */}
@@ -857,8 +891,8 @@ const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
                           }`}>
                             {statusLabel}
                           </span>
-                          {isOverdue(order.created_at, order.status) && (
-                            <span className="text-[9px] text-red-500">逾期3天+</span>
+                          {stale && (
+                            <span className="text-[9px] text-red-500">停留此區逾3天</span>
                           )}
                         </div>
 

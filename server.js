@@ -674,6 +674,33 @@ app.post('/api/whatsapp/notify-order', async (req, res) => {
   }
 });
 
+// 通知管理員有訂單停留過久
+app.post('/api/orders/notify-stale', async (req, res) => {
+  try {
+    const { restaurant_id, count } = req.body;
+    if (!restaurant_id) return res.status(400).json({ success: false, message: '缺少 restaurant_id' });
+    const subject = `⚠️ 訂貨管理 - ${count} 筆訂單停留逾3天`;
+    const body = `ULTRA POS 系統通知\n\n有 ${count} 筆訂貨請求在各區停留超過 3 天未處理，請登入系統查看。\n\n---\nULTRA POS 餐廳管理系統`;
+    const htmlBody = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+      <h2 style="color:#dc2626;">⚠️ 訂貨逾期通知</h2>
+      <p>有 <strong style="color:#dc2626;">${count}</strong> 筆訂貨請求在各區停留超過 3 天未處理：</p>
+      <ul>
+        <li>員工請求區 - 待審批</li>
+        <li>待處理區 - 未訂貨或未收貨</li>
+        <li>已送到區 - 未簽收</li>
+      </ul>
+      <p>請登入系統查看及處理。</p>
+      <hr style="border:none;border-top:1px solid #eee;" />
+      <p style="color:#999;font-size:12px;">ULTRA POS 餐廳管理系統</p>
+    </div>`;
+    await sendEmailNotification('', subject, body, restaurant_id, 'order_stale', htmlBody);
+    res.json({ success: true, message: '逾期通知已發送' });
+  } catch (error) {
+    console.error('❌ 逾期通知發送失敗:', error.message);
+    res.json({ success: false, message: error.message });
+  }
+});
+
 // 更新系統設置（支援單個或批量）
 app.post('/api/settings/update', async (req, res) => {
   try {
