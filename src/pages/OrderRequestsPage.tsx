@@ -859,13 +859,11 @@ const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
                 <div
                   key={order.id}
                   ref={el => { if (el) cardRefs.current.set(order.id, el); }}
-                  className={`overflow-hidden select-none transition-all duration-200 rounded-lg border ${borderColor} ${isExpanded ? 'border-primary/50 ring-1 ring-primary/20' : ''} ${stale ? (colType === 'request' ? 'border-blue-400 bg-blue-50' : 'border-red-400 bg-red-50') : 'bg-white'} ${dragState?.order.id === order.id ? 'opacity-40 scale-95' : ''} ${isDragging && dragState?.order.id === order.id ? 'shadow-2xl scale-[1.03] ring-2 ring-indigo-400 z-50 relative' : pressedCard === order.id ? 'scale-[1.02] -translate-y-1 shadow-xl z-10 transition-all duration-200' : 'hover:shadow-md transition-all duration-200'}`}
+                  className={`overflow-hidden select-none transition-all duration-200 rounded-lg border ${borderColor} ${isExpanded ? 'border-primary/50 ring-1 ring-primary/20' : ''} ${stale ? (colType === 'request' ? 'border-blue-400 bg-blue-50' : 'border-red-400 bg-red-50') : 'bg-white'} ${dragState?.order.id === order.id ? 'opacity-40 scale-95' : ''} ${isDragging && dragState?.order.id === order.id ? 'shadow-2xl scale-[1.03] ring-2 ring-indigo-400 z-50 relative' : 'hover:shadow-md transition-all duration-200'}`}
                   onMouseDown={(e) => { startCardPress(order.id, e); handleMouseDown(order, e); }}
                   onMouseUp={() => { endCardPress(); handleMouseUp(); }}
                   onMouseLeave={endCardPress}
-                  onTouchStart={(e) => { handleTouchStart(order, e); startCardPress(order.id, e); }}
-                  onTouchEnd={endCardPress}
-                  onTouchCancel={endCardPress}
+                  onTouchStart={(e) => { handleTouchStart(order, e); }}
                 >
                   <div
                     className="p-1.5 md:p-2.5 cursor-pointer hover:bg-gray-50/60 transition-colors"
